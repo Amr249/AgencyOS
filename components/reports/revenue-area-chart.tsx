@@ -12,6 +12,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
+import { useReportsCurrency } from "@/components/reports/reports-currency-context";
 import { getMonthlyAreaData, type MonthlyAreaPoint } from "@/actions/reports";
 import { format, startOfYear, endOfDay } from "date-fns";
 
@@ -54,6 +55,16 @@ export function RevenueAreaChart() {
     };
   }, [startDate, endDate]);
 
+  const { formatAmount, convertedRate } = useReportsCurrency();
+  const chartData = React.useMemo(
+    () =>
+      data.map((d) => ({
+        ...d,
+        profits: d.profits * convertedRate,
+        expenses: d.expenses * convertedRate,
+      })),
+    [data, convertedRate]
+  );
   const hasData = data.some((d) => d.profits > 0 || d.expenses > 0);
 
   return (
@@ -86,7 +97,7 @@ export function RevenueAreaChart() {
           <p className="text-muted-foreground flex h-[250px] items-center justify-center text-sm">لا توجد بيانات لهذه الفترة.</p>
         ) : (
           <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full" dir="rtl">
-            <AreaChart data={data}>
+            <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="fillProfits" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--color-profits)" stopOpacity={0.8} />
@@ -110,7 +121,7 @@ export function RevenueAreaChart() {
                 content={
                   <ChartTooltipContent
                     labelFormatter={(value) => value}
-                    formatter={(value) => `${Number(value).toLocaleString("ar-SA")} ر.س`}
+                    formatter={(value) => formatAmount(Number(value))}
                     indicator="dot"
                   />
                 }

@@ -4,7 +4,7 @@ import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RevenueChart } from "@/components/reports/revenue-chart";
 import { RevenueAreaChart } from "@/components/reports/revenue-area-chart";
-import { formatBudgetSAR } from "@/lib/utils";
+import { useReportsCurrency } from "@/components/reports/reports-currency-context";
 import type { MonthlyRevenuePoint } from "@/actions/reports";
 
 type RevenueChartSectionProps = {
@@ -21,6 +21,17 @@ export function RevenueChartSection({
   netProfitInRange,
 }: RevenueChartSectionProps) {
   const [view, setView] = React.useState<"monthly" | "area">("monthly");
+  const { formatAmount, convertedRate } = useReportsCurrency();
+
+  const chartData = React.useMemo(
+    () =>
+      monthlyRevenue.map((d) => ({
+        ...d,
+        profits: d.profits * convertedRate,
+        expenses: (d.expenses ?? 0) * convertedRate,
+      })),
+    [monthlyRevenue, convertedRate]
+  );
 
   return (
     <div className="space-y-4">
@@ -55,18 +66,18 @@ export function RevenueChartSection({
             <CardTitle className="text-right">الإيرادات شهر بشهر</CardTitle>
           </CardHeader>
           <CardContent>
-            <RevenueChart data={monthlyRevenue} />
+            <RevenueChart data={chartData} formatAmount={formatAmount} />
             <div className="mt-4 flex flex-wrap justify-end gap-6 text-sm">
               <span className="text-muted-foreground">
                 إجمالي الأرباح هذه السنة:{" "}
-                <strong className="text-foreground">{formatBudgetSAR(String(totalProfitsInRange))}</strong>
+                <strong className="text-foreground">{formatAmount(totalProfitsInRange)}</strong>
               </span>
               <span className="text-muted-foreground">
                 إجمالي المصروفات هذه السنة:{" "}
-                <strong className="text-foreground">{formatBudgetSAR(String(totalExpensesInRange))}</strong>
+                <strong className="text-foreground">{formatAmount(totalExpensesInRange)}</strong>
               </span>
               <span className={netProfitInRange >= 0 ? "text-green-600" : "text-red-600"}>
-                صافي الربح: <strong>{formatBudgetSAR(String(netProfitInRange))}</strong>
+                صافي الربح: <strong>{formatAmount(netProfitInRange)}</strong>
               </span>
             </div>
           </CardContent>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Pie, PieChart } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -8,6 +9,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { useReportsCurrency } from "@/components/reports/reports-currency-context";
 
 const COLORS = [
   "var(--chart-1)",
@@ -22,15 +24,21 @@ export function TopClientsPieChart({
 }: {
   data: { clientName: string; total: number; invoiceCount: number }[];
 }) {
+  const { formatAmount, convertedRate } = useReportsCurrency();
   const total = data.reduce((sum, d) => sum + d.total, 0);
 
-  const chartData = data.map((d, i) => ({
-    client: d.clientName,
-    revenue: d.total,
-    invoiceCount: d.invoiceCount,
-    percentage: total > 0 ? ((d.total / total) * 100).toFixed(1) : "0",
-    fill: COLORS[i % COLORS.length],
-  }));
+  const chartData = useMemo(
+    () =>
+      data.map((d, i) => ({
+        client: d.clientName,
+        revenue: d.total * convertedRate,
+        revenueRaw: d.total,
+        invoiceCount: d.invoiceCount,
+        percentage: total > 0 ? ((d.total / total) * 100).toFixed(1) : "0",
+        fill: COLORS[i % COLORS.length],
+      })),
+    [data, convertedRate, total]
+  );
 
   const chartConfig = Object.fromEntries(
     data.map((d, i) => [
@@ -67,10 +75,10 @@ export function TopClientsPieChart({
               content={
                 <ChartTooltipContent
                   hideLabel
-                  formatter={(value, name) => (
+                  formatter={(value, name, props: { payload?: { revenueRaw?: number } }) => (
                     <div className="flex flex-col gap-1 text-right">
                       <span className="font-medium">{name}</span>
-                      <span>{Number(value).toLocaleString("ar-SA")} ر.س</span>
+                      <span>{formatAmount(props.payload?.revenueRaw ?? Number(value))}</span>
                     </div>
                   )}
                 />
@@ -90,7 +98,7 @@ export function TopClientsPieChart({
         <div className="mt-4 space-y-2 px-4 pb-4">
           {chartData.map((d) => (
             <div key={d.client} className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{d.invoiceCount} فاتورة · {Number(d.revenue).toLocaleString("ar-SA")} ر.س</span>
+              <span className="text-muted-foreground">{d.invoiceCount} فاتورة · {formatAmount(d.revenueRaw)}</span>
               <div className="flex items-center gap-2">
                 <span className="font-medium">{d.client}</span>
                 <span

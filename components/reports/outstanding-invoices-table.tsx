@@ -15,7 +15,7 @@ import {
   TableFooter,
 } from "@/components/ui/table";
 import { MarkAsPaidDialog } from "@/components/modules/invoices/mark-as-paid-dialog";
-import { formatBudgetSAR } from "@/lib/utils";
+import { useReportsCurrency } from "@/components/reports/reports-currency-context";
 import type { OutstandingInvoiceRow } from "@/actions/reports";
 
 function formatDate(value: string): string {
@@ -35,8 +35,9 @@ export function OutstandingInvoicesTable({
 }) {
   const router = useRouter();
   const [payDialog, setPayDialog] = useState<OutstandingInvoiceRow | null>(null);
+  const { formatAmount } = useReportsCurrency();
 
-  const totalFormatted = formatBudgetSAR(String(totalOutstanding));
+  const totalFormatted = formatAmount(totalOutstanding);
 
   return (
     <>
@@ -83,7 +84,7 @@ export function OutstandingInvoicesTable({
                     </Link>
                   </TableCell>
                   <TableCell className="text-right">{inv.projectName ?? "—"}</TableCell>
-                  <TableCell className="text-right">{formatBudgetSAR(inv.total)}</TableCell>
+                  <TableCell className="text-right">{formatAmount(Number(inv.total))}</TableCell>
                   <TableCell className="text-right">{formatDate(inv.issueDate)}</TableCell>
                   <TableCell
                     className={`text-right font-medium ${inv.daysSinceIssue > 30 ? "text-red-600 dark:text-red-400" : ""}`}

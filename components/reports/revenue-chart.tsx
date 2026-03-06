@@ -22,16 +22,23 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export function RevenueChart({ data }: { data: MonthlyRevenuePoint[] }) {
+export function RevenueChart({
+  data,
+  formatAmount,
+}: {
+  data: MonthlyRevenuePoint[];
+  formatAmount?: (amount: number) => string;
+}) {
   const chartData = [...data]
     .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
     .map((d) => ({
       month: d.monthLabel,
       profits: d.profits,
-      expenses: d.expenses,
+      expenses: d.expenses ?? 0,
     }));
 
-  const hasData = data.some((d) => d.profits > 0 || d.expenses > 0);
+  const hasData = data.some((d) => d.profits > 0 || (d.expenses ?? 0) > 0);
+  const formatter = formatAmount ?? ((v: number) => `${Number(v).toLocaleString("ar-SA")} ر.س`);
 
   if (!hasData) {
     return (
@@ -54,7 +61,7 @@ export function RevenueChart({ data }: { data: MonthlyRevenuePoint[] }) {
         <ChartTooltip
           content={
             <ChartTooltipContent
-              formatter={(value) => `${Number(value).toLocaleString("ar-SA")} ر.س`}
+              formatter={(value) => formatter(Number(value))}
             />
           }
         />
