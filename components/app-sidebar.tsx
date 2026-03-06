@@ -15,6 +15,7 @@ import {
 
 import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Sidebar,
   SidebarContent,
@@ -80,6 +81,9 @@ export function AppSidebar({
         <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter>
+        <div className="flex items-center justify-end gap-1 px-2 py-1">
+          <ThemeToggle />
+        </div>
         <NavUser user={displayUser} />
       </SidebarFooter>
     </Sidebar>

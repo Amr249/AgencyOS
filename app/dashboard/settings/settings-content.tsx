@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ThemeSelector } from "@/components/theme-selector";
 
 type AgencyProfileValues = z.infer<typeof agencyProfileSchema>;
 type InvoiceDefaultsValues = z.infer<typeof invoiceDefaultsSchema>;
@@ -179,6 +180,17 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
 
   return (
     <div className="space-y-8">
+      {/* Section 0 — Appearance (Theme) */}
+      <section>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-lg font-semibold text-right">المظهر</h3>
+            <p className="text-sm text-muted-foreground text-right">اختر مظهر التطبيق المناسب لك</p>
+          </div>
+          <ThemeSelector />
+        </div>
+      </section>
+
       {/* Section 1 — Agency Profile */}
       <section>
         <h3 className="text-lg font-semibold mb-2">معلومات الوكالة</h3>
