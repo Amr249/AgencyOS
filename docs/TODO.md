@@ -1,0 +1,131 @@
+# TODO
+
+What is built, in progress, and not started, by module. **Update at the start and end of every session.**
+
+---
+
+## Clients
+
+- [x] Drizzle schema (clients table, contact_name/contact_email/contact_phone, address, notes, soft delete)
+- [x] Server Actions: createClient, updateClient, archiveClient, getClientsList, getClientById (Zod validated)
+- [x] List page with DataTable (search, sort, pagination, row actions)
+- [x] Detail page with tabs (Overview, Projects, Invoices, Files, Notes)
+- [x] ClientFormSheet (create/edit) with address fields
+- [x] ClientOverview, EditClientButton
+- [x] Archive action in row dropdown
+- [ ] Total billed / active projects count on list (optional)
+- [x] Logo upload (ImageKit) on client — POST /api/upload, optional logo in form
+
+---
+
+## Projects
+
+- [x] Drizzle schema (projects, phases)
+- [x] Placeholder list page
+- [x] Full CRUD Server Actions (create, update, delete, getProjects, getProjectById, getProjectTaskCounts, updatePhaseStatus, updateProjectNotes)
+- [x] List page (card + list view, search, status + client filters, New Project Dialog)
+- [x] Detail page with tabs (Overview, Tasks, Invoices, Files, Notes)
+- [x] Phases UI (horizontal stepper, mark active/completed)
+
+---
+
+## Tasks
+
+- [x] Drizzle schema (tasks, subtasks via parent_task_id)
+- [x] Placeholder page
+- [x] Server Actions: getTasksByProjectId, createTask, updateTask (project-scoped Kanban)
+- [x] Kanban view (project detail Tasks tab)
+- [x] List view (global tasks page)
+- [x] Global “All tasks” with filters
+
+---
+
+## Invoices
+
+- [x] Drizzle schema (invoices, invoice_items, payment_method)
+- [x] Placeholder page
+- [x] getInvoicesByProjectId (for project detail Invoices tab)
+- [x] Server Actions: getInvoices, getInvoiceStats, getInvoiceById, createInvoice, updateInvoice, markAsSent, markAsPaid, cancelInvoice, duplicateInvoice, autoMarkOverdue, getNextInvoiceNumber
+- [x] List page with summary bar (Total Invoiced, Collected, Outstanding, Overdue), filters, table
+- [x] New Invoice dialog (client, project, line items, Save as Draft / Create & Send)
+- [x] Invoice detail page (preview, Download PDF, Mark Sent/Paid, Duplicate, Cancel, Edit)
+- [x] Edit invoice page (draft only)
+- [x] GET /api/invoices/[id]/pdf (PDF via @react-pdf/renderer)
+
+---
+
+## Files
+
+- [x] Drizzle schema (files)
+- [x] POST /api/upload (ImageKit server-side; accepts file + folder; returns url, fileId, name, size, mimeType, filePath)
+- [x] Server Actions: getFiles({ clientId?, projectId? }), createFile(data), deleteFile(id) — ImageKit delete then DB
+- [x] FileManager component (Client detail Files tab, Project detail Files tab)
+- [x] Upload UI (drag & drop, file picker, parallel uploads, progress)
+- [ ] Optional: renameFile (not in Phase 3)
+
+---
+
+## Dashboard (Home)
+
+- [x] Dashboard layout and route
+- [x] KPI cards (revenue this month, outstanding, active projects, overdue tasks)
+- [x] Revenue chart (last 12 months)
+- [x] Project status donut
+- [x] Quick lists (overdue tasks, upcoming deadlines, recent invoices)
+- [x] Quick actions (New Project, New Client, New Invoice, New Task)
+
+---
+
+## Reports
+
+- [x] Placeholder page
+- [x] Financial tab: KPI cards, revenue chart (invoiced by created_at, collected by paid_at, expenses bar), profit KPI (صافي الربح = collected − expenses), summary below chart
+- [ ] Revenue report (CSV export)
+- [ ] Project profitability view
+- [x] Outstanding invoices table with "تحديد كمدفوعة"
+- [ ] Client summary (billed per client)
+
+---
+
+## Expenses
+
+- [x] Drizzle schema (expenses table, expense_category enum)
+- [x] Server Actions: getExpenses(filters), getExpensesSummary(), createExpense, updateExpense, deleteExpense (Zod)
+- [x] Page app/dashboard/expenses: summary bar, category + date filters, table, New/Edit dialog, delete AlertDialog
+- [x] Receipt upload via /api/upload (folder agencyos/expenses/receipts)
+- [x] Sidebar "المصروفات" between الفواتير and التقارير
+- [x] Financial reports: monthly expenses in chart, profit KPI
+
+---
+
+## Settings
+
+- [x] Settings route and layout, single page (no sidebar)
+- [x] settings table (single row)
+- [x] Server Actions: getSettings, updateAgencyProfile, updateInvoiceDefaults, updateBranding, changePassword (validate only)
+- [x] Agency profile form (name, logo, address, email, website, VAT)
+- [x] Invoice defaults (prefix, next number, currency, payment terms, footer)
+- [x] PDF branding (invoice_color)
+- [ ] Account: wire change password to update ADMIN_PASSWORD_HASH (e.g. script or env)
+
+---
+
+## Auth & global
+
+- [x] NextAuth v5 credentials, single admin, JWT
+- [x] Login page, dashboard protection, sign out
+- [x] SessionProvider, NavUser with session
+- [ ] Optional: change-password flow (e.g. script or simple form that outputs new hash)
+
+---
+
+## Docs
+
+- [x] docs/README.md
+- [x] docs/ARCHITECTURE.md
+- [x] docs/DATABASE.md
+- [x] docs/MODULES.md
+- [x] docs/API.md
+- [x] docs/DECISIONS.md
+- [x] docs/CHANGELOG.md
+- [x] docs/TODO.md
