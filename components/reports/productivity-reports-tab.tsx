@@ -59,6 +59,8 @@ import type {
   NewClientsPerMonthRow,
   RecentClientRow,
 } from "@/actions/reports";
+
+type TeamCostRow = { teamMemberId: string; name: string; role: string | null; totalSalary: number };
 import { formatBudgetSAR } from "@/lib/utils";
 import { format, parseISO, isValid } from "date-fns";
 import { ar } from "date-fns/locale";
@@ -99,6 +101,7 @@ type Props = {
   newClientsTotal: number;
   newClientsByMonth: NewClientsPerMonthRow[];
   recentClients: RecentClientRow[];
+  teamCostBreakdown?: TeamCostRow[];
 };
 
 export function ProductivityReportsTab({
@@ -110,6 +113,7 @@ export function ProductivityReportsTab({
   newClientsTotal,
   newClientsByMonth,
   recentClients,
+  teamCostBreakdown = [],
 }: Props) {
   const router = useRouter();
 
@@ -459,7 +463,47 @@ export function ProductivityReportsTab({
         </CardContent>
       </Card>
 
-      {/* Section 5 — New Clients This Year */}
+      {/* Section 5 — Team cost this month */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-right">تكاليف الفريق هذا الشهر</CardTitle>
+          <CardDescription className="text-right">
+            إجمالي مصروفات الرواتب المُسجّلة لكل عضو فريق في الشهر الحالي
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {teamCostBreakdown.length === 0 ? (
+            <p className="text-muted-foreground py-6 text-center text-sm">
+              لا توجد مصروفات رواتب مرتبطة بأعضاء الفريق هذا الشهر.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-right">إجمالي الرواتب (ر.س)</TableHead>
+                  <TableHead className="text-right">الدور</TableHead>
+                  <TableHead className="text-right">الاسم</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {teamCostBreakdown.map((row) => (
+                  <TableRow key={row.teamMemberId}>
+                    <TableCell className="text-right font-medium">
+                      {formatBudgetSAR(String(row.totalSalary))}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {row.role ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right">{row.name}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Section 6 — New Clients This Year */}
       <Card>
         <CardHeader>
           <CardTitle className="text-right">العملاء الجدد هذا العام</CardTitle>

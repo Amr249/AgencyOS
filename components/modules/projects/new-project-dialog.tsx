@@ -35,6 +35,8 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
+import { Badge } from "@/components/ui/badge";
+import { X } from "lucide-react";
 
 const projectStatusOptions = [
   { value: "lead", label: "عميل محتمل" },
@@ -53,15 +55,18 @@ const formSchema = z.object({
   endDate: z.string().optional(),
   budget: z.coerce.number().min(0).optional(),
   description: z.string().optional(),
+  teamMemberIds: z.array(z.string()).optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 type ClientOption = { id: string; companyName: string | null };
+type TeamMemberOption = { id: string; name: string; role: string | null };
 
 type NewProjectDialogProps = {
   trigger?: React.ReactNode;
   clients: ClientOption[];
+  teamMembers?: TeamMemberOption[];
   defaultCurrency?: string;
   /** When set, client is pre-selected and locked (e.g. from client detail page). */
   defaultClientId?: string;
@@ -74,6 +79,7 @@ type NewProjectDialogProps = {
 export function NewProjectDialog({
   trigger,
   clients,
+  teamMembers = [],
   defaultCurrency = "USD",
   defaultClientId,
   open,
@@ -99,6 +105,7 @@ export function NewProjectDialog({
       endDate: "",
       budget: undefined,
       description: "",
+      teamMemberIds: [],
     },
   });
 
@@ -114,6 +121,7 @@ export function NewProjectDialog({
         endDate: "",
         budget: undefined,
         description: "",
+        teamMemberIds: [],
       });
     }
   }, [effectiveOpen, form, defaultClientId]);
@@ -151,6 +159,7 @@ export function NewProjectDialog({
       endDate: values.endDate || undefined,
       budget: values.budget,
       description: values.description || undefined,
+      teamMemberIds: values.teamMemberIds?.length ? values.teamMemberIds : undefined,
     } as CreateProjectInput);
     if (result.ok) {
       toast.success("تم إنشاء المشروع");
@@ -270,6 +279,69 @@ export function NewProjectDialog({
               </FormItem>
             )}
           />
+          {teamMembers.length > 0 && (
+            <FormField
+              control={form.control}
+              name="teamMemberIds"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>أعضاء الفريق</FormLabel>
+                  <FormControl>
+                    <div className="space-y-2">
+                      <Select
+                        value=""
+                        onValueChange={(v) => {
+                          const arr = field.value ?? [];
+                          if (v && !arr.includes(v)) {
+                            field.onChange([...arr, v]);
+                          }
+                        }}
+                      >
+                        <SelectTrigger dir="rtl">
+                          <SelectValue placeholder="إضافة عضو فريق" />
+                        </SelectTrigger>
+                        <SelectContent dir="rtl">
+                          {teamMembers
+                            .filter((m) => !(field.value ?? []).includes(m.id))
+                            .map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.name} — {m.role ?? "—"}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {(field.value ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {(field.value ?? []).map((id) => {
+                            const m = teamMembers.find((x) => x.id === id);
+                            return (
+                              <Badge
+                                key={id}
+                                variant="secondary"
+                                className="gap-1 pr-1.5 pl-1.5"
+                              >
+                                {m?.name ?? id}
+                                <button
+                                  type="button"
+                                  className="rounded-full hover:bg-muted p-0.5"
+                                  onClick={() =>
+                                    field.onChange((field.value ?? []).filter((x) => x !== id))
+                                  }
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
           <div className="grid grid-cols-2 gap-4">
             <FormField
               control={form.control}

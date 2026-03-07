@@ -53,6 +53,7 @@ const formSchema = z.object({
   date: z.string().min(1, "التاريخ مطلوب"),
   notes: z.string().optional(),
   receiptUrl: z.string().url().optional().nullable(),
+  teamMemberId: z.string().uuid().optional().nullable(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -65,13 +66,17 @@ type ExpenseRow = {
   date: string;
   notes: string | null;
   receiptUrl: string | null;
+  teamMemberId?: string | null;
 };
+
+type TeamMemberOption = { id: string; name: string; role: string | null };
 
 type NewExpenseDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   editExpense?: ExpenseRow | null;
+  teamMembers?: TeamMemberOption[];
 };
 
 function getTodayISO() {
@@ -84,6 +89,7 @@ export function NewExpenseDialog({
   onOpenChange,
   onSuccess,
   editExpense,
+  teamMembers = [],
 }: NewExpenseDialogProps) {
   const [receiptUploading, setReceiptUploading] = React.useState(false);
   const isEdit = !!editExpense;
@@ -97,6 +103,7 @@ export function NewExpenseDialog({
       date: getTodayISO(),
       notes: "",
       receiptUrl: null,
+      teamMemberId: null,
     },
   });
 
@@ -109,6 +116,7 @@ export function NewExpenseDialog({
         date: editExpense.date,
         notes: editExpense.notes ?? "",
         receiptUrl: editExpense.receiptUrl,
+        teamMemberId: editExpense.teamMemberId ?? null,
       });
     } else if (open && !editExpense) {
       form.reset({
@@ -118,6 +126,7 @@ export function NewExpenseDialog({
         date: getTodayISO(),
         notes: "",
         receiptUrl: null,
+        teamMemberId: null,
       });
     }
   }, [open, editExpense, form]);
@@ -153,6 +162,7 @@ export function NewExpenseDialog({
         date: values.date,
         notes: values.notes || undefined,
         receiptUrl: values.receiptUrl ?? null,
+        teamMemberId: values.teamMemberId ?? null,
       });
       if (res.ok) {
         toast.success("تم تحديث المصروف");
@@ -169,6 +179,7 @@ export function NewExpenseDialog({
         date: values.date,
         notes: values.notes || undefined,
         receiptUrl: values.receiptUrl ?? null,
+        teamMemberId: values.teamMemberId ?? null,
       });
       if (res.ok) {
         toast.success("تم إضافة المصروف");
@@ -241,6 +252,35 @@ export function NewExpenseDialog({
                 </FormItem>
               )}
             />
+            {form.watch("category") === "salaries" && teamMembers.length > 0 && (
+              <FormField
+                control={form.control}
+                name="teamMemberId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-right block">عضو الفريق</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value ?? ""}
+                    >
+                      <FormControl>
+                        <SelectTrigger dir="rtl">
+                          <SelectValue placeholder="اختر عضو الفريق" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent dir="rtl">
+                        {teamMembers.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name} — {m.role ?? "—"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name="date"

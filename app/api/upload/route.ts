@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getImageKitClient, IMAGEKIT_CLIENT_LOGO_FOLDER, IMAGEKIT_AGENCY_LOGO_FOLDER, IMAGEKIT_PROJECT_COVER_FOLDER } from "@/lib/imagekit";
+import { getImageKitClient, IMAGEKIT_CLIENT_LOGO_FOLDER, IMAGEKIT_AGENCY_LOGO_FOLDER, IMAGEKIT_PROJECT_COVER_FOLDER, IMAGEKIT_TEAM_AVATAR_FOLDER } from "@/lib/imagekit";
 
 export async function POST(request: Request) {
   const client = getImageKitClient();
@@ -40,6 +40,8 @@ export async function POST(request: Request) {
     folder = projectId && /^[0-9a-f-]{36}$/i.test(projectId)
       ? `agencyos/projects/${projectId}/cover`
       : IMAGEKIT_PROJECT_COVER_FOLDER;
+  } else if (scope === "team-avatar") {
+    folder = IMAGEKIT_TEAM_AVATAR_FOLDER;
   } else {
     folder = "agencyos/uploads";
   }

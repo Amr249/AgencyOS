@@ -34,7 +34,7 @@ function LoginForm() {
     <div className="w-full max-w-sm space-y-8">
       <div className="text-center">
         <Image
-          src="/Logo3.png"
+          src="/Logo1.png"
           alt="AgencyOS"
           width={120}
           height={48}

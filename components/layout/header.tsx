@@ -1,3 +1,5 @@
+"use client";
+
 import { LockIcon, Menu } from "lucide-react";
 import {
   DropdownMenu,
@@ -14,14 +16,22 @@ import Search from "./search";
 import Logo from "./logo";
 import { SidebarNavLink } from "./sidebar";
 import { page_routes } from "@/lib/routes-config";
-import { Fragment } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 export default function Header() {
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
   return (
     <div className="sticky top-0 z-50 flex flex-col">
       <header className="flex h-14 items-center gap-4 border-b bg-background px-4 lg:h-[60px]">
-        <Sheet>
+        <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="outline" size="icon" className="shrink-0 lg:hidden">
               <Menu className="h-5 w-5" />

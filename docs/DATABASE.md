@@ -15,6 +15,8 @@ Neon (PostgreSQL) via Drizzle ORM. All tables use UUID primary keys unless noted
 | `task_priority` | `low`, `medium`, `high`, `urgent` |
 | `invoice_status` | `pending`, `paid` |
 | `expense_category` | `software`, `hosting`, `marketing`, `salaries`, `equipment`, `office`, `other` |
+| `team_member_status` | `active`, `inactive` |
+| `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
 
 **Migrating `invoice_status` from old values:** If the DB currently has `draft`/`sent`/`overdue`/`cancelled`, run a data migration before changing the enum: map all non-`paid` to `pending` (e.g. `UPDATE invoices SET status = 'pending' WHERE status IN ('draft','sent','overdue','cancelled')`). Then recreate the enum: create new type `invoice_status_new` with values `('pending','paid')`, alter column to use it with a `USING` expression, drop old type, rename new type. Alternatively use `drizzle-kit generate` and adapt the generated migration.
 
@@ -57,7 +59,7 @@ type AddressJson = {
 | deleted_at | timestamptz | Archived at (soft delete); when set, client is archived and excluded from active list |
 
 **Indexes:** Primary key on `id`.  
-**Relations:** One-to-many to `projects`, `invoices`, `files`.
+**Relations:** One-to-many to `projects`, `invoices`, `files`, `proposals`.
 
 ---
 
@@ -78,7 +80,33 @@ type AddressJson = {
 | created_at | timestamptz | NOT NULL, default now() |
 | deleted_at | timestamptz | Soft delete |
 
-**Relations:** Many-to-one `client`; one-to-many `phases`, `tasks`, `invoices`, `files`.
+**Relations:** Many-to-one `client`; one-to-many `phases`, `tasks`, `invoices`, `files`, `proposals`.
+
+---
+
+### proposals
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default `gen_random_uuid()` |
+| title | text | NOT NULL — job title |
+| url | text | Mostaql job URL |
+| platform | text | NOT NULL, default `mostaql` (future: other platforms) |
+| budget_min | numeric(12,2) | Extracted from page |
+| budget_max | numeric(12,2) | Extracted from page |
+| currency | text | NOT NULL, default `SAR` |
+| category | text | e.g. تطوير مواقع |
+| description | text | Job description |
+| my_bid | numeric(12,2) | What you proposed |
+| status | proposal_status | NOT NULL, default `applied` |
+| applied_at | date | NOT NULL — default today |
+| notes | text | |
+| client_id | uuid | FK → clients.id, nullable; set when converted to client |
+| project_id | uuid | FK → projects.id, nullable; set when converted to project |
+| created_at | timestamptz | NOT NULL, default now() |
+
+**Relations:** Many-to-one `client`, `project`.  
+**Indexes:** Index on `status`, `applied_at`.
 
 ---
 
@@ -160,6 +188,40 @@ type AddressJson = {
 
 ---
 
+### team_members
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default `gen_random_uuid()` |
+| name | text | NOT NULL |
+| role | text | e.g. مصمم, مطور, مدير مشروع |
+| email | text | |
+| phone | text | |
+| avatar_url | text | ImageKit URL (scope team-avatar) |
+| status | team_member_status | NOT NULL, default `active` |
+| notes | text | |
+| created_at | timestamptz | NOT NULL, default now() |
+
+**Relations:** One-to-many to `project_members`; expenses can reference via `team_member_id`.  
+**Indexes:** Primary key on `id`.
+
+---
+
+### project_members
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default `gen_random_uuid()` |
+| project_id | uuid | NOT NULL, FK → projects.id, ON DELETE CASCADE |
+| team_member_id | uuid | NOT NULL, FK → team_members.id, ON DELETE CASCADE |
+| role_on_project | text | Optional e.g. المطور الرئيسي |
+| assigned_at | timestamptz | NOT NULL, default now() |
+
+**Relations:** Many-to-one `project`, `team_member`.  
+**Indexes:** Primary key on `id`; index on `project_id`; index on `team_member_id`.
+
+---
+
 ### expenses
 
 | Field | Type | Notes |
@@ -171,9 +233,10 @@ type AddressJson = {
 | date | date | NOT NULL, when the expense occurred |
 | notes | text | Optional description |
 | receipt_url | text | Optional ImageKit URL for receipt photo |
+| team_member_id | uuid | FK → team_members.id, ON DELETE SET NULL (for salary tracking) |
 | created_at | timestamptz | NOT NULL, default now() |
 
-**Relations:** None (standalone).  
+**Relations:** Optional many-to-one `team_member` (for salary/سجل الرواتب).  
 **Indexes:** Primary key on `id`.
 
 ---
@@ -232,6 +295,7 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 - **tasks** → project, phase, parentTask, subtasks, files  
 - **invoices** → client, project, invoice_items  
 - **invoice_items** → invoice  
-- **expenses** — standalone  
+- **expenses** → team_member (optional, for salary)
+- **projects** → project_members → team_members  
 - **files** → client, project, task  
 - **settings** — standalone

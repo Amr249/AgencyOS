@@ -26,6 +26,7 @@ type ClientProjectsTabProps = {
   projects: ProjectRow[];
   taskCounts: Record<string, { total: number; done: number }>;
   clients: { id: string; companyName: string | null }[];
+  teamMembers?: { id: string; name: string; role: string | null }[];
   defaultCurrency: string;
 };
 
@@ -35,6 +36,7 @@ export function ClientProjectsTab({
   projects,
   taskCounts,
   clients,
+  teamMembers = [],
   defaultCurrency,
 }: ClientProjectsTabProps) {
   const router = useRouter();
@@ -57,6 +59,7 @@ export function ClientProjectsTab({
             </Button>
           }
           clients={clients}
+          teamMembers={teamMembers}
           defaultCurrency={defaultCurrency}
           defaultClientId={clientId}
           onSuccess={() => router.refresh()}
@@ -74,6 +77,7 @@ export function ClientProjectsTab({
                 </Button>
               }
               clients={clients}
+              teamMembers={teamMembers}
               defaultCurrency={defaultCurrency}
               defaultClientId={clientId}
               onSuccess={() => router.refresh()}

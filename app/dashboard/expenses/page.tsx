@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getExpenses, getExpensesSummary, type ExpenseCategory } from "@/actions/expenses";
+import { getTeamMembers } from "@/actions/team-members";
 import { ExpensesListView } from "@/components/modules/expenses/expenses-list-view";
 
 export const metadata: Metadata = {
@@ -33,16 +34,19 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     dateTo: params.dateTo?.trim() || undefined,
   };
 
-  const [expensesResult, summary] = await Promise.all([
+  const [expensesResult, summary, teamMembersResult] = await Promise.all([
     getExpenses(filters),
     getExpensesSummary(),
+    getTeamMembers(),
   ]);
   const expenses = expensesResult.ok ? expensesResult.data : [];
+  const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
 
   return (
     <ExpensesListView
       initialExpenses={expenses}
       summary={summary}
+      teamMembers={teamMembers}
     />
   );
 }

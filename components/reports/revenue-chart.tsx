@@ -42,14 +42,14 @@ export function RevenueChart({
 
   if (!hasData) {
     return (
-      <p className="text-muted-foreground flex min-h-[282px] items-center justify-center text-sm">
+      <p className="text-muted-foreground flex min-h-[12rem] md:min-h-[282px] items-center justify-center text-sm">
         لا توجد بيانات إيرادات لهذه الفترة.
       </p>
     );
   }
 
   return (
-    <ChartContainer config={chartConfig} className="h-[282px] w-full aspect-auto" dir="rtl">
+    <ChartContainer config={chartConfig} className="h-48 md:h-[282px] w-full aspect-auto" dir="rtl">
       <BarChart accessibilityLayer data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid vertical={false} />
         <XAxis

@@ -6,10 +6,12 @@ import {
   IconBuilding,
   IconChartBar,
   IconDashboard,
+  IconFileText,
   IconFolder,
   IconListDetails,
   IconReceipt,
   IconReport,
+  IconUsers,
   IconWallet,
 } from "@tabler/icons-react";
 
@@ -24,12 +26,15 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 const navMain = [
   { title: "لوحة التحكم", url: "/dashboard", icon: IconDashboard },
   { title: "العملاء", url: "/dashboard/clients", icon: IconBuilding },
+  { title: "العروض", url: "/dashboard/proposals", icon: IconFileText },
   { title: "المشاريع", url: "/dashboard/projects", icon: IconFolder },
+  { title: "الفريق", url: "/dashboard/team", icon: IconUsers },
   { title: "المهام", url: "/dashboard/tasks", icon: IconListDetails },
   { title: "الفواتير", url: "/dashboard/invoices", icon: IconReceipt },
   { title: "المصروفات", url: "/dashboard/expenses", icon: IconWallet },
@@ -49,6 +54,7 @@ export function AppSidebar({
 }: React.ComponentProps<typeof Sidebar> & {
   user?: SessionUser | null;
 }) {
+  const { setOpenMobile } = useSidebar()
   const displayUser = user
     ? {
         name: user.name ?? "Admin",
@@ -63,9 +69,9 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild className="data-[slot=sidebar-menu-button]:!p-1.5">
-              <a href="/dashboard" className="flex items-center gap-2">
+              <a href="/dashboard" className="flex items-center gap-2" onClick={() => setOpenMobile(false)}>
                 <Image
-                  src="/Logo3.png"
+                  src="/Logo1.png"
                   alt="AgencyOS"
                   width={32}
                   height={32}

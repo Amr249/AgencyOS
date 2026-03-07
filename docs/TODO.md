@@ -18,6 +18,17 @@ What is built, in progress, and not started, by module. **Update at the start an
 
 ---
 
+## Proposals (العروض)
+
+- [x] Drizzle schema (proposals table, proposal_status enum, FK to clients/projects)
+- [x] drizzle-kit push
+- [x] Server Actions: getProposals(filters), createProposal, updateProposal, updateProposalStatus, deleteProposal, convertToClient, getProposalStats, getProposalStatsForCharts (Zod)
+- [x] GET /api/scrape-mostaql for Mostaql URL auto-fill
+- [x] Page app/dashboard/proposals: KPI cards, filters (search, status, date range), table, New/Edit dialog, status popover, تحويل لعميل dialog, analytics (win rate bar, status donut)
+- [x] Sidebar and mobile nav: العروض between العملاء and المشاريع
+
+---
+
 ## Projects
 
 - [x] Drizzle schema (projects, phases)

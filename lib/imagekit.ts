@@ -20,3 +20,4 @@ export function getImageKitClient(): ImageKit | null {
 export const IMAGEKIT_CLIENT_LOGO_FOLDER = "agencyos/clients/logos";
 export const IMAGEKIT_AGENCY_LOGO_FOLDER = "agencyos/agency/logo";
 export const IMAGEKIT_PROJECT_COVER_FOLDER = "agencyos/projects/covers";
+export const IMAGEKIT_TEAM_AVATAR_FOLDER = "agencyos/team/avatars";

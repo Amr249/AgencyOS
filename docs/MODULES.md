@@ -41,6 +41,51 @@ One section per module: what it does, pages, Server Actions, and main components
 
 ---
 
+## Proposals (العروض)
+
+**Purpose:** Track job proposals (e.g. Mostaql). Smart URL auto-fill via scrape API; status workflow (applied → viewed → shortlisted → won/lost/cancelled); convert won proposal to client + project.
+
+**Pages:**
+
+| Route | File | Description |
+|-------|------|-------------|
+| List | `app/dashboard/proposals/page.tsx` | Server Component; fetches `getProposals(filters)`, `getProposalStats()`, `getProposalStatsForCharts()`. Renders `ProposalsListView`: header "العروض المقدمة" + "+ إضافة عرض"; KPI cards (إجمالي العروض, تم الفوز, قيد الانتظار, إجمالي قيمة المشاريع المكسوبة); filters (search by title, status, date range); RTL table (العنوان link to Mostaql URL, الفئة badge, الميزانية, عرضي, الحالة clickable popover, تاريخ التقديم, إجراءات … تعديل \| تحويل لعميل \| حذف); analytics: نسبة الفوز شهرياً (bar, last 6 months), توزيع العروض حسب الحالة (donut). |
+
+**Server Actions** (`actions/proposals.ts`):
+
+| Action | Purpose |
+|--------|---------|
+| `getProposals(filters?)` | List with optional status, dateRange, search (title). Zod-validated filters. |
+| `getProposalStats()` | Returns total, won, wonPercent, pending, totalWonValue (sum of my_bid where status=won). |
+| `getProposalStatsForCharts()` | byMonth (last 6 months: won/total ratio), statusDistribution. |
+| `createProposal(data)` | Insert proposal; Zod: title, url, platform, budgetMin/Max, category, description, myBid, status, appliedAt, notes. |
+| `updateProposal(id, data)` | Partial update. |
+| `updateProposalStatus(id, status)` | Inline status change (e.g. from badge popover). |
+| `deleteProposal(id)` | Hard delete. |
+| `convertToClient(proposalId)` | Creates client (name from proposal title) + project (name, budget from my_bid), links proposal to both, sets status=won; returns clientId for redirect. |
+
+**API:**
+
+| Route | Purpose |
+|-------|---------|
+| GET `/api/scrape-mostaql?url=...` | Fetches Mostaql job page HTML; extracts title, budget range, category, description via regex; returns JSON for auto-fill in New Proposal dialog. |
+
+**Components:**
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| ProposalsListView | `components/modules/proposals/proposals-list-view.tsx` | KPI cards, filters, table, delete AlertDialog, EditProposalDialog, ConvertToClientDialog, win-rate bar chart, status donut. |
+| NewProposalDialog | `components/modules/proposals/new-proposal-dialog.tsx` | Centered dialog: URL field first + "✨ جلب البيانات" button (calls scrape API, auto-fills title/category/budget/description); title, category, budget min/max, عرضي, تاريخ التقديم (DatePickerAr), الحالة, ملاحظات; إلغاء \| حفظ العرض. |
+| EditProposalDialog | `components/modules/proposals/edit-proposal-dialog.tsx` | Same fields for edit. |
+| ProposalStatusBadge | `components/modules/proposals/proposal-status-badge.tsx` | Clickable badge with popover (same pattern as invoices); options: مُقدَّم, تمت المشاهدة, في القائمة المختصرة, تم الفوز 🎉, لم يُكسب, ملغي. |
+| ConvertToClientDialog | `components/modules/proposals/convert-to-client-dialog.tsx` | "هل تريد إنشاء عميل جديد من هذا العرض؟" with proposal title as suggested name; on confirm calls convertToClient, toast "🎉 تم إنشاء العميل والمشروع بنجاح!", redirect to new client page. |
+| ProposalsWinRateChart | `components/modules/proposals/proposals-win-rate-chart.tsx` | Bar chart last 6 months won/total ratio. |
+| ProposalsStatusDonut | `components/modules/proposals/proposals-status-donut.tsx` | Donut/pie by status (shadcn ChartContainer). |
+
+**Sidebar:** "العروض" (IconFileText) between العملاء and المشاريع. **RTL:** All text right-aligned; URL input `dir="ltr"`; modals `dir="rtl"`.
+
+---
+
 ## Projects
 
 **Purpose:** Project lifecycle — name, client, status, dates, budget, hourly rate, phases. List with card/list view, filters, and detail page with Overview, Tasks (Kanban), Invoices, Files (FileManager), Notes.
@@ -49,14 +94,14 @@ One section per module: what it does, pages, Server Actions, and main components
 
 | Route | File | Description |
 |-------|------|-------------|
-| List | `app/dashboard/projects/page.tsx` | Server Component; fetches projects via `getProjects(filters)` (search, status, clientId), `getProjectTaskCounts()`, `getClientsList()`, `getSettings()`. Renders `ProjectsListView` (client): title "Projects", **view switcher** (Table \| Gallery \| Board, default Gallery) then "+ New Project" (Dialog). Search (project or client name), status filter, client filter — same across all views. **Table**: Company (avatar + name), Project name, **Status** (clickable badge with chevron; popover to change status inline via Server Action, toast on success), Deadline, Budget (SAR), Tasks progress, Actions (Edit, Delete). **Gallery**: grid 4/2/1 cols; card cover = project cover image if set, else client logo, else status-colored block + project initial; project name, **clickable status badge** (same popover), client avatar+name, deadline, progress, budget; … menu on hover; card click → detail. **Board**: Kanban columns by status; each card has **clickable status badge** (popover fallback); card click → detail. Edit opens `EditProjectDialog`; Delete calls `deleteProject`. |
-| Detail | `app/dashboard/projects/[id]/page.tsx` | Server Component; breadcrumb "Projects > [Project Name]"; **cover banner** (if `cover_image_url` set): full-width image below breadcrumb, above tabs; on hover, "Edit cover" opens file picker → upload to ImageKit → `updateProject(coverImageUrl)`. If no cover, no placeholder. Fetches `getProjectById(id)`, clients, settings, tasks, invoices. Tabs: Overview, Tasks, Invoices, Files, Notes. |
+| List | `app/dashboard/projects/page.tsx` | Server Component; fetches projects via `getProjects(filters)` (search, status, clientId), `getProjectTaskCounts()`, **getProjectMemberIdsByProjectIds()**, **getTeamMembers()**, `getClientsList()`, `getSettings()`. Renders `ProjectsListView` (client): title "Projects", **view switcher** (Table \| Gallery \| Board, default Gallery) then "+ New Project" (Dialog). Search (project or client name), status filter, client filter — same across all views. **Table**: Company (avatar + name), Project name (with **avatar stack** of assigned team members, max 3 +N), **Status** (clickable badge with chevron; popover to change status inline via Server Action, toast on success), Deadline, Budget (SAR), Tasks progress, Actions (Edit, Delete). **Gallery**: grid 4/2/1 cols; card cover = project cover image if set, else client logo, else status-colored block + project initial; project name, **clickable status badge** (same popover), **avatar stack of assigned members** (max 3 +N), client avatar+name, deadline, progress, budget; … menu on hover; card click → detail. **Board**: Kanban columns by status; each card has **avatar stack** (if any), **clickable status badge** (popover fallback); card click → detail. **New Project dialog:** after status, **أعضاء الفريق** multi-select (dropdown + removable tags); on create, inserts into `project_members`. Edit opens `EditProjectDialog`; Delete calls `deleteProject`. |
+| Detail | `app/dashboard/projects/[id]/page.tsx` | Server Component; breadcrumb "Projects > [Project Name]"; **cover banner** (if `cover_image_url` set): full-width image below breadcrumb, above tabs; on hover, "Edit cover" opens file picker → upload to ImageKit → `updateProject(coverImageUrl)`. If no cover, no placeholder. Fetches `getProjectById(id)`, clients, settings, tasks, invoices, **getProjectMembers(id)**, **getTeamMembers()**. Tabs: Overview, Tasks, **الفريق (Team)**, Invoices, Files, Notes. **الفريق tab:** list of assigned team members (avatar, name, role, role on project), "+ تعيين عضو" opens modal (dropdown of active team members not already assigned, optional "الدور في المشروع"), "إزالة" with confirmation. |
 
 **Server Actions** (`actions/projects.ts`):
 
 | Action | Purpose |
 |--------|---------|
-| `createProject(input)` | Insert project; Zod: name, clientId, status (lead \| active \| on_hold \| review \| completed \| cancelled), startDate, endDate, budget, hourlyRate (optional), description. Seeds default phases (Discovery, Design, Development, Review, Launch). Revalidates projects list and detail. |
+| `createProject(input)` | Insert project; Zod: name, clientId, status (lead \| active \| on_hold \| review \| completed \| cancelled), startDate, endDate, budget, hourlyRate (optional), description, **teamMemberIds** (optional). Seeds default phases (Discovery, Design, Development, Review, Launch). Inserts **project_members** rows for each teamMemberId. Revalidates projects list and detail. |
 | `updateProject(input)` | Update by id; partial payload. Revalidates list + detail. |
 | `updateProjectNotes(projectId, notes)` | Update project notes only; used by Notes tab. |
 | `deleteProject(id)` | Hard delete project; CASCADE removes tasks, phases, etc. Revalidates list. Row "حذف" opens AlertDialog "هل أنت متأكد؟" with description "سيتم حذف المشروع [اسم المشروع] نهائياً بما يشمل جميع مهامه…"; on confirm calls `deleteProject`, toast, refresh. |
@@ -67,6 +112,8 @@ One section per module: what it does, pages, Server Actions, and main components
 | `updatePhaseStatus(phaseId, status)` | Set phase status to pending \| active \| completed. |
 
 **Server Actions** (`actions/tasks.ts` — project-scoped): `getTasksByProjectId(projectId)`, `createTask`, `updateTask`. See **Tasks** module for global `getTasks`, `getTaskById`, `deleteTask`, `createSubtask`, `toggleSubtask`.
+
+**Server Actions** (`actions/team-members.ts`): **getTeamMembers()** — active team members (for dropdowns). **getProjectMembers(projectId)** — members assigned to project (الفريق tab). **getProjectMemberIdsByProjectIds(projectIds)** — per-project member list for avatar stacks on list/gallery/board. **assignMemberToProject(projectId, teamMemberId, roleOnProject?)**. **removeMemberFromProject(projectId, projectMemberId)**.
 
 **Server Actions** (`actions/invoices.ts`):
 
@@ -94,6 +141,45 @@ One section per module: what it does, pages, Server Actions, and main components
 | ProjectNotesTab | `components/modules/projects/project-notes-tab.tsx` | Textarea for private notes; Save button calls `updateProjectNotes`. |
 
 **Status badge colors (projects):** Lead=blue, Active=green, On Hold=amber, Review=purple, Completed=gray, Cancelled=red (see `types/index.ts` `PROJECT_STATUS_BADGE_CLASS`).
+
+---
+
+## Team
+
+**Purpose:** Team members (name, role, email, phone, avatar, status, notes) with optional project assignments. Salary expenses can be linked to a team member for the "سجل الرواتب" tab on member detail.
+
+**Pages:**
+
+| Route | File | Description |
+|-------|------|-------------|
+| List | `app/dashboard/team/page.tsx` | Server: fetches `getTeamMembers()`. Renders `TeamListView` (client): title "الفريق", "+ إضافة عضو" button, grid of cards (avatar/initials, name, role, phone, status badge نشط/غير نشط, project count, … menu تعديل \| حذف). Empty state: "لا يوجد أعضاء في الفريق بعد. أضف أول عضو." |
+| Detail | `app/dashboard/team/[id]/page.tsx` | Server: fetches `getTeamMemberById(id)`, `getMemberProjects(id)`, `getExpensesByTeamMemberId(id)`. Header: avatar, name, role, status badge, "تعديل العضو" (EditTeamMemberButton). Tabs: **المشاريع المعيّنة** (table: project name, client, status, role on project); **سجل الرواتب** (table: التاريخ, المبلغ, ملاحظات; total paid to member). |
+
+**Server Actions** (`actions/team.ts`):
+
+| Action | Purpose |
+|--------|---------|
+| `getTeamMembers()` | All members with `projectCount` per member. |
+| `getTeamMemberById(id)` | One member by id. |
+| `createTeamMember(data)` | Zod: name (required), role, email, phone, avatarUrl, status (active \| inactive), notes. |
+| `updateTeamMember({ id, ...data })` | Partial update; revalidates list + detail. |
+| `deleteTeamMember(id)` | Hard delete; CASCADE project_members. |
+| `assignMemberToProject(projectId, memberId, roleOnProject?)` | Insert into project_members. |
+| `removeMemberFromProject(projectId, memberId)` | Delete from project_members. |
+| `getProjectMembers(projectId)` | Members assigned to a project (for project detail). |
+| `getMemberProjects(teamMemberId)` | Projects assigned to a member (for member detail tab). |
+
+**Server Actions** (`actions/expenses.ts`): **createExpense** / **updateExpense** accept **teamMemberId** (optional, for salary expenses). **getExpenses** left-joins team_members and returns **teamMemberName**. **getExpensesByTeamMemberId(teamMemberId)** — expenses where `team_member_id` = id (salary tab). **getTeamCostBreakdownThisMonth()** — per-team-member total salary expenses this month (for Reports productivity tab).
+
+**Components:**
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| TeamListView | `components/modules/team/team-list-view.tsx` | Client: header, add modal trigger, grid of member cards or empty state; edit modal (controlled); delete AlertDialog. |
+| NewMemberModal | `components/modules/team/new-member-modal.tsx` | Dialog RTL: الاسم*, الدور (free text), البريد، الهاتف، الصورة الشخصية (ImageKit scope team-avatar), ملاحظات، الحالة (نشط/غير نشط). Create/Edit; on success refresh. |
+| EditTeamMemberButton | `components/modules/team/edit-team-member-button.tsx` | Wraps NewMemberModal with member + onSuccess router.refresh (used on member detail). |
+
+**Sidebar:** "الفريق" (IconUsers) between المشاريع and المهام, url `/dashboard/team`.
 
 ---
 
@@ -192,7 +278,7 @@ One section per module: what it does, pages, Server Actions, and main components
 
 | Route | File | Description |
 |-------|------|-------------|
-| List | `app/dashboard/expenses/page.tsx` | Server: fetches `getExpenses(filters)` (category, dateFrom, dateTo from searchParams), `getExpensesSummary()`. Renders `ExpensesListView`: title "المصروفات", "+ إضافة مصروف" button; summary bar (إجمالي المصروفات هذا الشهر, إجمالي المصروفات هذه السنة, أكبر فئة مصروفات); filters (category dropdown, date range); RTL table (العنوان, الفئة badge, المبلغ, التاريخ DD/MM/YYYY, ملاحظات, إجراءات … تعديل \| حذف). New/Edit expense dialog; delete AlertDialog. |
+| List | `app/dashboard/expenses/page.tsx` | Server: fetches `getExpenses(filters)` (category, dateFrom, dateTo from searchParams), `getExpensesSummary()`, **getTeamMembers()**. Renders `ExpensesListView`: title "المصروفات", "+ إضافة مصروف" button; summary bar (إجمالي المصروفات هذا الشهر, إجمالي المصروفات هذه السنة, أكبر فئة مصروفات); filters (category dropdown, date range); RTL table (العنوان — for رواتب with teamMemberId shows 👤 member name below title, الفئة badge, المبلغ, التاريخ DD/MM/YYYY, ملاحظات, إجراءات … تعديل \| حذف). New/Edit expense dialog (when category = رواتب shows "عضو الفريق" select); delete AlertDialog. |
 
 **Server Actions** (`actions/expenses.ts`):
 
@@ -302,7 +388,7 @@ One section per module: what it does, pages, Server Actions, and main components
 |-----------|----------|---------|
 | RevenueChart | `components/reports/revenue-chart.tsx` | Client; Recharts BarChart, 3 bars: الفواتير المُصدرة (gray), المحصّل (indigo), المصروفات (red); Arabic tooltips with all three values; Legend. |
 | OutstandingInvoicesTable | `components/reports/outstanding-invoices-table.tsx` | Client; RTL table, "تحديد كمدفوعة" button and dialog. |
-| ProductivityReportsTab | `components/reports/productivity-reports-tab.tsx` | Client; KPI cards, donut (project status), bar (weekly task completion), projects table, overdue tasks table with "تحديد كمكتملة" (calls `updateTask`), new clients section; RTL, Arabic tooltips, Western numerals. |
+| ProductivityReportsTab | `components/reports/productivity-reports-tab.tsx` | Client; KPI cards, donut (project status), bar (weekly task completion), projects table, overdue tasks table with "تحديد كمكتملة" (calls `updateTask`), **تكاليف الفريق هذا الشهر** (table: الاسم \| الدور \| إجمالي الرواتب ر.س — from `getTeamCostBreakdownThisMonth()`), new clients section; RTL, Arabic tooltips, Western numerals. |
 
 ---
 

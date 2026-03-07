@@ -31,8 +31,8 @@ type ReportsFinancialTabProps = {
 function CurrencyToggleAndIndicator() {
   const { currency, setCurrency, rate } = useReportsCurrency();
   return (
-    <div className="space-y-1">
-      <div className="flex gap-2 items-center flex-wrap" dir="rtl">
+    <div className="space-y-1 w-full">
+      <div className="flex gap-2 items-center flex-wrap w-full md:w-auto" dir="rtl">
         <span className="text-sm text-muted-foreground">العملة:</span>
         <div className="flex rounded-lg border overflow-hidden">
           <button
@@ -84,7 +84,7 @@ function FinancialContent({
   return (
     <>
       {/* Section 1 — KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-right">إيرادات هذا الشهر</CardTitle>
@@ -134,7 +134,7 @@ function FinancialContent({
       />
 
       {/* Section 3 — Two columns */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         <TopClientsPieChart data={topClientsPieData} />
         <Card>
           <CardHeader>

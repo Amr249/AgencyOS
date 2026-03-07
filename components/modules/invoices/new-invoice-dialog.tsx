@@ -76,6 +76,9 @@ type NewInvoiceDialogProps = {
   /** When set, client is pre-selected and locked (e.g. from client detail page). */
   defaultClientId?: string;
   onSuccess?: () => void;
+  /** Controlled open state (e.g. for FAB on mobile). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 function getDefaultDueDate(paymentTerms: number) {
@@ -91,8 +94,13 @@ export function NewInvoiceDialog({
   nextInvoiceNumber,
   defaultClientId,
   onSuccess,
+  open: openProp,
+  onOpenChange: setOpenProp,
 }: NewInvoiceDialogProps) {
-  const [open, setOpen] = React.useState(false);
+  const [openLocal, setOpenLocal] = React.useState(false);
+  const isControlled = openProp !== undefined && setOpenProp !== undefined;
+  const open = isControlled ? openProp : openLocal;
+  const setOpen = isControlled ? (setOpenProp!) : setOpenLocal;
   const [projects, setProjects] = React.useState<ProjectOption[]>([]);
   const lockedClient = !!defaultClientId;
   const paymentTerms = settings?.defaultPaymentTerms ?? 30;
@@ -186,7 +194,7 @@ export function NewInvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto" dir="rtl">
+      <DialogContent className="max-h-[90vh] w-[95vw] max-w-[95vw] sm:max-w-3xl overflow-y-auto" dir="rtl">
         <DialogHeader className="text-right">
           <DialogTitle>فاتورة جديدة</DialogTitle>
           <DialogDescription>أنشئ فاتورة جديدة. العميل مطلوب، أضف بنداً واحداً على الأقل.</DialogDescription>
@@ -302,21 +310,21 @@ export function NewInvoiceDialog({
                 </Button>
               </div>
               <div className="space-y-2 rounded-md border p-3">
-                <div className="grid grid-cols-12 gap-2 text-right text-xs font-medium text-muted-foreground">
-                  <div className="col-span-4">الوصف</div>
-                  <div className="col-span-2">الكمية</div>
-                  <div className="col-span-2">سعر الوحدة (ر.س)</div>
-                  <div className="col-span-2">الضريبة %</div>
-                  <div className="col-span-1">الإجمالي</div>
-                  <div className="col-span-1">×</div>
+                <div className="grid grid-cols-1 gap-2 text-right text-xs font-medium text-muted-foreground sm:grid-cols-12">
+                  <div className="hidden sm:block sm:col-span-4">الوصف</div>
+                  <div className="hidden sm:block sm:col-span-2">الكمية</div>
+                  <div className="hidden sm:block sm:col-span-2">سعر الوحدة (ر.س)</div>
+                  <div className="hidden sm:block sm:col-span-2">الضريبة %</div>
+                  <div className="hidden sm:block sm:col-span-1">الإجمالي</div>
+                  <div className="hidden sm:block sm:col-span-1">×</div>
                 </div>
                 {fields.map((field, i) => (
-                  <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
+                  <div key={field.id} className="grid grid-cols-1 gap-2 items-center sm:grid-cols-12 sm:gap-2">
                     <FormField
                       control={form.control}
                       name={`lineItems.${i}.description`}
                       render={({ field: f }) => (
-                        <FormItem className="col-span-4">
+                        <FormItem className="col-span-1 sm:col-span-4">
                           <FormControl>
                             <Input placeholder="الوصف" className="text-right" {...f} />
                           </FormControl>
@@ -328,7 +336,7 @@ export function NewInvoiceDialog({
                       control={form.control}
                       name={`lineItems.${i}.quantity`}
                       render={({ field: f }) => (
-                        <FormItem className="col-span-2">
+                        <FormItem className="col-span-1 sm:col-span-2">
                           <FormControl>
                             <Input type="number" min={0.01} step={0.01} className="text-right" {...f} />
                           </FormControl>
@@ -339,7 +347,7 @@ export function NewInvoiceDialog({
                       control={form.control}
                       name={`lineItems.${i}.unitPrice`}
                       render={({ field: f }) => (
-                        <FormItem className="col-span-2">
+                        <FormItem className="col-span-1 sm:col-span-2">
                           <FormControl>
                             <Input type="number" min={0} step={0.01} className="text-right" {...f} />
                           </FormControl>
@@ -350,7 +358,7 @@ export function NewInvoiceDialog({
                       control={form.control}
                       name={`lineItems.${i}.taxRate`}
                       render={({ field: f }) => (
-                        <FormItem className="col-span-2">
+                        <FormItem className="col-span-1 sm:col-span-2">
                           <FormControl>
                             <Input type="number" min={0} max={100} step={0.01} className="text-right" {...f} />
                           </FormControl>
@@ -368,7 +376,7 @@ export function NewInvoiceDialog({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="col-span-1 h-8 w-8 text-muted-foreground"
+                      className="col-span-1 h-8 w-8 min-h-[44px] min-w-[44px] md:min-h-8 md:min-w-8 text-muted-foreground"
                       onClick={() => remove(i)}
                       disabled={fields.length === 1}
                     >

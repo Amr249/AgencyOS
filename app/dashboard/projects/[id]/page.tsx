@@ -7,6 +7,7 @@ import { getSettings } from "@/actions/settings";
 import { getTasksByProjectId } from "@/actions/tasks";
 import { getInvoicesByProjectId } from "@/actions/invoices";
 import { getFiles } from "@/actions/files";
+import { getProjectMembers, getTeamMembers } from "@/actions/team-members";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,6 +25,7 @@ import { ProjectOverviewTab } from "@/components/modules/projects/project-overvi
 import { ProjectTasksTab } from "@/components/modules/projects/project-tasks-tab";
 import { ProjectInvoicesTab } from "@/components/modules/projects/project-invoices-tab";
 import { ProjectNotesTab } from "@/components/modules/projects/project-notes-tab";
+import { ProjectTeamTab } from "@/components/modules/projects/project-team-tab";
 import { FileManager } from "@/components/modules/files/file-manager";
 import { cn } from "@/lib/utils";
 
@@ -65,14 +67,18 @@ export default async function ProjectDetailPage({ params }: Props) {
       ? settingsResult.data.defaultCurrency
       : "USD";
 
-  const [tasksResult, invoicesResult, filesResult] = await Promise.all([
+  const [tasksResult, invoicesResult, filesResult, projectMembersResult, teamMembersResult] = await Promise.all([
     getTasksByProjectId(id),
     getInvoicesByProjectId(id),
     getFiles({ projectId: id }),
+    getProjectMembers(id),
+    getTeamMembers(),
   ]);
   const tasks = tasksResult.ok ? tasksResult.data : [];
   const invoices = invoicesResult.ok ? invoicesResult.data : [];
   const initialFiles = filesResult.ok ? filesResult.data : [];
+  const projectMembers = projectMembersResult.ok ? projectMembersResult.data : [];
+  const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
 
   const statusLabel = PROJECT_STATUS_LABELS[project.status] ?? project.status;
 
@@ -95,10 +101,10 @@ export default async function ProjectDetailPage({ params }: Props) {
       <ProjectCoverBanner projectId={id} coverImageUrl={project.coverImageUrl ?? null} />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
           <div className="text-right">
             <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
-            <div className="flex items-center gap-2 justify-end">
+            <div className="flex items-center gap-2 justify-end flex-wrap">
               <span
                 className={cn(
                   "rounded-full border px-2 py-0.5 text-xs font-medium",
@@ -115,7 +121,7 @@ export default async function ProjectDetailPage({ params }: Props) {
               </Link>
             </div>
           </div>
-          <Avatar className="size-12 shrink-0 ring-2 ring-border">
+          <Avatar className="size-12 shrink-0 ring-2 ring-border self-end sm:self-center">
             <AvatarImage src={project.clientLogoUrl ?? undefined} alt={project.clientName ?? undefined} />
             <AvatarFallback className="bg-muted text-muted-foreground font-medium">
               {(project.clientName ?? "?").slice(0, 1)}
@@ -128,9 +134,10 @@ export default async function ProjectDetailPage({ params }: Props) {
       </div>
 
       <Tabs defaultValue="overview" className="w-full" dir="rtl">
-        <TabsList className="flex w-full flex-wrap">
+        <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap">
           <TabsTrigger value="overview">نظرة عامة</TabsTrigger>
           <TabsTrigger value="tasks">المهام</TabsTrigger>
+          <TabsTrigger value="team">الفريق</TabsTrigger>
           <TabsTrigger value="invoices">الفواتير</TabsTrigger>
           <TabsTrigger value="files">الملفات</TabsTrigger>
           <TabsTrigger value="notes">ملاحظات</TabsTrigger>
@@ -156,6 +163,13 @@ export default async function ProjectDetailPage({ params }: Props) {
               priority: t.priority,
               dueDate: t.dueDate,
             }))}
+          />
+        </TabsContent>
+        <TabsContent value="team" className="mt-4">
+          <ProjectTeamTab
+            projectId={id}
+            initialMembers={projectMembers}
+            allTeamMembers={teamMembers}
           />
         </TabsContent>
         <TabsContent value="invoices" className="mt-4">

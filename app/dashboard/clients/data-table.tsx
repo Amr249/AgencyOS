@@ -96,7 +96,7 @@ export default function ClientsDataTable({
         header: ({ column }) => (
           <Button
             variant="ghost"
-            className="-ms-3 flex w-full justify-end gap-2"
+            className="-ms-3 flex w-full justify-end gap-2 flex-row-reverse"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <ArrowUpDown className="h-4 w-4 shrink-0" />
@@ -108,12 +108,12 @@ export default function ClientsDataTable({
           const logoUrl = row.original.logoUrl;
           const initial = name ? name.charAt(0).toUpperCase() : "?";
           return (
-            <div className="text-right">
-              <Link
-                href={`/dashboard/clients/${row.original.id}`}
-                className="flex items-center justify-end gap-3 font-medium text-primary hover:underline"
-              >
-                <Avatar className="size-8 shrink-0">
+            <Link
+              href={`/dashboard/clients/${row.original.id}`}
+              className="font-medium text-primary hover:underline"
+            >
+              <div className="flex items-center gap-2" dir="rtl">
+                <Avatar className="h-8 w-8 shrink-0">
                   {logoUrl ? (
                     <AvatarImage src={logoUrl} alt={name} />
                   ) : null}
@@ -121,21 +121,27 @@ export default function ClientsDataTable({
                     {initial}
                   </AvatarFallback>
                 </Avatar>
-                {name}
-              </Link>
-            </div>
+                <span>{name}</span>
+              </div>
+            </Link>
           );
         },
       },
       {
         accessorKey: "contactName",
-        header: "جهة الاتصال",
-        cell: ({ row }) => row.getValue("contactName") ?? "—",
+        header: () => <span className="text-right">جهة الاتصال</span>,
+        cell: ({ row }) => (
+          <span className="text-right block">{row.getValue("contactName") ?? "—"}</span>
+        ),
       },
       {
         accessorKey: "contactPhone",
-        header: "الهاتف",
-        cell: ({ row }) => row.getValue("contactPhone") ?? "—",
+        header: () => <span className="text-right">الهاتف</span>,
+        cell: ({ row }) => (
+          <div className="text-right">
+            <span dir="ltr">{row.getValue("contactPhone") ?? "—"}</span>
+          </div>
+        ),
       },
       {
         accessorKey: "status",
@@ -143,28 +149,18 @@ export default function ClientsDataTable({
           !filterValue ||
           filterValue === "all" ||
           row.getValue(columnId) === filterValue,
-        header: ({ column }) => (
-          <Button
-            variant="ghost"
-            className="-ms-3 flex w-full justify-end gap-2"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            <ArrowUpDown className="h-4 w-4 shrink-0" />
-            <span className="text-right">الحالة</span>
-          </Button>
+        header: () => (
+          <div className="w-full text-right">الحالة</div>
         ),
         cell: ({ row }) => {
           const status = row.original.status;
           const label = CLIENT_STATUS_LABELS[status] ?? status;
           const className = CLIENT_STATUS_BADGE_CLASS[status];
           return (
-            <div className="text-right">
-            <Badge
-              variant="outline"
-              className={className ?? undefined}
-            >
-              {label}
-            </Badge>
+            <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
+              <Badge variant="outline" className={className ?? undefined}>
+                {label}
+              </Badge>
             </div>
           );
         },
@@ -172,7 +168,9 @@ export default function ClientsDataTable({
       {
         id: "actions",
         enableHiding: false,
+        header: () => null,
         cell: ({ row }) => (
+          <div className="flex justify-start">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="h-8 w-8 p-0">
@@ -242,6 +240,7 @@ export default function ClientsDataTable({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         ),
       },
     ],
@@ -267,16 +266,18 @@ export default function ClientsDataTable({
     },
   });
 
+  const filteredRows = table.getFilteredRowModel().rows;
+
   return (
     <>
       <div className="w-full">
-        <div className="mb-4 flex flex-wrap items-center gap-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <Input
             dir="rtl"
             placeholder="البحث بالاسم أو رقم الهاتف..."
             value={(table.getColumn("companyName")?.getFilterValue() as string) ?? ""}
             onChange={(e) => table.getColumn("companyName")?.setFilterValue(e.target.value)}
-            className="max-w-sm text-right"
+            className="w-full text-right sm:max-w-sm"
           />
           <Select
             value={
@@ -291,7 +292,7 @@ export default function ClientsDataTable({
           >
             <SelectTrigger
               className={cn(
-                "w-[180px] text-right",
+                "w-full text-right sm:w-[180px]",
                 columnFilters.some((f) => f.id === "status" && f.value) &&
                   "border-primary ring-2 ring-primary/20"
               )}
@@ -308,14 +309,136 @@ export default function ClientsDataTable({
             </SelectContent>
           </Select>
         </div>
-        <Table className="border-t">
+
+        {/* Mobile: card list */}
+        <div className="space-y-2 md:hidden">
+          {filteredRows.length === 0 ? (
+            <p className="text-muted-foreground py-8 text-center text-sm">
+              {showArchived ? "لا يوجد عملاء مؤرشفون." : "لا يوجد عملاء بعد. أضف أول عميل للبدء."}
+            </p>
+          ) : (
+            filteredRows.map((row) => {
+              const c = row.original;
+              const name = c.companyName ?? "—";
+              const initial = name !== "—" ? name.charAt(0).toUpperCase() : "?";
+              const status = c.status;
+              const label = CLIENT_STATUS_LABELS[status] ?? status;
+              const statusClassName = CLIENT_STATUS_BADGE_CLASS[status];
+              return (
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between rounded-xl border p-4"
+                >
+                  <Link
+                    href={`/dashboard/clients/${c.id}`}
+                    className="flex items-center gap-3"
+                  >
+                    <Avatar className="size-10 shrink-0">
+                      {c.logoUrl ? (
+                        <AvatarImage src={c.logoUrl} alt={name} />
+                      ) : null}
+                      <AvatarFallback className="bg-muted text-muted-foreground text-sm font-medium">
+                        {initial}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="text-right">
+                      <p className="font-medium">{name}</p>
+                      <p className="text-muted-foreground text-sm">{c.contactPhone ?? "—"}</p>
+                    </div>
+                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={statusClassName ?? undefined}>
+                      {label}
+                    </Badge>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9">
+                          <span className="sr-only">Open menu</span>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>الإجراءات</DropdownMenuLabel>
+                        <DropdownMenuItem asChild>
+                          <Link href={`/dashboard/clients/${c.id}`}>عرض العميل</Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => setEditingClient(c)}>
+                          تعديل
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            setClientToDelete(c);
+                          }}
+                        >
+                          <Trash2 className="me-2 h-4 w-4" />
+                          حذف
+                        </DropdownMenuItem>
+                        {showArchived ? (
+                          <DropdownMenuItem
+                            className="text-green-600 focus:text-green-600"
+                            onSelect={async () => {
+                              const id = c.id;
+                              setRestoringId(id);
+                              const result = await unarchiveClient(id);
+                              setRestoringId(null);
+                              if (result.ok) {
+                                toast.success("تم استعادة العميل");
+                                router.refresh();
+                              } else {
+                                toast.error(result.error);
+                              }
+                            }}
+                            disabled={restoringId === c.id}
+                          >
+                            <ArchiveRestore className="me-2 h-4 w-4" />
+                            استعادة
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            className="text-amber-600 focus:text-amber-600"
+                            onSelect={async () => {
+                              const id = c.id;
+                              setArchivingId(id);
+                              const result = await archiveClient(id);
+                              setArchivingId(null);
+                              if (result.ok) {
+                                toast.success("تم أرشفة العميل");
+                                router.refresh();
+                              } else {
+                                toast.error(result.error);
+                              }
+                            }}
+                            disabled={archivingId === c.id}
+                          >
+                            <Archive className="me-2 h-4 w-4" />
+                            أرشفة
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop: table */}
+        <div className="hidden md:block" dir="rtl">
+        <Table className="border-t" style={{ direction: "rtl" }}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className={header.column.id === "actions" ? "w-10" : undefined}
+                    className={cn(
+                      "text-right",
+                      header.column.id === "actions" ? "w-10" : undefined
+                    )}
                   >
                     {header.isPlaceholder
                       ? null
@@ -332,7 +455,10 @@ export default function ClientsDataTable({
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}
-                      className={cell.column.id === "actions" ? "w-10" : undefined}
+                      className={cn(
+                        "text-right",
+                        cell.column.id === "actions" ? "w-10" : undefined
+                      )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
@@ -341,7 +467,7 @@ export default function ClientsDataTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={columns.length} className="h-24 text-center text-right">
                   {showArchived
                     ? "لا يوجد عملاء مؤرشفون."
                     : "لا يوجد عملاء بعد. أضف أول عميل للبدء."}
@@ -350,7 +476,7 @@ export default function ClientsDataTable({
             )}
           </TableBody>
         </Table>
-        <div className="flex flex-row-reverse items-center justify-end gap-2 pt-4">
+        <div className="flex flex-row-reverse items-center justify-end gap-2 pt-4 text-right">
           <div className="text-muted-foreground flex-1 text-sm text-right">
             {table.getFilteredSelectedRowModel().rows.length} من{" "}
             {table.getFilteredRowModel().rows.length} صفوف محددة.
@@ -373,6 +499,7 @@ export default function ClientsDataTable({
               التالي
             </Button>
           </div>
+        </div>
         </div>
       </div>
       <ClientFormSheet

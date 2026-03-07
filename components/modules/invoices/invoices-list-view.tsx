@@ -106,6 +106,7 @@ export function InvoicesListView({
     id: string;
     invoiceNumber: string;
   } | null>(null);
+  const [newInvoiceOpen, setNewInvoiceOpen] = React.useState(false);
   const statusParam = searchParams.get("status") ?? "all";
   const dateRangeParam = searchParams.get("dateRange") ?? "all";
   const searchParam = searchParams.get("search") ?? "";
@@ -139,8 +140,10 @@ export function InvoicesListView({
           clients={clients}
           settings={settings}
           nextInvoiceNumber={nextInvoiceNumber}
+          open={newInvoiceOpen}
+          onOpenChange={setNewInvoiceOpen}
           trigger={
-            <Button variant="secondary">
+            <Button variant="secondary" className="w-full sm:w-auto">
               <PlusCircledIcon className="me-2 h-4 w-4" />
               فاتورة جديدة
             </Button>
@@ -149,7 +152,7 @@ export function InvoicesListView({
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <Card>
           <CardContent className="pt-4 text-right">
             <p className="text-muted-foreground text-sm">إجمالي الفواتير</p>
@@ -171,17 +174,17 @@ export function InvoicesListView({
         </div>
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row-reverse sm:items-center sm:gap-4">
-        <form onSubmit={handleSearchSubmit} className="flex-1">
+        <form onSubmit={handleSearchSubmit} className="w-full flex-1 sm:max-w-sm">
           <Input
             dir="rtl"
             name="search"
             placeholder="البحث برقم الفاتورة أو اسم العميل..."
             defaultValue={searchParam}
-            className="max-w-sm text-right"
+            className="w-full text-right"
           />
         </form>
         <Select value={dateRangeParam} onValueChange={(v) => updateParams({ dateRange: v })}>
-          <SelectTrigger className="w-[160px] text-right">
+          <SelectTrigger className="w-full text-right sm:w-[160px]">
             <SelectValue placeholder="الفترة" />
           </SelectTrigger>
           <SelectContent>
@@ -193,7 +196,7 @@ export function InvoicesListView({
           </SelectContent>
         </Select>
         <Select value={statusParam} onValueChange={(v) => updateParams({ status: v })}>
-          <SelectTrigger className="w-[160px] text-right">
+          <SelectTrigger className="w-full text-right sm:w-[160px]">
             <SelectValue placeholder="الحالة" />
           </SelectTrigger>
           <SelectContent>
@@ -206,7 +209,43 @@ export function InvoicesListView({
         </Select>
       </div>
 
-      <Card>
+      {/* Mobile: invoice cards */}
+      <div className="space-y-2 md:hidden">
+        {invoices.length === 0 ? (
+          <p className="text-muted-foreground py-8 text-center text-sm">لا توجد فواتير تطابق التصفية.</p>
+        ) : (
+          invoices.map((inv) => (
+            <div key={inv.id} className="rounded-xl border p-4 space-y-2">
+              <div className="flex justify-between items-center">
+                <InvoiceStatusBadge
+                  invoiceId={inv.id}
+                  status={inv.status}
+                  invoiceNumber={inv.invoiceNumber}
+                  onRequestMarkAsPaid={(invoice) => setPayDialogInvoice(invoice)}
+                />
+                <span className="font-bold">{inv.invoiceNumber}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{formatDateDDMMYYYY(inv.issueDate)}</span>
+                <span className="font-medium">{formatBudgetSAR(inv.total)}</span>
+              </div>
+              <p className="text-sm">{inv.clientName ?? "—"}</p>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" size="sm" asChild className="flex-1">
+                  <Link href={`/dashboard/invoices/${inv.id}`}>عرض</Link>
+                </Button>
+                {inv.status === "pending" && (
+                  <Button variant="outline" size="sm" onClick={() => setPayDialogInvoice({ id: inv.id, invoiceNumber: inv.invoiceNumber })}>
+                    تحديد كمدفوعة
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <Card className="hidden md:block">
         <CardContent className="pt-0">
           <div className="overflow-x-auto" dir="rtl">
             <table className="w-full text-sm text-right">
@@ -344,6 +383,15 @@ export function InvoicesListView({
         onOpenChange={(open) => !open && setPayDialogInvoice(null)}
         onSuccess={() => router.refresh()}
       />
+
+      <button
+        type="button"
+        className="md:hidden fixed bottom-24 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg text-2xl"
+        aria-label="فاتورة جديدة"
+        onClick={() => setNewInvoiceOpen(true)}
+      >
+        +
+      </button>
     </div>
   );
 }

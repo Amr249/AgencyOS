@@ -34,7 +34,7 @@ export function TasksKanban({ tasks, onAddTask, onOpenTask, onDeleteTask }: Task
         <Card
           key={status}
           className={cn(
-            "flex min-w-[280px] max-w-[280px] shrink-0 flex-col border-2",
+            "flex min-w-[260px] max-w-[260px] shrink-0 flex-col border-2",
             TASK_STATUS_HEADER_CLASS[status] ?? ""
           )}
         >

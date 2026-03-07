@@ -202,7 +202,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
           <CardContent>
             <Form {...agencyForm}>
               <form onSubmit={agencyForm.handleSubmit(onAgencySubmit)} className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={agencyForm.control}
                     name="agencyName"
@@ -284,7 +284,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
                     </FormItem>
                   )}
                 />
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={agencyForm.control}
                     name="agencyAddress.street"
@@ -358,7 +358,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
           <CardContent>
             <Form {...invoiceForm}>
               <form onSubmit={invoiceForm.handleSubmit(onInvoiceSubmit)} className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={invoiceForm.control}
                     name="invoicePrefix"
@@ -394,7 +394,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
                   />
                 </div>
                 <p className="text-sm text-muted-foreground">Preview: {invoicePreview}</p>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={invoiceForm.control}
                     name="defaultCurrency"

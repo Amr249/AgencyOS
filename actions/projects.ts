@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, isNull, and, sql, asc, desc, inArray } from "drizzle-orm";
-import { db, projects, clients, phases, tasks } from "@/lib/db";
+import { db, projects, clients, phases, tasks, projectMembers } from "@/lib/db";
 
 const DEFAULT_PHASES = [
   { name: "Discovery", order: 0 },
@@ -31,6 +31,7 @@ const createProjectSchema = z.object({
   endDate: z.string().optional(),
   budget: z.coerce.number().min(0).optional(),
   description: z.string().optional(),
+  teamMemberIds: z.array(z.string().uuid()).optional(),
 });
 
 const updateProjectSchema = createProjectSchema.partial().extend({
@@ -70,6 +71,14 @@ export async function createProject(input: CreateProjectInput) {
         order: p.order,
       }))
     );
+    if (data.teamMemberIds?.length) {
+      await db.insert(projectMembers).values(
+        data.teamMemberIds.map((teamMemberId) => ({
+          projectId: row.id,
+          teamMemberId,
+        }))
+      );
+    }
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${row.id}`);
     revalidatePath("/dashboard");

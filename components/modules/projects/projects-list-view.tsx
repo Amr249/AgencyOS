@@ -49,6 +49,7 @@ import { EditProjectDialog } from "./edit-project-dialog";
 import { deleteProject, updateProject } from "@/actions/projects";
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_BADGE_CLASS } from "@/types";
 import { cn, formatBudgetSAR, formatDate } from "@/lib/utils";
+import { AvatarStack } from "@/components/ui/avatar-stack";
 import { Table as TableIcon, LayoutGrid, Columns, MoreHorizontal, Pencil, Trash2, ChevronDown } from "lucide-react";
 import { PlusCircledIcon } from "@radix-ui/react-icons";
 import { toast } from "sonner";
@@ -143,10 +144,16 @@ type ProjectRow = {
 
 type ClientOption = { id: string; companyName: string | null };
 
+type ProjectMembersMap = Record<string, { id: string; name: string; avatarUrl: string | null }[]>;
+
+type TeamMemberOption = { id: string; name: string; role: string | null };
+
 type ProjectsListViewProps = {
   projects: ProjectRow[];
   taskCounts: Record<string, { total: number; done: number }>;
+  projectMembers?: ProjectMembersMap;
   clients: ClientOption[];
+  teamMembers?: TeamMemberOption[];
   defaultCurrency: string;
 };
 
@@ -174,7 +181,9 @@ const STATUS_COVER_COLOR: Record<string, string> = {
 export function ProjectsListView({
   projects,
   taskCounts,
+  projectMembers = {},
   clients,
+  teamMembers = [],
   defaultCurrency,
 }: ProjectsListViewProps) {
   const router = useRouter();
@@ -182,6 +191,7 @@ export function ProjectsListView({
   const [view, setView] = React.useState<"table" | "gallery" | "board">("gallery");
   const [editingProject, setEditingProject] = React.useState<ProjectRow | null>(null);
   const [projectToDelete, setProjectToDelete] = React.useState<{ id: string; name: string } | null>(null);
+  const [newProjectOpen, setNewProjectOpen] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(searchParams.get("search") ?? "");
   const statusParam = searchParams.get("status") ?? "all";
   const clientIdParam = searchParams.get("clientId") ?? "all";
@@ -254,13 +264,16 @@ export function ProjectsListView({
             </Button>
           </div>
           <NewProjectDialog
+            open={newProjectOpen}
+            onOpenChange={setNewProjectOpen}
             trigger={
-              <Button variant="secondary">
+              <Button variant="secondary" className="hidden sm:inline-flex">
                 <PlusCircledIcon className="me-2 h-4 w-4" />
                 مشروع جديد
               </Button>
             }
             clients={clients}
+            teamMembers={teamMembers}
             defaultCurrency={defaultCurrency}
             asChild
             onSuccess={() => router.refresh()}
@@ -269,19 +282,19 @@ export function ProjectsListView({
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-        <form onSubmit={handleSearchSubmit} className="flex-1">
+        <form onSubmit={handleSearchSubmit} className="w-full flex-1 sm:max-w-sm">
           <Input
             placeholder="البحث باسم المشروع أو العميل..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="max-w-sm"
+            className="w-full"
           />
         </form>
         <Select
           value={statusParam}
           onValueChange={(v) => updateParams({ status: v })}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="الحالة" />
           </SelectTrigger>
           <SelectContent>
@@ -296,7 +309,7 @@ export function ProjectsListView({
           value={clientIdParam}
           onValueChange={(v) => updateParams({ clientId: v })}
         >
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue placeholder="العميل" />
           </SelectTrigger>
           <SelectContent>
@@ -317,13 +330,53 @@ export function ProjectsListView({
             <NewProjectDialog
               trigger={<Button variant="link" className="mt-2">إنشاء أول مشروع</Button>}
               clients={clients}
+              teamMembers={teamMembers}
               defaultCurrency={defaultCurrency}
               onSuccess={() => router.refresh()}
             />
           </CardContent>
         </Card>
       ) : view === "table" ? (
-        <Card>
+        <>
+        {/* Mobile: project cards (table view) */}
+        <div className="space-y-2 md:hidden">
+          {projects.map((p) => {
+            const { label } = progress(p.id);
+            return (
+              <div key={p.id} className="flex items-center justify-between rounded-xl border p-4">
+                <Link href={`/dashboard/projects/${p.id}`} className="flex items-center gap-3 min-w-0">
+                  <Avatar className="size-10 shrink-0">
+                    <AvatarImage src={p.clientLogoUrl ?? undefined} />
+                    <AvatarFallback className="text-sm">{(p.clientName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="text-right min-w-0 flex-1">
+                    <p className="font-medium truncate">{p.name}</p>
+                    <p className="text-muted-foreground text-sm">{p.clientName ?? "—"}</p>
+                    {(projectMembers[p.id]?.length ?? 0) > 0 && (
+                      <AvatarStack members={projectMembers[p.id] ?? []} className="mt-1 justify-end" />
+                    )}
+                  </div>
+                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  <StatusBadgePopover projectId={p.id} currentStatus={p.status} onSuccess={() => router.refresh()} />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem asChild><Link href={`/dashboard/projects/${p.id}`}>عرض</Link></DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setEditingProject(p)}><Pencil className="me-2 h-4 w-4" />تعديل</DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={(e) => { e.preventDefault(); setProjectToDelete({ id: p.id, name: p.name }); }}><Trash2 className="me-2 h-4 w-4" />حذف</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <Card className="hidden md:block">
           <CardContent className="pt-0">
             <Table>
               <TableHeader>
@@ -354,9 +407,14 @@ export function ProjectsListView({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Link href={`/dashboard/projects/${p.id}`} className="font-medium text-primary hover:underline block text-right">
-                          {p.name}
-                        </Link>
+                        <div className="flex flex-col items-end gap-1">
+                          <Link href={`/dashboard/projects/${p.id}`} className="font-medium text-primary hover:underline block text-right">
+                            {p.name}
+                          </Link>
+                          {(projectMembers[p.id]?.length ?? 0) > 0 && (
+                            <AvatarStack members={projectMembers[p.id] ?? []} />
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <StatusBadgePopover
@@ -403,8 +461,9 @@ export function ProjectsListView({
             </Table>
           </CardContent>
         </Card>
+        </>
       ) : view === "gallery" ? (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
           {projects.map((p) => {
             const { pct, label } = progress(p.id);
             const coverColor = STATUS_COVER_COLOR[p.status] ?? "#94a3b8";
@@ -438,6 +497,11 @@ export function ProjectsListView({
                         />
                       </span>
                     </div>
+                    {(projectMembers[p.id]?.length ?? 0) > 0 && (
+                      <div className="mt-2 flex justify-end">
+                        <AvatarStack members={projectMembers[p.id] ?? []} />
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center gap-2">
                       <Avatar className="h-6 w-6">
                         <AvatarImage src={p.clientLogoUrl ?? undefined} />
@@ -506,7 +570,7 @@ export function ProjectsListView({
           })}
         </div>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-2">
+        <div className="flex gap-4 overflow-x-auto pb-2 min-w-0">
           {BOARD_COLUMNS.map((statusKey) => {
             const columnProjects = projects.filter((p) => p.status === statusKey);
             const label = PROJECT_STATUS_LABELS[statusKey] ?? statusKey;
@@ -514,7 +578,7 @@ export function ProjectsListView({
             return (
               <div
                 key={statusKey}
-                className="flex w-72 shrink-0 flex-col rounded-lg border bg-muted/30"
+                className="flex min-w-[280px] w-72 shrink-0 flex-col rounded-lg border bg-muted/30"
               >
                 <div className="flex items-center gap-2 border-b px-3 py-2">
                   <div
@@ -542,6 +606,11 @@ export function ProjectsListView({
                                   />
                                 </span>
                               </div>
+                              {(projectMembers[p.id]?.length ?? 0) > 0 && (
+                                <div className="mt-2 flex justify-end">
+                                  <AvatarStack members={projectMembers[p.id] ?? []} />
+                                </div>
+                              )}
                               <div className="mt-2 flex items-center gap-2">
                                 <Avatar className="h-5 w-5">
                                   <AvatarImage src={p.clientLogoUrl ?? undefined} />
@@ -615,6 +684,15 @@ export function ProjectsListView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <button
+        type="button"
+        className="md:hidden fixed bottom-24 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg text-2xl"
+        aria-label="مشروع جديد"
+        onClick={() => setNewProjectOpen(true)}
+      >
+        +
+      </button>
     </div>
   );
 }

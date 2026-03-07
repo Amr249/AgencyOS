@@ -64,7 +64,7 @@ export function FilePreviewModal({
   const isImg = file ? isImage(file.mimeType) : false;
   const isPdfType = file ? isPdf(file.mimeType) : false;
   const hasPreview = isImg || isPdfType;
-  const contentMaxWidth = hasPreview ? "max-w-3xl" : "max-w-md";
+  const contentMaxWidth = hasPreview ? "sm:max-w-3xl" : "sm:max-w-md";
 
   React.useEffect(() => {
     if (!open) setPdfLoadFailed(false);
@@ -92,7 +92,7 @@ export function FilePreviewModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         dir="rtl"
-        className={`${contentMaxWidth} flex max-h-[90vh] flex-col overflow-hidden p-0`}
+        className={`w-[95vw] max-w-[95vw] ${contentMaxWidth} flex max-h-[90vh] flex-col overflow-hidden p-0`}
         showCloseButton={false}
       >
         {/* Header: Close left, name + meta right */}

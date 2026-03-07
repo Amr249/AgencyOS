@@ -7,6 +7,7 @@ import { getProjectsByClientId, getProjectTaskCounts } from "@/actions/projects"
 import { getInvoicesByClientId, getNextInvoiceNumber } from "@/actions/invoices";
 import { getSettings } from "@/actions/settings";
 import { getFiles } from "@/actions/files";
+import { getTeamMembers } from "@/actions/team-members";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -41,13 +42,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ClientDetailPage({ params }: Props) {
   const { id } = await params;
-  const [clientResult, projectsResult, invoicesResult, settingsResult, nextNumResult, filesResult] = await Promise.all([
+  const [clientResult, projectsResult, invoicesResult, settingsResult, nextNumResult, filesResult, teamMembersResult] = await Promise.all([
     getClientById(id),
     getProjectsByClientId(id),
     getInvoicesByClientId(id),
     getSettings(),
     getNextInvoiceNumber(),
     getFiles({ clientId: id }),
+    getTeamMembers(),
   ]);
 
   if (!clientResult.ok) {
@@ -84,6 +86,7 @@ export default async function ClientDetailPage({ params }: Props) {
   const clientsForDialog = [{ id: client.id, companyName: client.companyName }];
   const defaultCurrency = settings?.defaultCurrency ?? "SAR";
   const initialFiles = filesResult.ok ? filesResult.data : [];
+  const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
 
   return (
     <div className="flex flex-col gap-4" dir="rtl">
@@ -104,13 +107,13 @@ export default async function ClientDetailPage({ params }: Props) {
       </Breadcrumb>
 
       <div className="flex flex-col gap-4 sm:flex-row-reverse sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <EditClientButton client={client} />
           <Button variant="outline" asChild>
             <Link href="/dashboard/clients">العودة للقائمة</Link>
           </Button>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row-reverse sm:items-center sm:gap-4">
           <div className="text-right">
             <h1 className="text-2xl font-bold tracking-tight">{client.companyName}</h1>
             <Badge
@@ -120,7 +123,7 @@ export default async function ClientDetailPage({ params }: Props) {
               {statusLabel}
             </Badge>
           </div>
-          <Avatar className="size-20 shrink-0 ring-2 ring-border">
+          <Avatar className="size-20 shrink-0 ring-2 ring-border self-end sm:self-center">
             {client.logoUrl ? (
               <AvatarImage src={client.logoUrl} alt={client.companyName} />
             ) : null}
@@ -134,7 +137,7 @@ export default async function ClientDetailPage({ params }: Props) {
       </div>
 
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5" dir="rtl">
+        <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap md:grid md:grid-cols-2 lg:grid-cols-5" dir="rtl">
           <TabsTrigger value="overview">نظرة عامة</TabsTrigger>
           <TabsTrigger value="projects">المشاريع</TabsTrigger>
           <TabsTrigger value="invoices">الفواتير</TabsTrigger>
@@ -157,6 +160,7 @@ export default async function ClientDetailPage({ params }: Props) {
             }))}
             taskCounts={taskCounts}
             clients={clientsForDialog}
+            teamMembers={teamMembers}
             defaultCurrency={defaultCurrency}
           />
         </TabsContent>

@@ -160,12 +160,12 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
         <div className="flex flex-wrap items-center gap-3">
           <Input
             placeholder="البحث باسم المهمة..."
-            className="max-w-xs"
+            className="w-full sm:max-w-xs"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <Select value={projectFilter} onValueChange={setProjectFilter}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="كل المشاريع" />
             </SelectTrigger>
             <SelectContent>
@@ -178,7 +178,7 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
             </SelectContent>
           </Select>
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -191,11 +191,11 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
           </Select>
           {viewMode === "list" && (
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((o) => (
+            <SelectTrigger className="w-full sm:w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
                     {o.label}
                   </SelectItem>
@@ -254,6 +254,15 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <button
+        type="button"
+        className="md:hidden fixed bottom-24 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg text-2xl"
+        aria-label="مهمة جديدة"
+        onClick={() => handleAddTask()}
+      >
+        +
+      </button>
     </>
   );
 }

@@ -14,6 +14,7 @@ import {
   getNewClientsPerMonth,
   type DateRangeKey,
 } from "@/actions/reports";
+import { getTeamCostBreakdownThisMonth } from "@/actions/expenses";
 import { getSarToEgpRate } from "@/lib/currency";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductivityReportsTab } from "@/components/reports/productivity-reports-tab";
@@ -59,6 +60,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
     overdueTasks,
     activeProjectsWithProgress,
     newClientsData,
+    teamCostBreakdownResult,
     rate,
   ] = await Promise.all([
     getFinancialSummary(),
@@ -72,8 +74,11 @@ export default async function ReportsPage({ searchParams }: PageProps) {
     getOverdueTasks(),
     getActiveProjectsWithProgress(),
     getNewClientsPerMonth(currentYear),
+    getTeamCostBreakdownThisMonth(),
     getSarToEgpRate(),
   ]);
+
+  const teamCostBreakdown = teamCostBreakdownResult.ok ? teamCostBreakdownResult.data : [];
 
   const revenueDelta =
     summary.revenueLastMonth > 0
@@ -98,7 +103,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
       <h1 className="text-2xl font-bold tracking-tight">التقارير</h1>
 
       <Tabs defaultValue="financial" className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2" dir="rtl">
+        <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap max-w-full md:grid md:max-w-md md:grid-cols-2" dir="rtl">
           <TabsTrigger value="financial">التقارير المالية</TabsTrigger>
           <TabsTrigger value="projects">تقارير المشاريع والإنتاجية</TabsTrigger>
         </TabsList>
@@ -146,6 +151,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
             newClientsTotal={newClientsData.total}
             newClientsByMonth={newClientsData.byMonth}
             recentClients={newClientsData.recent}
+            teamCostBreakdown={teamCostBreakdown}
           />
         </TabsContent>
       </Tabs>

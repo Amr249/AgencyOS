@@ -83,7 +83,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
   return (
     <div className="space-y-8">
       {/* Row 1 — KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">إيرادات هذا الشهر</CardTitle>
@@ -157,7 +157,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
           </CardHeader>
           <CardContent>
             {revenueByMonth.some((m) => m.invoiced > 0 || m.collected > 0) ? (
-              <div className="h-[300px]">
+              <div className="h-48 md:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={revenueByMonth}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -170,7 +170,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-muted-foreground flex h-[300px] items-center justify-center text-sm">
+              <p className="text-muted-foreground flex h-48 md:h-[300px] items-center justify-center text-sm">
                 لا توجد بيانات إيرادات بعد.
               </p>
             )}
@@ -183,7 +183,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
           </CardHeader>
           <CardContent>
             {projectStatusCounts.length > 0 ? (
-              <div className="h-[300px]">
+              <div className="h-48 md:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -208,7 +208,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-muted-foreground flex h-[300px] items-center justify-center text-sm">
+              <p className="text-muted-foreground flex h-48 md:h-[300px] items-center justify-center text-sm">
                 لا توجد مشاريع بعد.
               </p>
             )}
@@ -317,7 +317,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
           <CardTitle>إجراءات سريعة</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button asChild>
               <Link href="/dashboard/projects">
                 <PlusCircle className="me-2 h-4 w-4" />

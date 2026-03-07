@@ -92,11 +92,11 @@ export function RevenueAreaChart() {
       </CardHeader>
       <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
         {loading ? (
-          <p className="text-muted-foreground flex h-[250px] items-center justify-center text-sm">جاري التحميل...</p>
+          <p className="text-muted-foreground flex h-48 md:h-[250px] items-center justify-center text-sm">جاري التحميل...</p>
         ) : !hasData ? (
-          <p className="text-muted-foreground flex h-[250px] items-center justify-center text-sm">لا توجد بيانات لهذه الفترة.</p>
+          <p className="text-muted-foreground flex h-48 md:h-[250px] items-center justify-center text-sm">لا توجد بيانات لهذه الفترة.</p>
         ) : (
-          <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full" dir="rtl">
+          <ChartContainer config={chartConfig} className="aspect-auto h-48 md:h-[250px] w-full" dir="rtl">
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="fillProfits" x1="0" y1="0" x2="0" y2="1">

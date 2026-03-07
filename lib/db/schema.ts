@@ -53,6 +53,15 @@ export const expenseCategoryEnum = pgEnum("expense_category", [
   "office",
   "other",
 ]);
+export const teamMemberStatusEnum = pgEnum("team_member_status", ["active", "inactive"]);
+export const proposalStatusEnum = pgEnum("proposal_status", [
+  "applied",
+  "viewed",
+  "shortlisted",
+  "won",
+  "lost",
+  "cancelled",
+]);
 
 // Address type (clients + agency settings)
 export type AddressJson = {
@@ -180,6 +189,58 @@ export const files = pgTable("files", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
+// team_members
+export const teamMembers = pgTable("team_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  role: text("role"),
+  email: text("email"),
+  phone: text("phone"),
+  avatarUrl: text("avatar_url"),
+  status: teamMemberStatusEnum("status").notNull().default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// project_members (junction: project ↔ team member)
+export const projectMembers = pgTable("project_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  teamMemberId: uuid("team_member_id")
+    .notNull()
+    .references(() => teamMembers.id, { onDelete: "cascade" }),
+  roleOnProject: text("role_on_project"),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("project_members_project_id_idx").on(table.projectId),
+  index("project_members_team_member_id_idx").on(table.teamMemberId),
+]);
+
+// proposals (Mostaql job proposals)
+export const proposals = pgTable("proposals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  url: text("url"),
+  platform: text("platform").notNull().default("mostaql"),
+  budgetMin: numeric("budget_min", { precision: 12, scale: 2 }),
+  budgetMax: numeric("budget_max", { precision: 12, scale: 2 }),
+  currency: text("currency").notNull().default("SAR"),
+  category: text("category"),
+  description: text("description"),
+  myBid: numeric("my_bid", { precision: 12, scale: 2 }),
+  status: proposalStatusEnum("status").notNull().default("applied"),
+  appliedAt: date("applied_at").notNull(),
+  notes: text("notes"),
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("proposals_status_idx").on(table.status),
+  index("proposals_applied_at_idx").on(table.appliedAt),
+]);
+
 // expenses
 export const expenses = pgTable("expenses", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -189,6 +250,7 @@ export const expenses = pgTable("expenses", {
   date: date("date").notNull(),
   notes: text("notes"),
   receiptUrl: text("receipt_url"),
+  teamMemberId: uuid("team_member_id").references(() => teamMembers.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -214,6 +276,7 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   projects: many(projects),
   invoices: many(invoices),
   files: many(files),
+  proposals: many(proposals),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
@@ -222,6 +285,17 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   tasks: many(tasks),
   invoices: many(invoices),
   files: many(files),
+  projectMembers: many(projectMembers),
+  proposals: many(proposals),
+}));
+
+export const teamMembersRelations = relations(teamMembers, ({ many }) => ({
+  projectMembers: many(projectMembers),
+}));
+
+export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
+  project: one(projects, { fields: [projectMembers.projectId], references: [projects.id] }),
+  teamMember: one(teamMembers, { fields: [projectMembers.teamMemberId], references: [teamMembers.id] }),
 }));
 
 export const phasesRelations = relations(phases, ({ one, many }) => ({
@@ -253,4 +327,11 @@ export const filesRelations = relations(files, ({ one }) => ({
   task: one(tasks, { fields: [files.taskId], references: [tasks.id] }),
 }));
 
-// expenses have no relations (standalone)
+export const proposalsRelations = relations(proposals, ({ one }) => ({
+  client: one(clients, { fields: [proposals.clientId], references: [clients.id] }),
+  project: one(projects, { fields: [proposals.projectId], references: [projects.id] }),
+}));
+
+export const expensesRelations = relations(expenses, ({ one }) => ({
+  teamMember: one(teamMembers, { fields: [expenses.teamMemberId], references: [teamMembers.id] }),
+}));

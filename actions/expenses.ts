@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { expenses } from "@/lib/db";
+import { expenses, teamMembers } from "@/lib/db/schema";
 
 const categoryValues = [
   "software",
@@ -23,6 +23,7 @@ const createExpenseSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().optional(),
   receiptUrl: z.string().url().optional().nullable(),
+  teamMemberId: z.string().uuid().optional().nullable(),
 });
 
 const updateExpenseSchema = createExpenseSchema.partial().extend({
@@ -44,6 +45,8 @@ export type ExpenseRow = {
   date: string;
   notes: string | null;
   receiptUrl: string | null;
+  teamMemberId: string | null;
+  teamMemberName: string | null;
   createdAt: Date;
 };
 
@@ -65,9 +68,12 @@ export async function getExpenses(filters?: z.infer<typeof getExpensesFiltersSch
       date: expenses.date,
       notes: expenses.notes,
       receiptUrl: expenses.receiptUrl,
+      teamMemberId: expenses.teamMemberId,
+      teamMemberName: teamMembers.name,
       createdAt: expenses.createdAt,
     })
     .from(expenses)
+    .leftJoin(teamMembers, eq(expenses.teamMemberId, teamMembers.id))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
@@ -79,6 +85,8 @@ export async function getExpenses(filters?: z.infer<typeof getExpensesFiltersSch
     date: String(r.date),
     notes: r.notes,
     receiptUrl: r.receiptUrl,
+    teamMemberId: r.teamMemberId,
+    teamMemberName: r.teamMemberName ?? null,
     createdAt: r.createdAt,
   }));
 
@@ -144,6 +152,7 @@ export async function createExpense(input: z.infer<typeof createExpenseSchema>) 
         date: parsed.data.date,
         notes: parsed.data.notes ?? null,
         receiptUrl: parsed.data.receiptUrl ?? null,
+        teamMemberId: parsed.data.teamMemberId ?? null,
       })
       .returning();
     if (!row) return { ok: false as const, error: "Failed to create" };
@@ -169,6 +178,7 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
   if (rest.date != null) payload.date = rest.date;
   if (rest.notes !== undefined) payload.notes = rest.notes ?? null;
   if (rest.receiptUrl !== undefined) payload.receiptUrl = rest.receiptUrl ?? null;
+  if (rest.teamMemberId !== undefined) payload.teamMemberId = rest.teamMemberId ?? null;
   if (Object.keys(payload).length === 0) {
     return { ok: false as const, error: "No fields to update" };
   }
@@ -196,5 +206,89 @@ export async function deleteExpense(id: string) {
   } catch (e) {
     console.error("deleteExpense", e);
     return { ok: false as const, error: "Failed to delete" };
+  }
+}
+
+/** Team cost breakdown this month: each team member with total salary expenses paid to them. */
+export async function getTeamCostBreakdownThisMonth(): Promise<
+  { ok: true; data: { teamMemberId: string; name: string; role: string | null; totalSalary: number }[] } | { ok: false; error: string }
+> {
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const monthEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-31`;
+  try {
+    const rows = await db
+      .select({
+        teamMemberId: expenses.teamMemberId,
+        name: teamMembers.name,
+        role: teamMembers.role,
+        total: sql<number>`coalesce(sum(${expenses.amount})::numeric, 0)`,
+      })
+      .from(expenses)
+      .innerJoin(teamMembers, eq(expenses.teamMemberId, teamMembers.id))
+      .where(
+        and(
+          eq(expenses.category, "salaries"),
+          gte(expenses.date, monthStart),
+          lte(expenses.date, monthEnd)
+        )
+      )
+      .groupBy(expenses.teamMemberId, teamMembers.name, teamMembers.role);
+
+    const data = rows
+      .filter((r) => r.teamMemberId != null)
+      .map((r) => ({
+        teamMemberId: r.teamMemberId!,
+        name: r.name,
+        role: r.role,
+        totalSalary: Number(r.total) || 0,
+      }));
+    return { ok: true, data };
+  } catch (e) {
+    console.error("getTeamCostBreakdownThisMonth", e);
+    return { ok: false, error: "Failed to load team cost breakdown" };
+  }
+}
+
+/** Expenses linked to a team member (e.g. salary payments). Used by team member detail سجل الرواتب tab. */
+export async function getExpensesByTeamMemberId(teamMemberId: string) {
+  const parsed = z.string().uuid().safeParse(teamMemberId);
+  if (!parsed.success) return { ok: false as const, error: "Invalid team member id" };
+  try {
+    const rows = await db
+      .select({
+        id: expenses.id,
+        title: expenses.title,
+        amount: expenses.amount,
+        category: expenses.category,
+        date: expenses.date,
+        notes: expenses.notes,
+        receiptUrl: expenses.receiptUrl,
+        teamMemberId: expenses.teamMemberId,
+        teamMemberName: teamMembers.name,
+        createdAt: expenses.createdAt,
+      })
+      .from(expenses)
+      .leftJoin(teamMembers, eq(expenses.teamMemberId, teamMembers.id))
+      .where(eq(expenses.teamMemberId, parsed.data))
+      .orderBy(desc(expenses.date), desc(expenses.createdAt));
+
+    const data: ExpenseRow[] = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      amount: String(r.amount),
+      category: r.category as ExpenseCategory,
+      date: String(r.date),
+      notes: r.notes,
+      receiptUrl: r.receiptUrl,
+      teamMemberId: r.teamMemberId,
+      teamMemberName: r.teamMemberName ?? null,
+      createdAt: r.createdAt,
+    }));
+
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("getExpensesByTeamMemberId", e);
+    return { ok: false as const, error: "Failed to load expenses" };
   }
 }

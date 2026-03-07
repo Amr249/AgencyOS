@@ -60,9 +60,12 @@ type Summary = {
   topCategory: { category: ExpenseCategory; total: number } | null;
 };
 
+type TeamMemberOption = { id: string; name: string; role: string | null };
+
 type ExpensesListViewProps = {
   initialExpenses: ExpenseRow[];
   summary: Summary;
+  teamMembers?: TeamMemberOption[];
 };
 
 function formatDateDDMMYYYY(dateStr: string) {
@@ -70,7 +73,7 @@ function formatDateDDMMYYYY(dateStr: string) {
   return `${d}/${m}/${y}`;
 }
 
-export function ExpensesListView({ initialExpenses, summary }: ExpensesListViewProps) {
+export function ExpensesListView({ initialExpenses, summary, teamMembers = [] }: ExpensesListViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const categoryParam = searchParams.get("category") ?? "";
@@ -225,7 +228,16 @@ export function ExpensesListView({ initialExpenses, summary }: ExpensesListViewP
               ) : (
                 expenses.map((row) => (
                   <TableRow key={row.id}>
-                    <TableCell className="font-medium text-right">{row.title}</TableCell>
+                    <TableCell className="text-right">
+                      <div>
+                        <span className="font-medium">{row.title}</span>
+                        {row.category === "salaries" && row.teamMemberName && (
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            👤 {row.teamMemberName}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right">
                       <ExpenseCategoryBadge category={row.category} />
                     </TableCell>
@@ -269,6 +281,7 @@ export function ExpensesListView({ initialExpenses, summary }: ExpensesListViewP
         onOpenChange={setDialogOpen}
         onSuccess={handleSuccess}
         editExpense={editExpense}
+        teamMembers={teamMembers}
       />
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>

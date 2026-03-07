@@ -45,7 +45,51 @@ type TasksListViewProps = {
 
 export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListViewProps) {
   return (
-    <div className="rounded-md border">
+    <>
+      {/* Mobile: card list */}
+      <div className="space-y-2 md:hidden">
+        {tasks.map((task) => {
+          const overdue = isOverdue(task.dueDate);
+          return (
+            <div
+              key={task.id}
+              className="flex items-center justify-between rounded-xl border p-4"
+            >
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  className="font-medium text-right block hover:underline"
+                  onClick={() => onOpenTask(task.id)}
+                >
+                  {task.title}
+                </button>
+                <p className="text-muted-foreground text-sm mt-0.5">{task.projectName}</p>
+                <p className={cn("text-sm mt-0.5", overdue && "text-red-600 font-medium")}>
+                  {formatDate(task.dueDate)}
+                  {overdue && " (متأخر)"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Badge variant="secondary" className={cn("text-xs", TASK_PRIORITY_BADGE_CLASS[task.priority] ?? "")}>
+                  {TASK_PRIORITY_LABELS[task.priority] ?? task.priority}
+                </Badge>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => onOpenTask(task.id)}>تعديل</DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => onDeleteTask(task.id)}>حذف</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="hidden md:block rounded-md border">
       <table className="w-full text-right">
         <thead>
           <tr className="border-b bg-muted/50">
@@ -129,5 +173,6 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
         <div className="text-muted-foreground py-12 text-center">لا توجد مهام.</div>
       )}
     </div>
+    </>
   );
 }
