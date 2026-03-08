@@ -5,6 +5,7 @@ import { z } from "zod";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teamMembers, projectMembers, projects, clients, expenses } from "@/lib/db";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 
 const statusValues = ["active", "inactive"] as const;
 
@@ -90,6 +91,9 @@ export async function getTeamMembers(): Promise<
     return { ok: true as const, data };
   } catch (e) {
     console.error("getTeamMembers", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load team members" };
   }
 }
@@ -116,6 +120,9 @@ export async function getTeamMemberById(id: string) {
     };
   } catch (e) {
     console.error("getTeamMemberById", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load team member" };
   }
 }
@@ -144,6 +151,9 @@ export async function createTeamMember(input: CreateTeamMemberInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createTeamMember", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to create team member" };
   }
 }
@@ -177,6 +187,9 @@ export async function updateTeamMember(input: UpdateTeamMemberInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateTeamMember", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to update" };
   }
 }
@@ -191,6 +204,9 @@ export async function deleteTeamMember(id: string) {
     return { ok: true as const };
   } catch (e) {
     console.error("deleteTeamMember", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to delete" };
   }
 }
@@ -230,6 +246,9 @@ export async function assignMemberToProject(
     return { ok: true as const };
   } catch (e) {
     console.error("assignMemberToProject", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to assign" };
   }
 }
@@ -255,6 +274,9 @@ export async function removeMemberFromProject(projectId: string, teamMemberId: s
     return { ok: true as const };
   } catch (e) {
     console.error("removeMemberFromProject", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to remove" };
   }
 }
@@ -301,6 +323,9 @@ export async function getProjectMembers(projectId: string) {
     return { ok: true as const, data };
   } catch (e) {
     console.error("getProjectMembers", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load project members" };
   }
 }
@@ -338,6 +363,9 @@ export async function getMemberProjects(teamMemberId: string) {
     return { ok: true as const, data };
   } catch (e) {
     console.error("getMemberProjects", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load projects" };
   }
 }

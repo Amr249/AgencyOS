@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SortableDataTable } from "@/components/ui/sortable-data-table";
 import { deleteInvoice } from "@/actions/invoices";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { MarkAsPaidDialog } from "./mark-as-paid-dialog";
@@ -110,6 +112,142 @@ export function InvoicesListView({
   const statusParam = searchParams.get("status") ?? "all";
   const dateRangeParam = searchParams.get("dateRange") ?? "all";
   const searchParam = searchParams.get("search") ?? "";
+
+  const invoiceTableColumns = React.useMemo<ColumnDef<InvoiceRow>[]>(
+    () => [
+      { id: "drag", header: () => null, cell: () => null, enableSorting: false, size: 32 },
+      {
+        accessorKey: "invoiceNumber",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">رقم الفاتورة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <Link href={`/dashboard/invoices/${row.original.id}`} className="font-medium hover:underline">
+            {row.original.invoiceNumber}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "clientName",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">العميل {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-2">
+            <Avatar className="h-6 w-6 shrink-0">
+              <AvatarImage src={row.original.clientLogoUrl ?? undefined} />
+              <AvatarFallback className="text-xs">{(row.original.clientName ?? "?").slice(0, 1)}</AvatarFallback>
+            </Avatar>
+            {row.original.clientName ?? "—"}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "projectName",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">المشروع {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => row.original.projectName ?? "—",
+      },
+      {
+        accessorKey: "total",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">المبلغ {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatBudgetSAR(row.original.total),
+      },
+      {
+        accessorKey: "status",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="flex flex-col items-end gap-0.5">
+            <InvoiceStatusBadge
+              invoiceId={row.original.id}
+              status={row.original.status}
+              invoiceNumber={row.original.invoiceNumber}
+              onRequestMarkAsPaid={(invoice) => setPayDialogInvoice(invoice)}
+            />
+            {row.original.status === "paid" && row.original.paidAt && (
+              <span className="text-muted-foreground text-xs">
+                تاريخ الدفع: {formatDateDDMMYYYY(row.original.paidAt instanceof Date ? row.original.paidAt.toISOString().slice(0, 10) : String(row.original.paidAt).slice(0, 10))}
+              </span>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "issueDate",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">تاريخ الإصدار {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatDateDDMMYYYY(row.original.issueDate),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => null,
+        cell: ({ row }) => {
+          const inv = row.original;
+          return (
+            <div className="flex justify-start">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <DotsHorizontalIcon className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem asChild>
+                    <Link href={`/dashboard/invoices/${inv.id}`}>عرض</Link>
+                  </DropdownMenuItem>
+                  {inv.status === "pending" && (
+                    <>
+                      <DropdownMenuItem onSelect={() => setPayDialogInvoice({ id: inv.id, invoiceNumber: inv.invoiceNumber })}>
+                        تحديد كمدفوعة
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href={`/dashboard/invoices/${inv.id}/edit`}>تعديل</Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setInvoiceToDelete({ id: inv.id, invoiceNumber: inv.invoiceNumber, status: inv.status });
+                    }}
+                  >
+                    حذف
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          );
+        },
+      },
+    ],
+    []
+  );
 
   const updateParams = React.useCallback(
     (updates: { status?: string; dateRange?: string; search?: string }) => {
@@ -246,100 +384,22 @@ export function InvoicesListView({
       </div>
 
       <Card className="hidden md:block">
-        <CardContent className="pt-0">
-          <div className="overflow-x-auto" dir="rtl">
-            <table className="w-full text-sm text-right">
-              <thead>
-                <tr className="border-b text-muted-foreground">
-                  <th className="pb-3 pe-4 font-medium text-right">رقم الفاتورة</th>
-                  <th className="pb-3 pe-4 font-medium text-right">العميل</th>
-                  <th className="pb-3 pe-4 font-medium text-right">المشروع</th>
-                  <th className="pb-3 pe-4 font-medium text-right">المبلغ</th>
-                  <th className="pb-3 pe-4 font-medium text-right">الحالة</th>
-                  <th className="pb-3 pe-4 font-medium text-right">تاريخ الإصدار</th>
-                  <th className="pb-3 w-10 text-right"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((inv) => (
-                  <tr key={inv.id} className="border-b last:border-0">
-                    <td className="py-3 pe-4 text-right">
-                      <Link href={`/dashboard/invoices/${inv.id}`} className="font-medium hover:underline">
-                        {inv.invoiceNumber}
-                      </Link>
-                    </td>
-                    <td className="py-3 pe-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Avatar className="h-6 w-6 shrink-0">
-                          <AvatarImage src={inv.clientLogoUrl ?? undefined} />
-                          <AvatarFallback className="text-xs">
-                            {(inv.clientName ?? "?").slice(0, 1)}
-                          </AvatarFallback>
-                        </Avatar>
-                        {inv.clientName ?? "—"}
-                      </div>
-                    </td>
-                    <td className="py-3 pe-4 text-right">{inv.projectName ?? "—"}</td>
-                    <td className="py-3 pe-4 text-right">{formatBudgetSAR(inv.total)}</td>
-                    <td className="py-3 pe-4 text-right">
-                      <div className="flex flex-col items-end gap-0.5">
-                        <InvoiceStatusBadge
-                          invoiceId={inv.id}
-                          status={inv.status}
-                          invoiceNumber={inv.invoiceNumber}
-                          onRequestMarkAsPaid={(invoice) => setPayDialogInvoice(invoice)}
-                        />
-                        {inv.status === "paid" && inv.paidAt && (
-                          <span className="text-muted-foreground text-xs">
-                            تاريخ الدفع: {formatDateDDMMYYYY(inv.paidAt instanceof Date ? inv.paidAt.toISOString().slice(0, 10) : String(inv.paidAt).slice(0, 10))}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 pe-4 text-right">{formatDateDDMMYYYY(inv.issueDate)}</td>
-                    <td className="py-3 text-right">
-                      <div className="flex justify-start">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <DotsHorizontalIcon className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/invoices/${inv.id}`}>عرض</Link>
-                            </DropdownMenuItem>
-                            {inv.status === "pending" && (
-                              <>
-                                <DropdownMenuItem onSelect={() => setPayDialogInvoice({ id: inv.id, invoiceNumber: inv.invoiceNumber })}>
-                                  تحديد كمدفوعة
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/dashboard/invoices/${inv.id}/edit`}>تعديل</Link>
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                setInvoiceToDelete({ id: inv.id, invoiceNumber: inv.invoiceNumber, status: inv.status });
-                              }}
-                            >
-                              حذف
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {invoices.length === 0 && (
-            <p className="py-8 text-center text-muted-foreground text-sm">لا توجد فواتير تطابق التصفية.</p>
-          )}
+        <CardContent className="pt-4">
+          <SortableDataTable<InvoiceRow>
+            columns={invoiceTableColumns}
+            data={invoices}
+            tableId="invoices-table"
+            getRowId={(inv) => inv.id}
+            columnLabels={{
+              invoiceNumber: "رقم الفاتورة",
+              clientName: "العميل",
+              projectName: "المشروع",
+              total: "المبلغ",
+              status: "الحالة",
+              issueDate: "تاريخ الإصدار",
+            }}
+            enablePagination={false}
+          />
         </CardContent>
       </Card>
       <AlertDialog open={!!invoiceToDelete} onOpenChange={(open) => !open && setInvoiceToDelete(null)}>

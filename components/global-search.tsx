@@ -81,19 +81,32 @@ export function GlobalSearch() {
 
   return (
     <>
-      {/* Search trigger: full button on desktop, icon only on mobile */}
+      {/* Mobile: icon-only trigger */}
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
         onClick={() => setOpen(true)}
-        className="shrink-0 size-9 sm:size-auto sm:w-48 sm:min-w-48 sm:gap-2 text-muted-foreground sm:justify-between rounded-md"
-        dir="rtl"
+        className="sm:hidden h-9 w-9 shrink-0"
       >
-        <Search className="size-4 sm:order-last" />
-        <span className="hidden sm:inline">بحث...</span>
-        <kbd className="hidden sm:inline-flex text-xs bg-muted px-1.5 py-0.5 rounded">
-          K ⌘
-        </kbd>
+        <Search className="h-4 w-4" />
+      </Button>
+      {/* Desktop: minimal search bar */}
+      <Button
+        variant="outline"
+        onClick={() => setOpen(true)}
+        dir="rtl"
+        className="hidden sm:flex items-center gap-3 h-9 px-3 text-sm text-muted-foreground bg-muted/50 border-0 rounded-lg w-52 hover:bg-muted shrink-0"
+      >
+        <span className="flex-1 text-right">بحث...</span>
+        <div className="flex items-center gap-0.5">
+          <kbd className="text-[11px] bg-background border rounded px-1 py-0.5 font-sans leading-none">
+            ⌘
+          </kbd>
+          <kbd className="text-[11px] bg-background border rounded px-1 py-0.5 font-sans leading-none">
+            K
+          </kbd>
+        </div>
+        <Search className="h-3.5 w-3.5 shrink-0" />
       </Button>
 
       <CommandDialog open={open} onOpenChange={setOpen} dir="rtl">

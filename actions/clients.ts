@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, isNotNull, isNull } from "drizzle-orm";
 import { db, clients } from "@/lib/db";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 
 export async function deleteClient(id: string) {
   const uuidSchema = z.string().uuid();
@@ -18,6 +19,9 @@ export async function deleteClient(id: string) {
     return { ok: true as const };
   } catch (e) {
     console.error("deleteClient", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to delete client",
@@ -71,9 +75,12 @@ export async function createClient(input: CreateClientInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createClient", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "Failed to create client"] },
+      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
     };
   }
 }
@@ -110,9 +117,12 @@ export async function updateClient(input: UpdateClientInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateClient", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "Failed to update client"] },
+      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
     };
   }
 }
@@ -138,6 +148,9 @@ export async function archiveClient(id: string) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("archiveClient", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to archive client",
@@ -155,6 +168,9 @@ export async function getClientsList() {
     return { ok: true as const, data: list };
   } catch (e) {
     console.error("getClientsList", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load clients" };
   }
 }
@@ -169,6 +185,9 @@ export async function getArchivedClientsList() {
     return { ok: true as const, data: list };
   } catch (e) {
     console.error("getArchivedClientsList", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load archived clients" };
   }
 }
@@ -194,6 +213,9 @@ export async function unarchiveClient(id: string) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("unarchiveClient", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to restore client",
@@ -218,6 +240,9 @@ export async function getClientById(id: string) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("getClientById", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load client" };
   }
 }

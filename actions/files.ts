@@ -5,6 +5,7 @@ import { z } from "zod";
 import { eq, isNull, and, desc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { files } from "@/lib/db";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 import { getImageKitClient } from "@/lib/imagekit";
 
 const createFileSchema = z.object({
@@ -82,6 +83,9 @@ export async function getFiles(params: { clientId?: string; projectId?: string }
     return { ok: true as const, data };
   } catch (e) {
     console.error("getFiles", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE, data: [] as FileRow[] };
+    }
     return { ok: false as const, error: "Failed to load files", data: [] as FileRow[] };
   }
 }
@@ -117,7 +121,10 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createFile", e);
-    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed to create file"] } };
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] } };
   }
 }
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, and, gte, lte, ilike, desc } from "drizzle-orm";
 import { db, proposals } from "@/lib/db";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 import { createClient } from "@/actions/clients";
 import { createProject } from "@/actions/projects";
 
@@ -124,6 +125,9 @@ export async function getProposals(filters?: ProposalFilters) {
     return { ok: true as const, data: rows };
   } catch (e) {
     console.error("getProposals", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load proposals" };
   }
 }
@@ -152,6 +156,9 @@ export async function getProposalStats() {
     };
   } catch (e) {
     console.error("getProposalStats", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load stats" };
   }
 }
@@ -206,6 +213,9 @@ export async function getProposalStatsForCharts() {
     };
   } catch (e) {
     console.error("getProposalStatsForCharts", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load chart data" };
   }
 }
@@ -242,9 +252,12 @@ export async function createProposal(input: CreateProposalInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createProposal", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "Failed to create proposal"] },
+      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
     };
   }
 }
@@ -278,6 +291,9 @@ export async function updateProposal(input: UpdateProposalInput) {
     return { ok: true as const };
   } catch (e) {
     console.error("updateProposal", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to update proposal",
@@ -302,6 +318,9 @@ export async function updateProposalStatus(
     return { ok: true as const };
   } catch (e) {
     console.error("updateProposalStatus", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to update status",
@@ -321,6 +340,9 @@ export async function deleteProposal(id: string) {
     return { ok: true as const };
   } catch (e) {
     console.error("deleteProposal", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to delete proposal",
@@ -380,6 +402,9 @@ export async function convertToClient(proposalId: string) {
     return { ok: true as const, data: { clientId: newClient.id } };
   } catch (e) {
     console.error("convertToClient", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to convert to client",

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, and, gte, lte, or, ilike, desc } from "drizzle-orm";
 import { db, invoices, invoiceItems, settings, clients, projects } from "@/lib/db";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 
 const invoiceStatusValues = ["pending", "paid"] as const;
 const paymentMethodValues = ["bank_transfer", "cash", "credit_card", "other"] as const;
@@ -123,6 +124,9 @@ export async function getInvoices(filters?: {
     return { ok: true as const, data: rows };
   } catch (e) {
     console.error("getInvoices", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load invoices" };
   }
 }
@@ -159,6 +163,9 @@ export async function getInvoicesByClientId(clientId: string) {
     return { ok: true as const, data: rows };
   } catch (e) {
     console.error("getInvoicesByClientId", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load invoices" };
   }
 }
@@ -181,6 +188,9 @@ export async function getInvoiceStats() {
     };
   } catch (e) {
     console.error("getInvoiceStats", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load stats" };
   }
 }
@@ -220,6 +230,9 @@ export async function getInvoiceById(id: string) {
     };
   } catch (e) {
     console.error("getInvoiceById", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load invoice" };
   }
 }
@@ -287,9 +300,12 @@ export async function createInvoice(input: CreateInvoiceInput) {
     return { ok: true as const, data: inv };
   } catch (e) {
     console.error("createInvoice", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "Failed to create invoice"] },
+      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
     };
   }
 }
@@ -354,9 +370,12 @@ export async function updateInvoice(input: UpdateInvoiceInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateInvoice", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "Failed to update invoice"] },
+      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
     };
   }
 }
@@ -390,6 +409,9 @@ export async function updateInvoiceStatus(
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateInvoiceStatus", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to update status" };
   }
 }
@@ -418,6 +440,9 @@ export async function markAsPaid(input: z.infer<typeof markAsPaidSchema>) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("markAsPaid", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to update" };
   }
 }
@@ -471,6 +496,9 @@ export async function deleteInvoice(id: string) {
     return { ok: true as const };
   } catch (e) {
     console.error("deleteInvoice", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to delete invoice",
@@ -486,6 +514,9 @@ export async function getNextInvoiceNumber() {
     return { ok: true as const, data: `${prefix}-${String(next).padStart(3, "0")}` };
   } catch (e) {
     console.error("getNextInvoiceNumber", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to get next number" };
   }
 }
@@ -528,6 +559,9 @@ export async function migrateInvoicesToNewFormat() {
     return { ok: true as const, data: { updated: all.length } };
   } catch (e) {
     console.error("migrateInvoicesToNewFormat", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to migrate invoice numbers" };
   }
 }

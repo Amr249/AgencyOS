@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,18 +33,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { SortableDataTable } from "@/components/ui/sortable-data-table";
 import { NewProjectDialog } from "./new-project-dialog";
 import { EditProjectDialog } from "./edit-project-dialog";
 import { deleteProject, updateProject } from "@/actions/projects";
@@ -232,6 +226,124 @@ export function ProjectsListView({
     return { pct, label: `${t.done} / ${t.total}` };
   };
 
+  const projectTableColumns = React.useMemo<ColumnDef<ProjectRow>[]>(
+    () => [
+      { id: "drag", header: () => null, cell: () => null, enableSorting: false, size: 32 },
+      {
+        accessorKey: "clientName",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الشركة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2 justify-end w-full">
+            <span>{row.original.clientName ?? "—"}</span>
+            <Avatar className="h-7 w-7 shrink-0">
+              <AvatarImage src={row.original.clientLogoUrl ?? undefined} />
+              <AvatarFallback className="text-xs">{(row.original.clientName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
+            </Avatar>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "name",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">اسم المشروع {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="text-right w-full">
+            <Link href={`/dashboard/projects/${row.original.id}`} className="font-medium text-primary hover:underline block text-right">
+              {row.original.name}
+            </Link>
+            {(projectMembers[row.original.id]?.length ?? 0) > 0 && (
+              <AvatarStack members={projectMembers[row.original.id] ?? []} className="justify-end" />
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "status",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="flex justify-end w-full">
+            <StatusBadgePopover projectId={row.original.id} currentStatus={row.original.status} onSuccess={() => router.refresh()} />
+          </div>
+        ),
+      },
+      {
+        accessorKey: "endDate",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الموعد النهائي {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatDate(row.original.endDate),
+      },
+      {
+        accessorKey: "budget",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الميزانية {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatBudgetSAR(row.original.budget),
+      },
+      {
+        id: "taskProgress",
+        enableSorting: false,
+        header: () => <span className="text-right">تقدم المهام</span>,
+        cell: ({ row }) => progress(row.original.id).label,
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => null,
+        cell: ({ row }) => {
+          const p = row.original;
+          return (
+            <div className="flex justify-start">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => setEditingProject(p)}>
+                    <Pencil className="me-2 h-4 w-4" />تعديل
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setProjectToDelete({ id: p.id, name: p.name });
+                    }}
+                  >
+                    <Trash2 className="me-2 h-4 w-4" />حذف
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          );
+        },
+      },
+    ],
+    [taskCounts, projectMembers, router, setEditingProject, setProjectToDelete]
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -377,88 +489,21 @@ export function ProjectsListView({
           })}
         </div>
         <Card className="hidden md:block">
-          <CardContent className="pt-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>الشركة</TableHead>
-                  <TableHead>اسم المشروع</TableHead>
-                  <TableHead>الحالة</TableHead>
-                  <TableHead>الموعد النهائي</TableHead>
-                  <TableHead>الميزانية</TableHead>
-                  <TableHead>تقدم المهام</TableHead>
-                  <TableHead className="w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projects.map((p) => {
-                  const { label } = progress(p.id);
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Avatar className="h-8 w-8 shrink-0">
-                            <AvatarImage src={p.clientLogoUrl ?? undefined} />
-                            <AvatarFallback className="text-xs">
-                              {(p.clientName ?? "?").slice(0, 1).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span>{p.clientName ?? "—"}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col items-end gap-1">
-                          <Link href={`/dashboard/projects/${p.id}`} className="font-medium text-primary hover:underline block text-right">
-                            {p.name}
-                          </Link>
-                          {(projectMembers[p.id]?.length ?? 0) > 0 && (
-                            <AvatarStack members={projectMembers[p.id] ?? []} />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadgePopover
-                          projectId={p.id}
-                          currentStatus={p.status}
-                          onSuccess={() => router.refresh()}
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">{formatDate(p.endDate)}</TableCell>
-                      <TableCell className="text-right">{formatBudgetSAR(p.budget)}</TableCell>
-                      <TableCell className="text-right">{label}</TableCell>
-                      <TableCell className="w-10">
-                        <div className="flex justify-start">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => setEditingProject(p)}>
-                              <Pencil className="me-2 h-4 w-4" />
-                              تعديل
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setProjectToDelete({ id: p.id, name: p.name });
-                              }}
-                            >
-                              <Trash2 className="me-2 h-4 w-4" />
-                              حذف
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+          <CardContent className="pt-4">
+            <SortableDataTable<ProjectRow>
+              columns={projectTableColumns}
+              data={projects}
+              tableId="projects-table"
+              getRowId={(p) => p.id}
+              columnLabels={{
+                clientName: "الشركة",
+                name: "اسم المشروع",
+                status: "الحالة",
+                endDate: "الموعد النهائي",
+                budget: "الميزانية",
+              }}
+              enablePagination={false}
+            />
           </CardContent>
         </Card>
         </>

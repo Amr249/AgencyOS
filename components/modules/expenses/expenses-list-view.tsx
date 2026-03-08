@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
 import { deleteExpense, type ExpenseRow, type ExpenseCategory } from "@/actions/expenses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,19 +14,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SortableDataTable } from "@/components/ui/sortable-data-table";
 import { format } from "date-fns";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import {
@@ -121,6 +115,92 @@ export function ExpensesListView({ initialExpenses, summary, teamMembers = [] }:
     setDialogOpen(true);
   };
 
+  const expenseTableColumns = React.useMemo<ColumnDef<ExpenseRow>[]>(
+    () => [
+      { id: "drag", header: () => null, cell: () => null, enableSorting: false, size: 32 },
+      {
+        accessorKey: "title",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">العنوان {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div>
+            <span className="font-medium">{row.original.title}</span>
+            {row.original.category === "salaries" && row.original.teamMemberName && (
+              <span className="mt-1 block text-xs text-muted-foreground">👤 {row.original.teamMemberName}</span>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "category",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الفئة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => <ExpenseCategoryBadge category={row.original.category} />,
+      },
+      {
+        accessorKey: "amount",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">المبلغ {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatBudgetSAR(row.original.amount),
+      },
+      {
+        accessorKey: "date",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">التاريخ {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatDateDDMMYYYY(row.original.date),
+      },
+      {
+        accessorKey: "notes",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">ملاحظات {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => <span className="max-w-[200px] truncate block text-right text-muted-foreground">{row.original.notes ?? "—"}</span>,
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => null,
+        cell: ({ row }) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => openEdit(row.original)}>
+                <Pencil className="ml-2 h-4 w-4" />تعديل
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteId(row.original.id)}>
+                <Trash2 className="ml-2 h-4 w-4" />حذف
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      },
+    ],
+    []
+  );
+
   return (
     <div className="space-y-6" dir="rtl">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -206,73 +286,21 @@ export function ExpensesListView({ initialExpenses, summary, teamMembers = [] }:
 
       {/* Table */}
       <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="text-right">العنوان</TableHead>
-                <TableHead className="text-right">الفئة</TableHead>
-                <TableHead className="text-right">المبلغ</TableHead>
-                <TableHead className="text-right">التاريخ</TableHead>
-                <TableHead className="text-right">ملاحظات</TableHead>
-                <TableHead className="w-[60px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {expenses.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    لا توجد مصروفات. اضغط "+ إضافة مصروف" للبدء.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                expenses.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="text-right">
-                      <div>
-                        <span className="font-medium">{row.title}</span>
-                        {row.category === "salaries" && row.teamMemberName && (
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            👤 {row.teamMemberName}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <ExpenseCategoryBadge category={row.category} />
-                    </TableCell>
-                    <TableCell className="text-right">{formatBudgetSAR(row.amount)}</TableCell>
-                    <TableCell className="text-right">{formatDateDDMMYYYY(row.date)}</TableCell>
-                    <TableCell className="max-w-[200px] truncate text-right text-muted-foreground">
-                      {row.notes ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                          <DropdownMenuItem onClick={() => openEdit(row)}>
-                            <Pencil className="ml-2 h-4 w-4" />
-                            تعديل
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => setDeleteId(row.id)}
-                          >
-                            <Trash2 className="ml-2 h-4 w-4" />
-                            حذف
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+        <CardContent className="pt-4">
+          <SortableDataTable<ExpenseRow>
+            columns={expenseTableColumns}
+            data={expenses}
+            tableId="expenses-table"
+            getRowId={(r) => r.id}
+            columnLabels={{
+              title: "العنوان",
+              category: "الفئة",
+              amount: "المبلغ",
+              date: "التاريخ",
+              notes: "ملاحظات",
+            }}
+            enablePagination={false}
+          />
         </CardContent>
       </Card>
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db, settings } from "@/lib/db";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 import {
   agencyProfileSchema,
   invoiceDefaultsSchema,
@@ -21,6 +22,9 @@ export async function getSettings() {
     return { ok: true as const, data: row ?? null };
   } catch (e) {
     console.error("getSettings", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load settings" };
   }
 }
@@ -67,7 +71,10 @@ export async function updateAgencyProfile(input: AgencyProfileInput) {
     return { ok: true as const };
   } catch (e) {
     console.error("updateAgencyProfile", e);
-    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed to save"] } };
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] } };
   }
 }
 
@@ -91,7 +98,10 @@ export async function updateInvoiceDefaults(input: InvoiceDefaultsInput) {
     return { ok: true as const };
   } catch (e) {
     console.error("updateInvoiceDefaults", e);
-    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed to save"] } };
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] } };
   }
 }
 
@@ -111,7 +121,10 @@ export async function updateBranding(input: BrandingInput) {
     return { ok: true as const };
   } catch (e) {
     console.error("updateBranding", e);
-    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed to save"] } };
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] } };
   }
 }
 

@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
 import { IconDotsVertical, IconPencil, IconTrash } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { SortableDataTable } from "@/components/ui/sortable-data-table";
 import { NewMemberModal } from "@/components/modules/team/new-member-modal";
 import { deleteTeamMember, type TeamMemberWithProjectCount } from "@/actions/team";
 import { toast } from "sonner";
@@ -63,16 +65,122 @@ export function TeamListView({ members }: TeamListViewProps) {
   };
 
   const refresh = () => router.refresh();
+  const [view, setView] = React.useState<"cards" | "table">("cards");
+
+  const teamTableColumns = React.useMemo<ColumnDef<TeamMemberWithProjectCount>[]>(
+    () => [
+      { id: "drag", header: () => null, cell: () => null, enableSorting: false, size: 32 },
+      {
+        accessorKey: "name",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الاسم {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <Link href={`/dashboard/team/${row.original.id}`} className="flex items-center gap-3 no-underline min-w-0">
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarImage src={row.original.avatarUrl ?? undefined} alt={row.original.name} />
+              <AvatarFallback className="bg-muted text-muted-foreground text-xs">{getInitials(row.original.name)}</AvatarFallback>
+            </Avatar>
+            <span className="font-bold truncate">{row.original.name}</span>
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "role",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الدور {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.role ?? "—"}</span>,
+      },
+      {
+        accessorKey: "phone",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الهاتف {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => <span dir="ltr">{row.original.phone ?? "—"}</span>,
+      },
+      {
+        accessorKey: "status",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.status === "active" ? "default" : "secondary"}
+            className={row.original.status === "active" ? "bg-green-600 hover:bg-green-700" : ""}
+          >
+            {row.original.status === "active" ? "نشط" : "غير نشط"}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "projectCount",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">المشاريع {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => <span className="text-muted-foreground text-sm">{row.original.projectCount} مشروع</span>,
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => null,
+        cell: ({ row }) => {
+          const member = row.original;
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <IconDotsVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setEditingMember(member)}>
+                  <IconPencil className="me-2 h-4 w-4" />تعديل
+                </DropdownMenuItem>
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setMemberToDelete(member)}>
+                  <IconTrash className="me-2 h-4 w-4" />حذف
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
+      },
+    ],
+    []
+  );
 
   return (
     <>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold tracking-tight">الفريق</h1>
-        <NewMemberModal
-          trigger={<Button variant="secondary" className="w-full sm:w-auto">+ إضافة عضو</Button>}
-          asChild
-          onSuccess={refresh}
-        />
+        <div className="flex items-center gap-2">
+          <Button variant={view === "cards" ? "secondary" : "ghost"} size="sm" onClick={() => setView("cards")}>
+            بطاقات
+          </Button>
+          <Button variant={view === "table" ? "secondary" : "ghost"} size="sm" onClick={() => setView("table")}>
+            جدول
+          </Button>
+          <NewMemberModal
+            trigger={<Button variant="secondary" className="w-full sm:w-auto">+ إضافة عضو</Button>}
+            asChild
+            onSuccess={refresh}
+          />
+        </div>
       </div>
       {members.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
@@ -83,6 +191,25 @@ export function TeamListView({ members }: TeamListViewProps) {
             onSuccess={refresh}
           />
         </div>
+      ) : view === "table" ? (
+        <Card>
+          <CardContent className="pt-4">
+            <SortableDataTable<TeamMemberWithProjectCount>
+              columns={teamTableColumns}
+              data={members}
+              tableId="team-table"
+              getRowId={(m) => m.id}
+              columnLabels={{
+                name: "الاسم",
+                role: "الدور",
+                phone: "الهاتف",
+                status: "الحالة",
+                projectCount: "المشاريع",
+              }}
+              enablePagination={false}
+            />
+          </CardContent>
+        </Card>
       ) : (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {members.map((member) => (

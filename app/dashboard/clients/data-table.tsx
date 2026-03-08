@@ -2,6 +2,23 @@
 
 import * as React from "react";
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   ColumnDef,
   ColumnFiltersState,
   SortingState,
@@ -12,8 +29,9 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type Row,
 } from "@tanstack/react-table";
-import { ArrowUpDown, MoreHorizontal, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { GripVertical, MoreHorizontal, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -62,6 +80,72 @@ import type { clients } from "@/lib/db/schema";
 
 type ClientRow = typeof clients.$inferSelect;
 
+/** Priority for "active clients first" sort (lower = earlier in list). */
+const STATUS_SORT_ORDER: Record<string, number> = {
+  active: 0,
+  lead: 1,
+  on_hold: 2,
+  completed: 3,
+  closed: 4,
+};
+
+const TABLE_ID = "clients-table";
+const ROW_ORDER_KEY = "sortable-table-row-order";
+
+function reorderRowsById<T>(rows: Row<T>[], rowOrder: string[], getRowId: (original: T) => string): Row<T>[] {
+  const validRows = rows.filter((r) => r.original != null);
+  if (rowOrder.length === 0) return validRows;
+  const orderSet = new Set(rowOrder);
+  const byId = new Map(validRows.map((r) => [getRowId(r.original), r]));
+  const result: Row<T>[] = [];
+  for (const id of rowOrder) {
+    const row = byId.get(id);
+    if (row) result.push(row);
+  }
+  for (const row of validRows) {
+    if (!orderSet.has(getRowId(row.original))) result.push(row);
+  }
+  return result;
+}
+
+function SortableClientRow({ row }: { row: Row<ClientRow> }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.original.id,
+  });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    background: isDragging ? "var(--accent)" : undefined,
+    zIndex: isDragging ? 10 : undefined,
+    position: isDragging ? "relative" : undefined,
+  };
+  return (
+    <TableRow ref={setNodeRef} style={style} data-state={row.getIsSelected() ? "selected" : undefined}>
+      {row.getVisibleCells().map((cell) =>
+        cell.column.id === "drag" ? (
+          <TableCell
+            key={cell.id}
+            className="w-8 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground pr-1 text-right"
+            {...attributes}
+            {...listeners}
+          >
+            <div className="flex justify-end">
+              <GripVertical className="h-4 w-4" />
+            </div>
+          </TableCell>
+        ) : (
+          <TableCell
+            key={cell.id}
+            className={cn("text-right", cell.column.id === "actions" ? "w-10" : undefined)}
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        )
+      )}
+    </TableRow>
+  );
+}
 
 type ClientsDataTableProps = {
   data: ClientRow[];
@@ -77,15 +161,63 @@ export default function ClientsDataTable({
   const [clientToDelete, setClientToDelete] = React.useState<ClientRow | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [restoringId, setRestoringId] = React.useState<string | null>(null);
-  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [sorting, setSorting] = React.useState<SortingState>(() => {
+    if (typeof window === "undefined") return [{ id: "status", desc: false }];
+    try {
+      const saved = localStorage.getItem(`sort-${TABLE_ID}`);
+      return saved ? JSON.parse(saved) : [{ id: "status", desc: false }];
+    } catch {
+      return [{ id: "status", desc: false }];
+    }
+  });
+  const [rowOrder, setRowOrder] = React.useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(`${ROW_ORDER_KEY}-${TABLE_ID}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(`sort-${TABLE_ID}`, JSON.stringify(sorting));
+    } catch {
+      /* ignore */
+    }
+  }, [sorting]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(`${ROW_ORDER_KEY}-${TABLE_ID}`, JSON.stringify(rowOrder));
+    } catch {
+      /* ignore */
+    }
+  }, [rowOrder]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
   const columns: ColumnDef<ClientRow>[] = React.useMemo(
     () => [
       {
+        id: "drag",
+        header: () => null,
+        cell: () => null,
+        enableSorting: false,
+        size: 32,
+      },
+      {
         accessorKey: "companyName",
+        enableSorting: true,
         filterFn: (row, _columnId, filterValue) => {
           const s = String(filterValue ?? "").toLowerCase().trim();
           if (!s) return true;
@@ -96,11 +228,13 @@ export default function ClientsDataTable({
         header: ({ column }) => (
           <Button
             variant="ghost"
-            className="-ms-3 flex w-full justify-end gap-2 flex-row-reverse"
+            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            <ArrowUpDown className="h-4 w-4 shrink-0" />
-            <span className="text-right">الشركة</span>
+            <span className="text-right">
+              الشركة
+              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
+            </span>
           </Button>
         ),
         cell: ({ row }) => {
@@ -112,7 +246,8 @@ export default function ClientsDataTable({
               href={`/dashboard/clients/${row.original.id}`}
               className="font-medium text-primary hover:underline"
             >
-              <div className="flex items-center gap-2" dir="rtl">
+              <div className="flex items-center gap-2 justify-end w-full">
+                <span>{name}</span>
                 <Avatar className="h-8 w-8 shrink-0">
                   {logoUrl ? (
                     <AvatarImage src={logoUrl} alt={name} />
@@ -121,7 +256,6 @@ export default function ClientsDataTable({
                     {initial}
                   </AvatarFallback>
                 </Avatar>
-                <span>{name}</span>
               </div>
             </Link>
           );
@@ -129,14 +263,38 @@ export default function ClientsDataTable({
       },
       {
         accessorKey: "contactName",
-        header: () => <span className="text-right">جهة الاتصال</span>,
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-right">
+              جهة الاتصال
+              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
+            </span>
+          </Button>
+        ),
         cell: ({ row }) => (
           <span className="text-right block">{row.getValue("contactName") ?? "—"}</span>
         ),
       },
       {
         accessorKey: "contactPhone",
-        header: () => <span className="text-right">الهاتف</span>,
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-right">
+              الهاتف
+              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
+            </span>
+          </Button>
+        ),
         cell: ({ row }) => (
           <div className="text-right">
             <span dir="ltr">{row.getValue("contactPhone") ?? "—"}</span>
@@ -145,12 +303,27 @@ export default function ClientsDataTable({
       },
       {
         accessorKey: "status",
+        enableSorting: true,
+        sortingFn: (rowA, rowB) => {
+          const a = STATUS_SORT_ORDER[rowA.original.status ?? ""] ?? 99;
+          const b = STATUS_SORT_ORDER[rowB.original.status ?? ""] ?? 99;
+          return a - b;
+        },
         filterFn: (row, columnId, filterValue) =>
           !filterValue ||
           filterValue === "all" ||
           row.getValue(columnId) === filterValue,
-        header: () => (
-          <div className="w-full text-right">الحالة</div>
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-right">
+              الحالة
+              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
+            </span>
+          </Button>
         ),
         cell: ({ row }) => {
           const status = row.original.status;
@@ -250,6 +423,7 @@ export default function ClientsDataTable({
   const table = useReactTable({
     data,
     columns,
+    getRowId: (row) => row.id,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
@@ -265,6 +439,29 @@ export default function ClientsDataTable({
       rowSelection,
     },
   });
+
+  const sortedRows = table.getRowModel().rows;
+  const displayRows = React.useMemo(
+    () => reorderRowsById(sortedRows, rowOrder, (original) => original?.id ?? ""),
+    [sortedRows, rowOrder]
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = displayRows.findIndex((r) => r.original.id === active.id);
+    const newIndex = displayRows.findIndex((r) => r.original.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(displayRows, oldIndex, newIndex);
+    setRowOrder(reordered.map((r) => r.original.id));
+  };
+
+  const CLIENT_COLUMN_LABELS: Record<string, string> = {
+    companyName: "الشركة",
+    contactName: "جهة الاتصال",
+    contactPhone: "الهاتف",
+    status: "الحالة",
+  };
 
   const filteredRows = table.getFilteredRowModel().rows;
 
@@ -306,6 +503,52 @@ export default function ClientsDataTable({
               <SelectItem value="on_hold">متوقف</SelectItem>
               <SelectItem value="completed">مكتمل</SelectItem>
               <SelectItem value="closed">مغلق</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Notion-style sort toolbar (desktop) */}
+        <div className="mb-2 hidden flex-wrap items-center gap-3 text-sm md:flex" dir="rtl">
+          {sorting.length > 0 && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <span>مرتب حسب:</span>
+              <span className="font-medium text-foreground">
+                {CLIENT_COLUMN_LABELS[sorting[0].id] ?? sorting[0].id} {sorting[0].desc ? "↓" : "↑"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSorting([])}
+                className="hover:text-foreground rounded p-0.5 text-lg leading-none"
+                aria-label="إزالة الترتيب"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          <Select
+            value={sorting.length ? `${sorting[0].id}:${sorting[0].desc ? "desc" : "asc"}` : "none"}
+            onValueChange={(value) => {
+              if (value === "none") {
+                setSorting([]);
+                return;
+              }
+              const [id, dir] = value.split(":");
+              setSorting([{ id, desc: dir === "desc" }]);
+            }}
+          >
+            <SelectTrigger className="h-8 w-[160px] text-right text-muted-foreground">
+              <SelectValue placeholder="فرز" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">بدون ترتيب</SelectItem>
+              <SelectItem value="companyName:asc">الشركة ↑</SelectItem>
+              <SelectItem value="companyName:desc">الشركة ↓</SelectItem>
+              <SelectItem value="contactName:asc">جهة الاتصال ↑</SelectItem>
+              <SelectItem value="contactName:desc">جهة الاتصال ↓</SelectItem>
+              <SelectItem value="contactPhone:asc">الهاتف ↑</SelectItem>
+              <SelectItem value="contactPhone:desc">الهاتف ↓</SelectItem>
+              <SelectItem value="status:asc">الحالة ↑</SelectItem>
+              <SelectItem value="status:desc">الحالة ↓</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -426,56 +669,52 @@ export default function ClientsDataTable({
           )}
         </div>
 
-        {/* Desktop: table */}
+        {/* Desktop: table with drag-to-reorder */}
         <div className="hidden md:block" dir="rtl">
-        <Table className="border-t" style={{ direction: "rtl" }}>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className={cn(
-                      "text-right",
-                      header.column.id === "actions" ? "w-10" : undefined
-                    )}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
+        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} sensors={sensors}>
+          <Table className="border-t" style={{ direction: "rtl" }}>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead
+                      key={header.id}
                       className={cn(
                         "text-right",
-                        cell.column.id === "actions" ? "w-10" : undefined
+                        header.column.id === "actions" ? "w-10" : undefined,
+                        header.column.id === "drag" ? "w-8 pr-1" : undefined
                       )}
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
                   ))}
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center text-right">
-                  {showArchived
-                    ? "لا يوجد عملاء مؤرشفون."
-                    : "لا يوجد عملاء بعد. أضف أول عميل للبدء."}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {displayRows.length ? (
+                <SortableContext
+                  items={displayRows.map((r) => r.original.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {displayRows.map((row) => (
+                    <SortableClientRow key={row.id} row={row} />
+                  ))}
+                </SortableContext>
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="h-24 text-right">
+                    {showArchived
+                      ? "لا يوجد عملاء مؤرشفون."
+                      : "لا يوجد عملاء بعد. أضف أول عميل للبدء."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </DndContext>
         <div className="flex flex-row-reverse items-center justify-end gap-2 pt-4 text-right">
           <div className="text-muted-foreground flex-1 text-sm text-right">
             {table.getFilteredSelectedRowModel().rows.length} من{" "}

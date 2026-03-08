@@ -5,6 +5,7 @@ import { z } from "zod";
 import { eq, and, inArray, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teamMembers, projectMembers } from "@/lib/db/schema";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 
 export type TeamMemberRow = {
   id: string;
@@ -55,6 +56,9 @@ export async function getTeamMembers(): Promise<
     };
   } catch (e) {
     console.error("getTeamMembers", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false, error: "Failed to load team members" };
   }
 }
@@ -93,6 +97,9 @@ export async function getProjectMembers(projectId: string): Promise<
     };
   } catch (e) {
     console.error("getProjectMembers", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false, error: "Failed to load project members" };
   }
 }
@@ -128,6 +135,9 @@ export async function getProjectMemberIdsByProjectIds(
     return { ok: true, data };
   } catch (e) {
     console.error("getProjectMemberIdsByProjectIds", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false, error: "Failed to load project members" };
   }
 }
@@ -151,6 +161,9 @@ export async function assignMemberToProject(
     return { ok: true };
   } catch (e) {
     console.error("assignMemberToProject", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false, error: "Failed to assign member" };
   }
 }
@@ -176,6 +189,9 @@ export async function removeMemberFromProject(
     return { ok: true };
   } catch (e) {
     console.error("removeMemberFromProject", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false, error: "Failed to remove member" };
   }
 }

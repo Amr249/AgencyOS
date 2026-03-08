@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, isNull, and, sql, asc, desc, inArray } from "drizzle-orm";
 import { db, projects, clients, phases, tasks, projectMembers } from "@/lib/db";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 
 const DEFAULT_PHASES = [
   { name: "Discovery", order: 0 },
@@ -85,9 +86,12 @@ export async function createProject(input: CreateProjectInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createProject", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "Failed to create project"] },
+      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
     };
   }
 }
@@ -124,9 +128,12 @@ export async function updateProject(input: UpdateProjectInput) {
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateProject", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+    }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "Failed to update project"] },
+      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
     };
   }
 }
@@ -147,6 +154,9 @@ export async function updateProjectNotes(projectId: string, notes: string | null
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateProjectNotes", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to save notes" };
   }
 }
@@ -163,6 +173,9 @@ export async function deleteProject(id: string) {
     return { ok: true as const };
   } catch (e) {
     console.error("deleteProject", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to delete project",
@@ -212,6 +225,9 @@ export async function getProjects(filters?: {
     return { ok: true as const, data: rows };
   } catch (e) {
     console.error("getProjects", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load projects" };
   }
 }
@@ -245,6 +261,9 @@ export async function getProjectsByClientId(clientId: string) {
     return { ok: true as const, data: rows };
   } catch (e) {
     console.error("getProjectsByClientId", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load projects" };
   }
 }
@@ -269,6 +288,9 @@ export async function getProjectTaskCounts(projectIds: string[]) {
     return { ok: true as const, data: map };
   } catch (e) {
     console.error("getProjectTaskCounts", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE, data: {} };
+    }
     return { ok: false as const, error: "Failed to load task counts", data: {} };
   }
 }
@@ -307,6 +329,9 @@ export async function getProjectById(id: string) {
     };
   } catch (e) {
     console.error("getProjectById", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load project" };
   }
 }
@@ -330,6 +355,9 @@ export async function updatePhaseStatus(
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updatePhaseStatus", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to update phase" };
   }
 }

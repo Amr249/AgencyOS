@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { SortableDataTable } from "@/components/ui/sortable-data-table";
 import { deleteProposal } from "@/actions/proposals";
 import { NewProposalDialog } from "./new-proposal-dialog";
 import { EditProposalDialog } from "./edit-proposal-dialog";
@@ -121,6 +123,118 @@ export function ProposalsListView({
     title: string;
   } | null>(null);
   const [newOpen, setNewOpen] = React.useState(false);
+
+  const proposalTableColumns = React.useMemo<ColumnDef<ProposalRow>[]>(
+    () => [
+      { id: "drag", header: () => null, cell: () => null, enableSorting: false, size: 32 },
+      {
+        accessorKey: "title",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">العنوان {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) =>
+          row.original.url ? (
+            <a href={row.original.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline" dir="ltr">
+              {row.original.title}
+            </a>
+          ) : (
+            <span className="font-medium">{row.original.title}</span>
+          ),
+      },
+      {
+        accessorKey: "category",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الفئة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) =>
+          row.original.category ? (
+            <span className="rounded-full border bg-muted px-2 py-0.5 text-xs">{row.original.category}</span>
+          ) : (
+            "—"
+          ),
+      },
+      {
+        id: "budget",
+        enableSorting: false,
+        header: () => <span className="text-right">الميزانية</span>,
+        cell: ({ row }) => formatBudgetRange(row.original.budgetMin, row.original.budgetMax),
+      },
+      {
+        accessorKey: "myBid",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">عرضي {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatBudgetSAR(row.original.myBid),
+      },
+      {
+        accessorKey: "status",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <ProposalStatusBadge
+            proposalId={row.original.id}
+            status={row.original.status}
+            onStatusChange={() => router.refresh()}
+          />
+        ),
+      },
+      {
+        accessorKey: "appliedAt",
+        enableSorting: true,
+        header: ({ column }) => (
+          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-right">تاريخ التقديم {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          </Button>
+        ),
+        cell: ({ row }) => formatDate(row.original.appliedAt),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => null,
+        cell: ({ row }) => {
+          const p = row.original;
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setProposalToEdit({ ...p, appliedAt: p.appliedAt })}>
+                  <Pencil className="me-2 h-4 w-4" />تعديل
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setConvertProposal({ id: p.id, title: p.title })}>
+                  <UserPlus className="me-2 h-4 w-4" />تحويل لعميل
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() => setProposalToDelete({ id: p.id, title: p.title })}
+                >
+                  <Trash2 className="me-2 h-4 w-4" />حذف
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
+      },
+    ],
+    [router]
+  );
 
   const statusParam = searchParams.get("status") ?? "all";
   const dateRangeParam = searchParams.get("dateRange") ?? "all";
@@ -254,112 +368,21 @@ export function ProposalsListView({
 
       {/* Table */}
       <Card>
-        <CardContent className="pt-0">
-          <div className="overflow-x-auto" dir="rtl">
-            <table className="w-full text-sm text-right">
-              <thead>
-                <tr className="border-b text-muted-foreground">
-                  <th className="pb-3 pe-4 font-medium text-right">العنوان</th>
-                  <th className="pb-3 pe-4 font-medium text-right">الفئة</th>
-                  <th className="pb-3 pe-4 font-medium text-right">الميزانية</th>
-                  <th className="pb-3 pe-4 font-medium text-right">عرضي</th>
-                  <th className="pb-3 pe-4 font-medium text-right">الحالة</th>
-                  <th className="pb-3 pe-4 font-medium text-right">تاريخ التقديم</th>
-                  <th className="pb-3 w-10 text-right">الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {proposals.map((p) => (
-                  <tr key={p.id} className="border-b last:border-0">
-                    <td className="py-3 pe-4 text-right">
-                      {p.url ? (
-                        <a
-                          href={p.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium hover:underline"
-                          dir="ltr"
-                        >
-                          {p.title}
-                        </a>
-                      ) : (
-                        <span className="font-medium">{p.title}</span>
-                      )}
-                    </td>
-                    <td className="py-3 pe-4 text-right">
-                      {p.category ? (
-                        <span className="rounded-full border bg-muted px-2 py-0.5 text-xs">
-                          {p.category}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="py-3 pe-4 text-right">
-                      {formatBudgetRange(p.budgetMin, p.budgetMax)}
-                    </td>
-                    <td className="py-3 pe-4 text-right">
-                      {formatBudgetSAR(p.myBid)}
-                    </td>
-                    <td className="py-3 pe-4 text-right">
-                      <ProposalStatusBadge
-                        proposalId={p.id}
-                        status={p.status}
-                        onStatusChange={() => router.refresh()}
-                      />
-                    </td>
-                    <td className="py-3 pe-4 text-right">
-                      {formatDate(p.appliedAt)}
-                    </td>
-                    <td className="py-3 text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              setProposalToEdit({
-                                ...p,
-                                appliedAt: p.appliedAt,
-                              })
-                            }
-                          >
-                            <Pencil className="me-2 h-4 w-4" />
-                            تعديل
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              setConvertProposal({ id: p.id, title: p.title })
-                            }
-                          >
-                            <UserPlus className="me-2 h-4 w-4" />
-                            تحويل لعميل
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() =>
-                              setProposalToDelete({ id: p.id, title: p.title })
-                            }
-                          >
-                            <Trash2 className="me-2 h-4 w-4" />
-                            حذف
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {proposals.length === 0 && (
-            <p className="py-8 text-center text-muted-foreground text-sm">
-              لا توجد عروض تطابق التصفية.
-            </p>
-          )}
+        <CardContent className="pt-4">
+          <SortableDataTable<ProposalRow>
+            columns={proposalTableColumns}
+            data={proposals}
+            tableId="proposals-table"
+            getRowId={(p) => p.id}
+            columnLabels={{
+              title: "العنوان",
+              category: "الفئة",
+              myBid: "عرضي",
+              status: "الحالة",
+              appliedAt: "تاريخ التقديم",
+            }}
+            enablePagination={false}
+          />
         </CardContent>
       </Card>
 

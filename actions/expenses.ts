@@ -5,6 +5,7 @@ import { z } from "zod";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { expenses, teamMembers } from "@/lib/db/schema";
+import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
 
 const categoryValues = [
   "software",
@@ -161,6 +162,9 @@ export async function createExpense(input: z.infer<typeof createExpenseSchema>) 
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createExpense", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to create expense" };
   }
 }
@@ -190,6 +194,9 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateExpense", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to update" };
   }
 }
@@ -205,6 +212,9 @@ export async function deleteExpense(id: string) {
     return { ok: true as const };
   } catch (e) {
     console.error("deleteExpense", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to delete" };
   }
 }
@@ -246,6 +256,9 @@ export async function getTeamCostBreakdownThisMonth(): Promise<
     return { ok: true, data };
   } catch (e) {
     console.error("getTeamCostBreakdownThisMonth", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false, error: "Failed to load team cost breakdown" };
   }
 }
@@ -289,6 +302,9 @@ export async function getExpensesByTeamMemberId(teamMemberId: string) {
     return { ok: true as const, data };
   } catch (e) {
     console.error("getExpensesByTeamMemberId", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+    }
     return { ok: false as const, error: "Failed to load expenses" };
   }
 }
