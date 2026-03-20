@@ -1,11 +1,43 @@
-CREATE TYPE "public"."client_status" AS ENUM('lead', 'active', 'inactive');--> statement-breakpoint
-CREATE TYPE "public"."invoice_status" AS ENUM('draft', 'sent', 'viewed', 'paid', 'overdue', 'cancelled');--> statement-breakpoint
-CREATE TYPE "public"."phase_status" AS ENUM('pending', 'active', 'completed');--> statement-breakpoint
-CREATE TYPE "public"."project_member_role" AS ENUM('lead', 'member');--> statement-breakpoint
-CREATE TYPE "public"."project_status" AS ENUM('lead', 'active', 'on_hold', 'review', 'completed', 'cancelled');--> statement-breakpoint
-CREATE TYPE "public"."task_priority" AS ENUM('low', 'medium', 'high', 'urgent');--> statement-breakpoint
-CREATE TYPE "public"."task_status" AS ENUM('todo', 'in_progress', 'in_review', 'done', 'blocked');--> statement-breakpoint
-CREATE TYPE "public"."user_role" AS ENUM('admin', 'pm', 'member');--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'client_status') THEN
+    CREATE TYPE "public"."client_status" AS ENUM('lead', 'active', 'inactive');
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'invoice_status') THEN
+    CREATE TYPE "public"."invoice_status" AS ENUM('draft', 'sent', 'viewed', 'paid', 'overdue', 'cancelled');
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'phase_status') THEN
+    CREATE TYPE "public"."phase_status" AS ENUM('pending', 'active', 'completed');
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'project_member_role') THEN
+    CREATE TYPE "public"."project_member_role" AS ENUM('lead', 'member');
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'project_status') THEN
+    CREATE TYPE "public"."project_status" AS ENUM('lead', 'active', 'on_hold', 'review', 'completed', 'cancelled');
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'task_priority') THEN
+    CREATE TYPE "public"."task_priority" AS ENUM('low', 'medium', 'high', 'urgent');
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'task_status') THEN
+    CREATE TYPE "public"."task_status" AS ENUM('todo', 'in_progress', 'in_review', 'done', 'blocked');
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
+    CREATE TYPE "public"."user_role" AS ENUM('admin', 'pm', 'member');
+  END IF;
+END $$;--> statement-breakpoint
 CREATE TABLE "activity_log" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"actor_id" uuid,

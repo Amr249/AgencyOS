@@ -19,6 +19,8 @@ import {
 import { relations } from "drizzle-orm";
 
 // Enums (v2 Solo)
+export const userRoleEnum = pgEnum("user_role", ["admin", "member"]);
+
 export const clientStatusEnum = pgEnum("client_status", [
   "lead",
   "active",
@@ -62,6 +64,7 @@ export const proposalStatusEnum = pgEnum("proposal_status", [
   "lost",
   "cancelled",
 ]);
+export const serviceStatusEnum = pgEnum("service_status", ["active", "inactive"]);
 
 // Address type (clients + agency settings)
 export type AddressJson = {
@@ -70,6 +73,16 @@ export type AddressJson = {
   country?: string;
   postal?: string;
 };
+
+export const users = pgTable("users", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: userRoleEnum("role").notNull().default("member"),
+  avatarUrl: text("avatar_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 // clients
 export const clients = pgTable("clients", {
@@ -202,6 +215,49 @@ export const teamMembers = pgTable("team_members", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// services
+export const services = pgTable("services", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: serviceStatusEnum("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("services_name_idx").on(table.name),
+  index("services_status_idx").on(table.status),
+]);
+
+// project_services (junction: project ↔ service)
+export const projectServices = pgTable("project_services", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id")
+    .notNull()
+    .references(() => services.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("project_services_project_id_idx").on(table.projectId),
+  index("project_services_service_id_idx").on(table.serviceId),
+]);
+
+// client_services (junction: client ↔ service)
+export const clientServices = pgTable("client_services", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id")
+    .notNull()
+    .references(() => services.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("client_services_client_id_idx").on(table.clientId),
+  index("client_services_service_id_idx").on(table.serviceId),
+]);
+
 // project_members (junction: project ↔ team member)
 export const projectMembers = pgTable("project_members", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -217,6 +273,32 @@ export const projectMembers = pgTable("project_members", {
   index("project_members_project_id_idx").on(table.projectId),
   index("project_members_team_member_id_idx").on(table.teamMemberId),
 ]);
+
+// project_user_members (junction: project ↔ user)
+export const projectUserMembers = pgTable("project_user_members", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member"),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+});
+
+// task_assignments (junction: task ↔ user)
+export const taskAssignments = pgTable("task_assignments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+});
 
 // proposals (Mostaql job proposals)
 export const proposals = pgTable("proposals", {
@@ -277,6 +359,7 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   invoices: many(invoices),
   files: many(files),
   proposals: many(proposals),
+  clientServices: many(clientServices),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
@@ -286,6 +369,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   invoices: many(invoices),
   files: many(files),
   projectMembers: many(projectMembers),
+  projectServices: many(projectServices),
+  projectUserMembers: many(projectUserMembers),
   proposals: many(proposals),
 }));
 
@@ -293,9 +378,35 @@ export const teamMembersRelations = relations(teamMembers, ({ many }) => ({
   projectMembers: many(projectMembers),
 }));
 
+export const servicesRelations = relations(services, ({ many }) => ({
+  projectServices: many(projectServices),
+  clientServices: many(clientServices),
+}));
+
 export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
   project: one(projects, { fields: [projectMembers.projectId], references: [projects.id] }),
   teamMember: one(teamMembers, { fields: [projectMembers.teamMemberId], references: [teamMembers.id] }),
+}));
+
+export const projectServicesRelations = relations(projectServices, ({ one }) => ({
+  project: one(projects, { fields: [projectServices.projectId], references: [projects.id] }),
+  service: one(services, { fields: [projectServices.serviceId], references: [services.id] }),
+}));
+
+export const clientServicesRelations = relations(clientServices, ({ one }) => ({
+  client: one(clients, { fields: [clientServices.clientId], references: [clients.id] }),
+  service: one(services, { fields: [clientServices.serviceId], references: [services.id] }),
+}));
+
+export const projectUserMembersRelations = relations(projectUserMembers, ({ one }) => ({
+  project: one(projects, { fields: [projectUserMembers.projectId], references: [projects.id] }),
+  user: one(users, { fields: [projectUserMembers.userId], references: [users.id] }),
+}));
+
+export const taskAssignmentsRelations = relations(taskAssignments, ({ one }) => ({
+  task: one(tasks, { fields: [taskAssignments.taskId], references: [tasks.id] }),
+  user: one(users, { fields: [taskAssignments.userId], references: [users.id] }),
+  assignedByUser: one(users, { fields: [taskAssignments.assignedBy], references: [users.id] }),
 }));
 
 export const phasesRelations = relations(phases, ({ one, many }) => ({
@@ -309,6 +420,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   parentTask: one(tasks, { fields: [tasks.parentTaskId], references: [tasks.id] }),
   subtasks: many(tasks),
   files: many(files),
+  taskAssignments: many(taskAssignments),
 }));
 
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
@@ -335,3 +447,8 @@ export const proposalsRelations = relations(proposals, ({ one }) => ({
 export const expensesRelations = relations(expenses, ({ one }) => ({
   teamMember: one(teamMembers, { fields: [expenses.teamMemberId], references: [teamMembers.id] }),
 }));
+
+export type ProjectMember = typeof projectUserMembers.$inferSelect;
+export type NewProjectMember = typeof projectUserMembers.$inferInsert;
+export type TaskAssignment = typeof taskAssignments.$inferSelect;
+export type NewTaskAssignment = typeof taskAssignments.$inferInsert;

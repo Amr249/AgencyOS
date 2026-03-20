@@ -39,12 +39,12 @@ import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 
 const projectStatusOptions = [
-  { value: "lead", label: "عميل محتمل" },
-  { value: "active", label: "نشط" },
-  { value: "on_hold", label: "متوقف" },
-  { value: "review", label: "مراجعة" },
-  { value: "completed", label: "مكتمل" },
-  { value: "cancelled", label: "ملغي" },
+  { value: "lead", label: "Lead" },
+  { value: "active", label: "Active" },
+  { value: "on_hold", label: "On Hold" },
+  { value: "review", label: "Review" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 const formSchema = z.object({
@@ -56,17 +56,20 @@ const formSchema = z.object({
   budget: z.coerce.number().min(0).optional(),
   description: z.string().optional(),
   teamMemberIds: z.array(z.string()).optional(),
+  serviceIds: z.array(z.string()).optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 type ClientOption = { id: string; companyName: string | null };
 type TeamMemberOption = { id: string; name: string; role: string | null };
+type ServiceOption = { id: string; name: string; status: string };
 
 type NewProjectDialogProps = {
   trigger?: React.ReactNode;
   clients: ClientOption[];
   teamMembers?: TeamMemberOption[];
+  services?: ServiceOption[];
   defaultCurrency?: string;
   /** When set, client is pre-selected and locked (e.g. from client detail page). */
   defaultClientId?: string;
@@ -80,6 +83,7 @@ export function NewProjectDialog({
   trigger,
   clients,
   teamMembers = [],
+  services = [],
   defaultCurrency = "USD",
   defaultClientId,
   open,
@@ -106,6 +110,7 @@ export function NewProjectDialog({
       budget: undefined,
       description: "",
       teamMemberIds: [],
+      serviceIds: [],
     },
   });
 
@@ -122,6 +127,7 @@ export function NewProjectDialog({
         budget: undefined,
         description: "",
         teamMemberIds: [],
+        serviceIds: [],
       });
     }
   }, [effectiveOpen, form, defaultClientId]);
@@ -160,9 +166,10 @@ export function NewProjectDialog({
       budget: values.budget,
       description: values.description || undefined,
       teamMemberIds: values.teamMemberIds?.length ? values.teamMemberIds : undefined,
+      serviceIds: values.serviceIds?.length ? values.serviceIds : undefined,
     } as CreateProjectInput);
     if (result.ok) {
-      toast.success("تم إنشاء المشروع");
+      toast.success("Project created");
       setEffectiveOpen(false);
       onSuccess?.();
     } else {
@@ -175,15 +182,15 @@ export function NewProjectDialog({
   const content = (
     <>
       <DialogHeader>
-        <DialogTitle>مشروع جديد</DialogTitle>
+        <DialogTitle>New Project</DialogTitle>
         <DialogDescription>
-          إضافة مشروع جديد مرتبط بعميل. الحقول المطلوبة معلمة.
+          Add a new project linked to a client. Required fields are marked.
         </DialogDescription>
       </DialogHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 py-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">صورة غلاف المشروع (اختياري)</label>
+            <label className="text-sm font-medium">Project Cover Image (optional)</label>
             <input
               ref={coverInputRef}
               type="file"
@@ -200,13 +207,13 @@ export function NewProjectDialog({
                 onClick={() => coverInputRef.current?.click()}
                 disabled={coverUploading}
               >
-                {coverUploading ? "جاري الرفع…" : coverImageUrl ? "استبدال الصورة" : "رفع غلاف"}
+                {coverUploading ? "Uploading..." : coverImageUrl ? "Replace image" : "Upload cover"}
               </Button>
               {coverImageUrl && (
                 <>
                   <img src={coverImageUrl} alt="Cover preview" className="h-14 w-14 rounded object-cover border" />
                   <Button type="button" variant="ghost" size="sm" onClick={() => setCoverImageUrl(null)}>
-                    إزالة
+                    Remove
                   </Button>
                 </>
               )}
@@ -217,9 +224,9 @@ export function NewProjectDialog({
             name="name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>اسم المشروع *</FormLabel>
+                <FormLabel>Project Name *</FormLabel>
                 <FormControl>
-                  <Input placeholder="اسم المشروع" {...field} />
+                  <Input placeholder="Project name" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -230,7 +237,7 @@ export function NewProjectDialog({
             name="clientId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>العميل *</FormLabel>
+                <FormLabel>Client *</FormLabel>
                 {lockedClient ? (
                   <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
                     {clients.find((c) => c.id === field.value)?.companyName ?? field.value}
@@ -239,7 +246,7 @@ export function NewProjectDialog({
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="اختر العميل" />
+                        <SelectValue placeholder="Select client" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -260,7 +267,7 @@ export function NewProjectDialog({
             name="status"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>الحالة</FormLabel>
+                <FormLabel>Status</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger>
@@ -285,7 +292,7 @@ export function NewProjectDialog({
               name="teamMemberIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>أعضاء الفريق</FormLabel>
+                  <FormLabel>Team Members</FormLabel>
                   <FormControl>
                     <div className="space-y-2">
                       <Select
@@ -297,10 +304,10 @@ export function NewProjectDialog({
                           }
                         }}
                       >
-                        <SelectTrigger dir="rtl">
-                          <SelectValue placeholder="إضافة عضو فريق" />
+                        <SelectTrigger>
+                          <SelectValue placeholder="Add team member" />
                         </SelectTrigger>
-                        <SelectContent dir="rtl">
+                        <SelectContent>
                           {teamMembers
                             .filter((m) => !(field.value ?? []).includes(m.id))
                             .map((m) => (
@@ -342,18 +349,82 @@ export function NewProjectDialog({
               )}
             />
           )}
+          {services.length > 0 && (
+            <FormField
+              control={form.control}
+              name="serviceIds"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Services</FormLabel>
+                  <FormControl>
+                    <div className="space-y-2">
+                      <Select
+                        value=""
+                        onValueChange={(v) => {
+                          const arr = field.value ?? [];
+                          if (v && !arr.includes(v)) {
+                            field.onChange([...arr, v]);
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Add service" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {services
+                            .filter((s) => s.status === "active")
+                            .filter((s) => !(field.value ?? []).includes(s.id))
+                            .map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {(field.value ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {(field.value ?? []).map((id) => {
+                            const s = services.find((x) => x.id === id);
+                            return (
+                              <Badge
+                                key={id}
+                                variant="secondary"
+                                className="gap-1 pr-1.5 pl-1.5"
+                              >
+                                {s?.name ?? id}
+                                <button
+                                  type="button"
+                                  className="rounded-full hover:bg-muted p-0.5"
+                                  onClick={() =>
+                                    field.onChange((field.value ?? []).filter((x) => x !== id))
+                                  }
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
           <div className="grid grid-cols-2 gap-4">
             <FormField
               control={form.control}
               name="startDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>تاريخ البدء</FormLabel>
+                  <FormLabel>Start Date</FormLabel>
                   <FormControl>
                     <DatePickerAr
                       value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                       onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                      placeholder="اختر تاريخًا"
+                      placeholder="Select a date"
                     />
                   </FormControl>
                   <FormMessage />
@@ -365,12 +436,12 @@ export function NewProjectDialog({
               name="endDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>تاريخ الانتهاء / الموعد النهائي</FormLabel>
+                  <FormLabel>End Date / Deadline</FormLabel>
                   <FormControl>
                     <DatePickerAr
                       value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                       onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                      placeholder="اختر تاريخًا"
+                      placeholder="Select a date"
                     />
                   </FormControl>
                   <FormMessage />
@@ -383,7 +454,7 @@ export function NewProjectDialog({
             name="budget"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>الميزانية (ر.س)</FormLabel>
+                <FormLabel>Budget (SAR)</FormLabel>
                 <FormControl>
                   <Input type="number" min={0} step="0.01" placeholder="0" {...field} />
                 </FormControl>
@@ -396,9 +467,9 @@ export function NewProjectDialog({
             name="description"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>الوصف</FormLabel>
+                <FormLabel>Description</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="نطاق وأهداف المشروع..." className="resize-none" {...field} />
+                  <Textarea placeholder="Project scope and goals..." className="resize-none" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -406,9 +477,9 @@ export function NewProjectDialog({
           />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setEffectiveOpen(false)}>
-              إلغاء
+              Cancel
             </Button>
-            <Button type="submit">إنشاء المشروع</Button>
+            <Button type="submit">Create Project</Button>
           </DialogFooter>
         </form>
       </Form>

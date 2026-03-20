@@ -13,6 +13,7 @@ import { TASK_PRIORITY_LABELS, TASK_PRIORITY_BADGE_CLASS } from "@/types";
 import { cn } from "@/lib/utils";
 import { MoreHorizontal } from "lucide-react";
 import type { TaskWithProject } from "@/actions/tasks";
+import { AssigneeAvatars } from "@/components/dashboard/assignee-avatars";
 
 function formatDate(d: string | null) {
   if (!d) return null;
@@ -36,13 +37,20 @@ function isOverdue(dueDate: string | null) {
   }
 }
 
+type AssigneeForCard = {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+};
+
 type TaskCardProps = {
   task: TaskWithProject;
+  assignees?: AssigneeForCard[];
   onEdit: () => void;
   onDelete: () => void;
 };
 
-export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
+export function TaskCard({ task, assignees = [], onEdit, onDelete }: TaskCardProps) {
   const overdue = isOverdue(task.dueDate);
   const dueStr = formatDate(task.dueDate);
   const subtaskCount = task.subtaskCount ?? 0;
@@ -88,6 +96,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
             {subtaskCount} مهام فرعية
           </span>
         )}
+        <AssigneeAvatars assignees={assignees} max={3} />
       </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>

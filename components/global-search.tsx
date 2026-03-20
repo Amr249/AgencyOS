@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import {
   CommandDialog,
   CommandEmpty,
@@ -33,8 +34,11 @@ export function GlobalSearch() {
   const [results, setResults] = useState<SearchResults>(emptyResults);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const locale = useLocale();
+  const t = useTranslations("search");
+  const tc = useTranslations("common");
+  const dir = locale === "ar" ? "rtl" : "ltr";
 
-  // Open on Cmd+K / Ctrl+K
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -46,7 +50,6 @@ export function GlobalSearch() {
     return () => document.removeEventListener("keydown", down);
   }, []);
 
-  // Search as user types with debounce
   useEffect(() => {
     if (!query || query.length < 2) {
       setResults(emptyResults);
@@ -81,130 +84,114 @@ export function GlobalSearch() {
 
   return (
     <>
-      {/* Mobile: icon-only trigger */}
       <Button
         variant="ghost"
         size="icon"
         onClick={() => setOpen(true)}
-        className="sm:hidden h-9 w-9 shrink-0"
+        className="h-9 w-9 shrink-0 sm:hidden"
       >
         <Search className="h-4 w-4" />
       </Button>
-      {/* Desktop: minimal search bar */}
       <Button
         variant="outline"
         onClick={() => setOpen(true)}
-        dir="rtl"
-        className="hidden sm:flex items-center gap-3 h-9 px-3 text-sm text-muted-foreground bg-muted/50 border-0 rounded-lg w-52 hover:bg-muted shrink-0"
+        dir={dir}
+        className="hidden h-9 w-52 shrink-0 items-center gap-3 rounded-lg border-0 bg-muted/50 px-3 text-[15px] text-muted-foreground hover:bg-muted sm:flex"
       >
-        <span className="flex-1 text-right">بحث...</span>
-        <div className="flex items-center gap-0.5">
-          <kbd className="text-[11px] bg-background border rounded px-1 py-0.5 font-sans leading-none">
+        <span className="flex-1 text-start">{tc("search")}</span>
+        <span dir="ltr" className="flex items-center gap-0.5">
+          <kbd className="rounded border bg-background px-1 py-0.5 font-sans text-[11px] leading-none">
             ⌘
           </kbd>
-          <kbd className="text-[11px] bg-background border rounded px-1 py-0.5 font-sans leading-none">
+          <kbd className="rounded border bg-background px-1 py-0.5 font-sans text-[11px] leading-none">
             K
           </kbd>
-        </div>
+        </span>
         <Search className="h-3.5 w-3.5 shrink-0" />
       </Button>
 
-      <CommandDialog open={open} onOpenChange={setOpen} dir="rtl">
+      <CommandDialog open={open} onOpenChange={setOpen} dir={dir}>
         <CommandInput
-          placeholder="ابحث عن عميل، مشروع، فاتورة، مهمة..."
+          placeholder={t("placeholder")}
           value={query}
           onValueChange={setQuery}
-          dir="rtl"
+          dir={dir}
         />
-        <CommandList dir="rtl">
+        <CommandList dir={dir}>
           {loading && (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              جارٍ البحث...
-            </div>
+            <div className="py-6 text-center text-sm text-muted-foreground">{t("searching")}</div>
           )}
           {!loading && query.length >= 2 && !hasResults && (
-            <CommandEmpty>لا توجد نتائج لـ &quot;{query}&quot;</CommandEmpty>
+            <CommandEmpty>{t("noResults", { query })}</CommandEmpty>
           )}
           {!loading && query.length < 2 && (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              اكتب للبحث...
-            </div>
+            <div className="py-6 text-center text-sm text-muted-foreground">{t("typeToSearch")}</div>
           )}
 
           {!loading && results.clients.length > 0 && (
-            <CommandGroup heading="👥 العملاء">
+            <CommandGroup heading={t("groupClients")}>
               {results.clients.map((client) => (
                 <CommandItem
                   key={client.id}
                   onSelect={() => navigate(`/dashboard/clients/${client.id}`)}
-                  className="flex items-center justify-between gap-2 cursor-pointer"
-                  dir="rtl"
+                  className="flex cursor-pointer items-center justify-between gap-2"
+                  dir={dir}
                 >
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-bold">
                       {client.companyName[0]}
                     </div>
                     <span>{client.companyName}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {client.status}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{client.status}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
           )}
 
           {!loading && results.projects.length > 0 && (
-            <CommandGroup heading="📁 المشاريع">
+            <CommandGroup heading={t("groupProjects")}>
               {results.projects.map((project) => (
                 <CommandItem
                   key={project.id}
                   onSelect={() => navigate(`/dashboard/projects/${project.id}`)}
-                  className="flex items-center justify-between gap-2 cursor-pointer"
-                  dir="rtl"
+                  className="flex cursor-pointer items-center justify-between gap-2"
+                  dir={dir}
                 >
                   <span>{project.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {project.clientName}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{project.clientName}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
           )}
 
           {!loading && results.invoices.length > 0 && (
-            <CommandGroup heading="🧾 الفواتير">
+            <CommandGroup heading={t("groupInvoices")}>
               {results.invoices.map((invoice) => (
                 <CommandItem
                   key={invoice.id}
                   onSelect={() => navigate(`/dashboard/invoices/${invoice.id}`)}
-                  className="flex items-center justify-between gap-2 cursor-pointer"
-                  dir="rtl"
+                  className="flex cursor-pointer items-center justify-between gap-2"
+                  dir={dir}
                 >
                   <span>{invoice.invoiceNumber}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {invoice.clientName}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{invoice.clientName}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
           )}
 
           {!loading && results.tasks.length > 0 && (
-            <CommandGroup heading="✅ المهام">
+            <CommandGroup heading={t("groupTasks")}>
               {results.tasks.map((task) => (
                 <CommandItem
                   key={task.id}
-                  onSelect={() =>
-                    navigate(`/dashboard/tasks?task=${task.id}`)
-                  }
-                  className="flex items-center justify-between gap-2 cursor-pointer"
-                  dir="rtl"
+                  onSelect={() => navigate(`/dashboard/tasks?task=${task.id}`)}
+                  className="flex cursor-pointer items-center justify-between gap-2"
+                  dir={dir}
                 >
                   <span>{task.title}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {task.projectName}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{task.projectName}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

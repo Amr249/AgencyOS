@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { expenses, teamMembers } from "@/lib/db/schema";
-import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
+import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 
 const categoryValues = [
   "software",
@@ -163,7 +163,7 @@ export async function createExpense(input: z.infer<typeof createExpenseSchema>) 
   } catch (e) {
     console.error("createExpense", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to create expense" };
   }
@@ -195,7 +195,7 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
   } catch (e) {
     console.error("updateExpense", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to update" };
   }
@@ -213,9 +213,29 @@ export async function deleteExpense(id: string) {
   } catch (e) {
     console.error("deleteExpense", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to delete" };
+  }
+}
+
+export async function deleteExpenses(ids: string[]) {
+  const parsed = z.array(z.string().uuid()).min(1).safeParse(ids);
+  if (!parsed.success) return { ok: false as const, error: "Invalid ids" };
+  try {
+    const deleted = await db.delete(expenses).where(inArray(expenses.id, parsed.data)).returning({
+      id: expenses.id,
+    });
+    if (deleted.length === 0) return { ok: false as const, error: "No expenses found" };
+    revalidatePath("/dashboard/expenses");
+    revalidatePath("/dashboard/reports");
+    return { ok: true as const, count: deleted.length };
+  } catch (e) {
+    console.error("deleteExpenses", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: "Failed to delete expenses" };
   }
 }
 
@@ -257,7 +277,7 @@ export async function getTeamCostBreakdownThisMonth(): Promise<
   } catch (e) {
     console.error("getTeamCostBreakdownThisMonth", e);
     if (isDbConnectionError(e)) {
-      return { ok: false, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false, error: getDbErrorKey(e) };
     }
     return { ok: false, error: "Failed to load team cost breakdown" };
   }
@@ -303,7 +323,7 @@ export async function getExpensesByTeamMemberId(teamMemberId: string) {
   } catch (e) {
     console.error("getExpensesByTeamMemberId", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load expenses" };
   }

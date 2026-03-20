@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq, isNull, and, sql, asc, desc, inArray } from "drizzle-orm";
 import { db, projects, clients, phases, tasks, projectMembers } from "@/lib/db";
-import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
+import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { syncProjectServices } from "@/actions/project-services";
 
 const DEFAULT_PHASES = [
   { name: "Discovery", order: 0 },
@@ -33,6 +34,7 @@ const createProjectSchema = z.object({
   budget: z.coerce.number().min(0).optional(),
   description: z.string().optional(),
   teamMemberIds: z.array(z.string().uuid()).optional(),
+  serviceIds: z.array(z.string().uuid()).optional(),
 });
 
 const updateProjectSchema = createProjectSchema.partial().extend({
@@ -80,6 +82,10 @@ export async function createProject(input: CreateProjectInput) {
         }))
       );
     }
+    const syncCreate = await syncProjectServices(row.id, data.serviceIds ?? []);
+    if (!syncCreate.ok) {
+      return { ok: false as const, error: { _form: [syncCreate.error] } };
+    }
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${row.id}`);
     revalidatePath("/dashboard");
@@ -87,7 +93,7 @@ export async function createProject(input: CreateProjectInput) {
   } catch (e) {
     console.error("createProject", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return {
       ok: false as const,
@@ -122,6 +128,10 @@ export async function updateProject(input: UpdateProjectInput) {
     if (!row) {
       return { ok: false as const, error: { _form: ["Project not found"] } };
     }
+    const syncUpdate = await syncProjectServices(id, data.serviceIds);
+    if (!syncUpdate.ok) {
+      return { ok: false as const, error: { _form: [syncUpdate.error] } };
+    }
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${id}`);
     revalidatePath("/dashboard");
@@ -129,7 +139,7 @@ export async function updateProject(input: UpdateProjectInput) {
   } catch (e) {
     console.error("updateProject", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return {
       ok: false as const,
@@ -155,7 +165,7 @@ export async function updateProjectNotes(projectId: string, notes: string | null
   } catch (e) {
     console.error("updateProjectNotes", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to save notes" };
   }
@@ -174,11 +184,33 @@ export async function deleteProject(id: string) {
   } catch (e) {
     console.error("deleteProject", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return {
       ok: false as const,
       error: e instanceof Error ? e.message : "Failed to delete project",
+    };
+  }
+}
+
+export async function deleteProjects(ids: string[]) {
+  const parsed = z.array(z.string().uuid()).safeParse(ids);
+  if (!parsed.success || ids.length === 0) {
+    return { ok: false as const, error: "Invalid project ids" };
+  }
+  try {
+    await db.delete(projects).where(inArray(projects.id, parsed.data));
+    revalidatePath("/dashboard/projects");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  } catch (e) {
+    console.error("deleteProjects", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return {
+      ok: false as const,
+      error: e instanceof Error ? e.message : "Failed to delete projects",
     };
   }
 }
@@ -226,7 +258,7 @@ export async function getProjects(filters?: {
   } catch (e) {
     console.error("getProjects", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load projects" };
   }
@@ -262,7 +294,7 @@ export async function getProjectsByClientId(clientId: string) {
   } catch (e) {
     console.error("getProjectsByClientId", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load projects" };
   }
@@ -289,7 +321,7 @@ export async function getProjectTaskCounts(projectIds: string[]) {
   } catch (e) {
     console.error("getProjectTaskCounts", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE, data: {} };
+      return { ok: false as const, error: getDbErrorKey(e), data: {} };
     }
     return { ok: false as const, error: "Failed to load task counts", data: {} };
   }
@@ -330,7 +362,7 @@ export async function getProjectById(id: string) {
   } catch (e) {
     console.error("getProjectById", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load project" };
   }
@@ -356,7 +388,7 @@ export async function updatePhaseStatus(
   } catch (e) {
     console.error("updatePhaseStatus", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to update phase" };
   }

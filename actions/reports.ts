@@ -2,7 +2,7 @@
 
 import { eq, isNull, and, sql, inArray, lt, ne, gte, lte, desc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { projects, tasks, clients, invoices, expenses } from "@/lib/db";
+import { projects, tasks, clients, invoices, expenses, services, projectServices, clientServices } from "@/lib/db";
 import {
   startOfWeek,
   endOfWeek,
@@ -444,6 +444,23 @@ export type OutstandingInvoiceRow = {
   daysSinceIssue: number;
 };
 
+export type ClientServiceSpendRow = {
+  clientId: string;
+  clientName: string;
+  serviceId: string;
+  serviceName: string;
+  totalPaid: number;
+  invoiceCount: number;
+};
+
+export type ServiceProfitabilityRow = {
+  serviceId: string;
+  serviceName: string;
+  totalRevenue: number;
+  revenueSharePercent: number;
+  clientCount: number;
+};
+
 /** KPI summary for financial reports. إيرادات هذا الشهر and إجمالي الأرباح هذه السنة use paid_at. */
 export async function getFinancialSummary(): Promise<FinancialSummary> {
   const now = new Date();
@@ -751,4 +768,90 @@ export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]>
       daysSinceIssue,
     };
   });
+}
+
+export async function getClientSpendByService(): Promise<ClientServiceSpendRow[]> {
+  const rows = await db
+    .select({
+      clientId: clients.id,
+      clientName: clients.companyName,
+      serviceId: services.id,
+      serviceName: services.name,
+      invoiceTotal: invoices.total,
+      invoiceId: invoices.id,
+    })
+    .from(invoices)
+    .innerJoin(clients, eq(invoices.clientId, clients.id))
+    .innerJoin(projects, eq(invoices.projectId, projects.id))
+    .innerJoin(projectServices, eq(projectServices.projectId, projects.id))
+    .innerJoin(services, eq(projectServices.serviceId, services.id))
+    .leftJoin(
+      clientServices,
+      and(eq(clientServices.clientId, clients.id), eq(clientServices.serviceId, services.id))
+    )
+    .where(eq(invoices.status, "paid"));
+
+  const map = new Map<string, ClientServiceSpendRow>();
+  for (const row of rows) {
+    const key = `${row.clientId}:${row.serviceId}`;
+    const existing = map.get(key);
+    const total = Number(row.invoiceTotal);
+    if (!existing) {
+      map.set(key, {
+        clientId: row.clientId,
+        clientName: row.clientName ?? "—",
+        serviceId: row.serviceId,
+        serviceName: row.serviceName,
+        totalPaid: total,
+        invoiceCount: 1,
+      });
+    } else {
+      existing.totalPaid += total;
+      existing.invoiceCount += 1;
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => b.totalPaid - a.totalPaid);
+}
+
+export async function getServicesProfitability(): Promise<ServiceProfitabilityRow[]> {
+  const rows = await db
+    .select({
+      serviceId: services.id,
+      serviceName: services.name,
+      clientId: invoices.clientId,
+      invoiceTotal: invoices.total,
+    })
+    .from(invoices)
+    .innerJoin(projects, eq(invoices.projectId, projects.id))
+    .innerJoin(projectServices, eq(projectServices.projectId, projects.id))
+    .innerJoin(services, eq(projectServices.serviceId, services.id))
+    .where(eq(invoices.status, "paid"));
+
+  const revenueByService = new Map<string, { serviceName: string; totalRevenue: number; clients: Set<string> }>();
+  for (const row of rows) {
+    const existing = revenueByService.get(row.serviceId);
+    const revenue = Number(row.invoiceTotal);
+    if (!existing) {
+      revenueByService.set(row.serviceId, {
+        serviceName: row.serviceName,
+        totalRevenue: revenue,
+        clients: new Set([row.clientId]),
+      });
+    } else {
+      existing.totalRevenue += revenue;
+      existing.clients.add(row.clientId);
+    }
+  }
+
+  const totalRevenue = Array.from(revenueByService.values()).reduce((sum, r) => sum + r.totalRevenue, 0);
+  return Array.from(revenueByService.entries())
+    .map(([serviceId, row]) => ({
+      serviceId,
+      serviceName: row.serviceName,
+      totalRevenue: row.totalRevenue,
+      revenueSharePercent: totalRevenue > 0 ? Math.round((row.totalRevenue / totalRevenue) * 10000) / 100 : 0,
+      clientCount: row.clients.size,
+    }))
+    .sort((a, b) => b.totalRevenue - a.totalRevenue);
 }

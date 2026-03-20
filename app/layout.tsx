@@ -1,9 +1,21 @@
 import type { Metadata } from "next";
-import { Cairo } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Sans_Arabic } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
 import Providers from "@/components/providers";
 
-const cairo = Cairo({ subsets: ["arabic", "latin"] });
+const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
+  subsets: ["arabic"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-arabic",
+});
+
+const ibmPlexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-latin",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -23,13 +35,21 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+  const isRTL = locale === "ar";
+  const fontClass =
+    locale === "ar"
+      ? `${ibmPlexSansArabic.className} ${ibmPlexSansArabic.variable}`
+      : `${ibmPlexSans.className} ${ibmPlexSans.variable} ${ibmPlexSansArabic.variable}`;
+
   return (
-    <html lang="ar" dir="rtl" suppressHydrationWarning>
+    <html lang={locale} dir={isRTL ? "rtl" : "ltr"} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/Logo1.png" />
         <link rel="manifest" href="/manifest.json" />
@@ -40,8 +60,10 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/Logo1.png" />
         <meta name="theme-color" content="#000000" />
       </head>
-      <body className={cairo.className} dir="rtl">
-        <Providers>{children}</Providers>
+      <body className={fontClass} dir={isRTL ? "rtl" : "ltr"}>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Providers>{children}</Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

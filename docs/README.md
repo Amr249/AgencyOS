@@ -1,83 +1,40 @@
-# AgencyOS
+# AgencyOS — documentation index
 
-**Solo operations dashboard for a web design agency.** Replace Notion: manage clients, projects, tasks, invoices, and files from one screen. Single-user (no team, no RBAC). PRD v2.0 Solo Edition.
+Living documentation for the **AgencyOS** Next.js dashboard. Keep these files updated as the codebase changes.
 
----
+## Core (this pass)
 
-## What AgencyOS is
+| Document | Purpose |
+|----------|---------|
+| [project-overview.md](./project-overview.md) | Product name, purpose, solo/RTL-first scope, tech stack, deployment, design principles. |
+| [architecture.md](./architecture.md) | Current repository layout: `app`, `components`, `actions`, `lib`, `drizzle`, etc. |
+| [database-schema.md](./database-schema.md) | Drizzle/PostgreSQL tables, enums, relationships (from `lib/db/schema.ts`). |
+| [server-actions.md](./server-actions.md) | Each file in `/actions`: exports, parameters, return shapes, `db-errors` usage. |
+| [ui-components.md](./ui-components.md) | Custom and feature components; RTL-related notes; shadcn overrides. |
+| [rtl-conventions.md](./rtl-conventions.md) | How RTL is applied (`dir`, sidebar side, logical CSS, gotchas). |
+| [error-handling.md](./error-handling.md) | `db-errors.ts`, i18n keys, which actions use the pattern, gaps. |
+| [changelog.md](./changelog.md) | Short-form **[Unreleased]** / **[Recent]** notes. |
+| [CHANGELOG-archive.md](./CHANGELOG-archive.md) | Detailed append-only history (2026-03-05 — 2026-03-08) preserved when the living changelog format was introduced. |
 
-- **Purpose:** Personal ops dashboard — one place for clients, projects, tasks, invoices, and file storage.
-- **Users:** Single admin (you). No registration, no invites, no email sending in v1.
-- **Auth:** One account via NextAuth credentials; email + bcrypt hash in env vars. No users table.
+## Legacy / deep-dive docs (still valid)
 
----
+| Document | Purpose |
+|----------|---------|
+| [ARCHITECTURE-legacy.md](./ARCHITECTURE-legacy.md) | Older architecture narrative (some sections outdated — e.g. Cairo font vs IBM Plex). See [architecture.md](./architecture.md) for current layout. |
+| [DATABASE.md](./DATABASE.md) | Narrative database documentation. |
+| [MODULES.md](./MODULES.md) | Feature module behavior (clients, projects, …). |
+| [API.md](./API.md) | HTTP API routes under `app/api`. |
+| [DECISIONS.md](./DECISIONS.md) | Technical decision log. |
+| [TODO.md](./TODO.md) | Build status / backlog. |
 
-## Tech stack
+## Setup & environment
 
-| Layer        | Choice |
-|-------------|--------|
-| Framework   | Next.js 14+ (App Router), TypeScript |
-| UI         | shadcn/ui + Tailwind CSS (bundui base) |
-| Database   | Neon (PostgreSQL), pooled connection |
-| ORM        | Drizzle ORM, drizzle-kit migrations |
-| Auth       | NextAuth.js v5 — Credentials provider, JWT session |
-| File storage | ImageKit (server-side upload only) |
-| Forms      | React Hook Form + Zod |
-| Hosting    | Vercel (edge-compatible) |
+- Copy [`.env.example`](../.env.example) to `.env.local` and set `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, and auth-related variables.
+- Scripts: `pnpm dev`, `pnpm build`, `pnpm db:generate` / `db:push` / `db:migrate` — see [`package.json`](../package.json).
 
----
+## Quick links
 
-## Run locally
-
-1. **Clone and install**
-   ```bash
-   pnpm install
-   # or: npm install   (project has .npmrc with legacy-peer-deps for React 19 / lucide-react)
-   ```
-
-2. **Environment**
-   - Copy `.env.example` to `.env.local`.
-   - Set `DATABASE_URL` (Neon pooled), `AUTH_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH` (see below).
-
-3. **Database**
-   ```bash
-   pnpm db:generate   # generate migrations (when schema changes)
-   pnpm db:push       # apply schema to Neon
-   # or: pnpm db:migrate
-   ```
-
-4. **Dev server**
-   ```bash
-   pnpm dev
-   ```
-   Open [http://localhost:3000](http://localhost:3000). Sign in at `/login`.
-
----
-
-## Environment variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | Neon **pooled** connection string (serverless/edge). |
-| `AUTH_SECRET` | Yes | NextAuth secret (e.g. `npx auth secret` or `openssl rand -base64 32`). |
-| `NEXTAUTH_URL` | Yes | App URL (e.g. `http://localhost:3000`). |
-| `ADMIN_EMAIL` | Yes | Single admin login email. |
-| `ADMIN_PASSWORD_HASH` | Yes | bcrypt hash of admin password. Generate: `node -e "console.log(require('bcryptjs').hashSync('YOUR_PASSWORD', 10))"` |
-| `DATABASE_URL_DIRECT` | No | Optional direct (non-pooler) URL for migrations. |
-| `IMAGEKIT_PUBLIC_KEY` | No | For File Manager (Phase 3). |
-| `IMAGEKIT_PRIVATE_KEY` | No | For File Manager (Phase 3). Never expose client-side. |
-| `IMAGEKIT_URL_ENDPOINT` | No | e.g. `https://ik.imagekit.io/yourname`. |
-| `NEXT_PUBLIC_APP_URL` | No | Public app URL. |
-| `NEXT_PUBLIC_APP_NAME` | No | App name (default AgencyOS). |
-
----
-
-## Docs index
-
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — App structure, Server Actions, auth, ImageKit.
-- [DATABASE.md](./DATABASE.md) — Tables, fields, relationships.
-- [MODULES.md](./MODULES.md) — Clients, Projects, Tasks, Invoices, Files, Dashboard, Reports, Settings.
-- [API.md](./API.md) — API routes (`/api/*`).
-- [DECISIONS.md](./DECISIONS.md) — Technical decisions log.
-- [CHANGELOG.md](./CHANGELOG.md) — What was built, in order.
-- [TODO.md](./TODO.md) — Built vs in progress vs not started.
+- Application entry: [`app/layout.tsx`](../app/layout.tsx)
+- Drizzle schema: [`lib/db/schema.ts`](../lib/db/schema.ts)
+- DB client: [`lib/db/index.ts`](../lib/db/index.ts)
+- Environment template: [`.env.example`](../.env.example)

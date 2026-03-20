@@ -11,18 +11,31 @@ import { getSettings } from "@/actions/settings";
 import { InvoicesListView } from "@/components/modules/invoices/invoices-list-view";
 
 export const metadata: Metadata = {
-  title: "الفواتير",
+  title: "Invoices",
   description: "Invoices and billing",
 };
 
 type PageProps = {
-  searchParams: Promise<{ status?: string; dateRange?: string; search?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    dateRange?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }>;
 };
 
 export default async function InvoicesPage({ searchParams }: PageProps) {
-  const { status, dateRange, search } = await searchParams;
+  const { status, dateRange, dateFrom, dateTo, search } = await searchParams;
+  const invoiceFilters = {
+    status: status ?? undefined,
+    dateRange: dateRange ?? undefined,
+    dateFrom: dateFrom ?? undefined,
+    dateTo: dateTo ?? undefined,
+    search: search ?? undefined,
+  };
   const [invoicesResult, statsResult, clientsResult, settingsResult, nextNumResult] = await Promise.all([
-    getInvoices({ status: status ?? undefined, dateRange: dateRange ?? undefined, search: search ?? undefined }),
+    getInvoices(invoiceFilters),
     getInvoiceStats(),
     getClientsList(),
     getSettings(),
@@ -31,8 +44,8 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
 
   if (!invoicesResult.ok) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold tracking-tight">الفواتير</h1>
+      <div className="space-y-4" dir="ltr">
+        <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
         <p className="text-destructive">{invoicesResult.error}</p>
       </div>
     );
@@ -48,10 +61,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
   if (needsMigration) {
     const migrated = await migrateInvoicesToNewFormat();
     if (migrated.ok) {
-      const [reinv, renext] = await Promise.all([
-        getInvoices({ status: status ?? undefined, dateRange: dateRange ?? undefined, search: search ?? undefined }),
-        getNextInvoiceNumber(),
-      ]);
+      const [reinv, renext] = await Promise.all([getInvoices(invoiceFilters), getNextInvoiceNumber()]);
       if (reinv.ok) invoices = reinv.data;
       if (renext.ok) nextInvoiceNumber = renext.data;
     }

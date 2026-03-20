@@ -11,14 +11,21 @@ import type { TaskWithProject } from "@/actions/tasks";
 
 const KANBAN_STATUSES = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
 
+type AssigneeForCard = {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+};
+
 type TasksKanbanProps = {
   tasks: TaskWithProject[];
+  assigneesByTaskId: Record<string, AssigneeForCard[]>;
   onAddTask: (status: (typeof KANBAN_STATUSES)[number]) => void;
   onOpenTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
 };
 
-export function TasksKanban({ tasks, onAddTask, onOpenTask, onDeleteTask }: TasksKanbanProps) {
+export function TasksKanban({ tasks, assigneesByTaskId, onAddTask, onOpenTask, onDeleteTask }: TasksKanbanProps) {
   const byStatus = React.useMemo(() => {
     const m: Record<string, TaskWithProject[]> = {};
     for (const s of KANBAN_STATUSES) m[s] = [];
@@ -59,6 +66,7 @@ export function TasksKanban({ tasks, onAddTask, onOpenTask, onDeleteTask }: Task
               <TaskCard
                 key={task.id}
                 task={task}
+                assignees={assigneesByTaskId[task.id] ?? []}
                 onEdit={() => onOpenTask(task.id)}
                 onDelete={() => onDeleteTask(task.id)}
               />

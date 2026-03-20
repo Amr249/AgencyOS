@@ -101,8 +101,8 @@ What is built, in progress, and not started, by module. **Update at the start an
 ## Expenses
 
 - [x] Drizzle schema (expenses table, expense_category enum)
-- [x] Server Actions: getExpenses(filters), getExpensesSummary(), createExpense, updateExpense, deleteExpense (Zod)
-- [x] Page app/dashboard/expenses: summary bar, category + date filters, table, New/Edit dialog, delete AlertDialog
+- [x] Server Actions: getExpenses(filters), getExpensesSummary(), createExpense, updateExpense, deleteExpense, **deleteExpenses** (bulk) (Zod)
+- [x] Page app/dashboard/expenses: **English + LTR**; summary bar with **SAR icon** (`SarCurrencyIcon`) + formatted amount; category + date filters; **SortableDataTable** (`uiVariant="clients"`); **row selection + bulk delete**; New/Edit dialog (English); single + bulk delete AlertDialogs
 - [x] Receipt upload via /api/upload (folder agencyos/expenses/receipts)
 - [x] Sidebar "المصروفات" between الفواتير and التقارير
 - [x] Financial reports: monthly expenses in chart, profit KPI
@@ -133,10 +133,10 @@ What is built, in progress, and not started, by module. **Update at the start an
 ## Docs
 
 - [x] docs/README.md
-- [x] docs/ARCHITECTURE.md
+- [x] docs/architecture.md (+ docs/ARCHITECTURE-legacy.md historical)
 - [x] docs/DATABASE.md
 - [x] docs/MODULES.md
 - [x] docs/API.md
 - [x] docs/DECISIONS.md
-- [x] docs/CHANGELOG.md
+- [x] docs/changelog.md (living) + docs/CHANGELOG-archive.md (detailed history)
 - [x] docs/TODO.md

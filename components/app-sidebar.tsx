@@ -8,15 +8,17 @@ import {
   IconDashboard,
   IconFileText,
   IconFolder,
+  IconListCheck,
   IconListDetails,
   IconReceipt,
   IconReport,
   IconUsers,
   IconWallet,
 } from "@tabler/icons-react";
+import { useTranslations } from "next-intl";
 
+import { UserNav } from "@/components/dashboard/user-nav";
 import { NavMain } from "@/components/nav-main";
-import { NavUser } from "@/components/nav-user";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Sidebar,
@@ -29,39 +31,26 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-const navMain = [
-  { title: "لوحة التحكم", url: "/dashboard", icon: IconDashboard },
-  { title: "العملاء", url: "/dashboard/clients", icon: IconBuilding },
-  { title: "العروض", url: "/dashboard/proposals", icon: IconFileText },
-  { title: "المشاريع", url: "/dashboard/projects", icon: IconFolder },
-  { title: "الفريق", url: "/dashboard/team", icon: IconUsers },
-  { title: "المهام", url: "/dashboard/tasks", icon: IconListDetails },
-  { title: "الفواتير", url: "/dashboard/invoices", icon: IconReceipt },
-  { title: "المصروفات", url: "/dashboard/expenses", icon: IconWallet },
-  { title: "التقارير", url: "/dashboard/reports", icon: IconReport },
-  { title: "الإعدادات", url: "/dashboard/settings", icon: IconChartBar },
-];
-
-type SessionUser = {
-  name?: string | null;
-  email?: string | null;
-  image?: string | null;
-};
-
 export function AppSidebar({
-  user,
   ...props
-}: React.ComponentProps<typeof Sidebar> & {
-  user?: SessionUser | null;
-}) {
-  const { setOpenMobile } = useSidebar()
-  const displayUser = user
-    ? {
-        name: user.name ?? "Admin",
-        email: user.email ?? "",
-        avatar: user.image ?? "",
-      }
-    : { name: "Admin", email: "", avatar: "" };
+}: React.ComponentProps<typeof Sidebar>) {
+  const { setOpenMobile } = useSidebar();
+  const t = useTranslations("nav");
+
+  const navMain = [
+    { title: t("dashboard"), url: "/dashboard", icon: IconDashboard },
+    { title: t("tasks"), url: "/dashboard/my-tasks", icon: IconListCheck },
+    { title: t("clients"), url: "/dashboard/clients", icon: IconBuilding },
+    { title: t("proposals"), url: "/dashboard/proposals", icon: IconFileText },
+    { title: t("projects"), url: "/dashboard/projects", icon: IconFolder },
+    { title: t("services"), url: "/dashboard/services", icon: IconListDetails },
+    { title: t("team"), url: "/dashboard/team", icon: IconUsers },
+    { title: t("allTasks"), url: "/dashboard/tasks", icon: IconListDetails },
+    { title: t("invoices"), url: "/dashboard/invoices", icon: IconReceipt },
+    { title: t("expenses"), url: "/dashboard/expenses", icon: IconWallet },
+    { title: t("reports"), url: "/dashboard/reports", icon: IconReport },
+    { title: t("settings"), url: "/dashboard/settings", icon: IconChartBar },
+  ];
 
   return (
     <Sidebar collapsible="icon" side={props.side ?? "right"} {...props}>
@@ -77,7 +66,7 @@ export function AppSidebar({
                   height={32}
                   className="rounded-md"
                 />
-                <span className="text-base font-medium">AgencyOS</span>
+                <span className="text-[15px] font-medium">AgencyOS</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -90,7 +79,7 @@ export function AppSidebar({
         <div className="flex items-center justify-end gap-1 px-2 py-1">
           <ThemeToggle />
         </div>
-        <NavUser user={displayUser} />
+        <UserNav />
       </SidebarFooter>
     </Sidebar>
   );

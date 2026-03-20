@@ -131,7 +131,7 @@ export function ProposalsListView({
         accessorKey: "title",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">العنوان {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -148,7 +148,7 @@ export function ProposalsListView({
         accessorKey: "category",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">الفئة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -169,7 +169,7 @@ export function ProposalsListView({
         accessorKey: "myBid",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">عرضي {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -179,7 +179,7 @@ export function ProposalsListView({
         accessorKey: "status",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -195,7 +195,7 @@ export function ProposalsListView({
         accessorKey: "appliedAt",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">تاريخ التقديم {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),

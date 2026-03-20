@@ -10,9 +10,12 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "seed:admin": "npx tsx scripts/seed-admin.ts",
+    "fix:migrations": "npx tsx scripts/fix-migrations.ts"
   },
   "dependencies": {
+    "@abdulrysr/saudi-riyal-new-symbol-font": "^1.0.8",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/modifiers": "^9.0.0",
     "@dnd-kit/sortable": "^10.0.0",
@@ -40,7 +43,8 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.379.0",
     "next": "16.1.0",
-    "next-auth": "^5.0.0-beta.25",
+    "next-auth": "^4.24.13",
+    "next-intl": "^4.8.3",
     "next-themes": "^0.3.0",
     "radix-ui": "latest",
     "react": "19.2.3",

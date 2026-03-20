@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { listSavedViews, removeSavedView, upsertSavedView } from "@/lib/table-views";
 
 const ROW_ORDER_KEY = "sortable-table-row-order";
 
@@ -71,10 +72,12 @@ function SortableTableRow<T>({
   row,
   getRowId,
   dragColumnId = "drag",
+  uiVariant = "default",
 }: {
   row: Row<T>;
   getRowId: (row: T) => string;
   dragColumnId?: string;
+  uiVariant?: "default" | "clients";
 }) {
   const id = getRowId(row.original);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -91,12 +94,23 @@ function SortableTableRow<T>({
   };
 
   return (
-    <TableRow ref={setNodeRef} style={style} data-state={row.getIsSelected() ? "selected" : undefined}>
+    <TableRow
+      ref={setNodeRef}
+      style={style}
+      data-state={row.getIsSelected() ? "selected" : undefined}
+      className={cn(
+        uiVariant === "clients" &&
+          "group cursor-pointer border-b border-neutral-50 transition-colors last:border-0 hover:bg-neutral-50"
+      )}
+    >
       {row.getVisibleCells().map((cell) =>
         cell.column.id === dragColumnId ? (
           <TableCell
             key={cell.id}
-            className="w-8 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground pr-1 text-right"
+            className={cn(
+              "w-8 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground pr-1",
+              uiVariant === "clients" ? "text-left" : "text-right"
+            )}
             {...attributes}
             {...listeners}
           >
@@ -107,7 +121,10 @@ function SortableTableRow<T>({
         ) : (
           <TableCell
             key={cell.id}
-            className={cn("text-right", cell.column.id === "actions" && "w-10")}
+            className={cn(
+              uiVariant === "clients" ? "px-4 py-3 text-left text-sm" : "text-right",
+              cell.column.id === "actions" && "w-10"
+            )}
           >
             {flexRender(cell.column.columnDef.cell, cell.getContext())}
           </TableCell>
@@ -133,6 +150,10 @@ export type SortableDataTableProps<T> = {
   enablePagination?: boolean;
   enableRowOrderPersistence?: boolean;
   dragColumnId?: string;
+  uiVariant?: "default" | "clients";
+  enableSavedViews?: boolean;
+  getViewStateSnapshot?: () => Record<string, string>;
+  applyViewStateSnapshot?: (snapshot: Record<string, string>) => void;
 };
 
 export function SortableDataTable<T>({
@@ -146,6 +167,10 @@ export function SortableDataTable<T>({
   enablePagination = true,
   enableRowOrderPersistence = true,
   dragColumnId = "drag",
+  uiVariant = "default",
+  enableSavedViews = false,
+  getViewStateSnapshot,
+  applyViewStateSnapshot,
   columnFilters: controlledColumnFilters,
   onColumnFiltersChange: controlledOnColumnFiltersChange,
 }: SortableDataTableProps<T>) {
@@ -189,6 +214,8 @@ export function SortableDataTable<T>({
     initialState.columnVisibility ?? {}
   );
   const [rowSelection, setRowSelection] = React.useState({});
+  const [savedViews, setSavedViews] = React.useState(() => listSavedViews(tableId));
+  const [selectedViewId, setSelectedViewId] = React.useState<string>("none");
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -259,13 +286,78 @@ export function SortableDataTable<T>({
   const getColumnLabel = (columnId: string) =>
     columnLabels[columnId] ?? columnId;
 
+  const applySavedView = React.useCallback(
+    (viewId: string) => {
+      if (viewId === "none") {
+        setSelectedViewId("none");
+        return;
+      }
+      const view = savedViews.find((v) => v.id === viewId);
+      if (!view) return;
+      if (view.sort) setSorting(view.sort);
+      if (view.visibility) setColumnVisibility(view.visibility);
+      if (view.filters && applyViewStateSnapshot) applyViewStateSnapshot(view.filters);
+      setSelectedViewId(viewId);
+    },
+    [savedViews, applyViewStateSnapshot]
+  );
+
   return (
     <div className="w-full space-y-2">
       {/* Notion-style sort toolbar */}
-      <div className="flex flex-wrap items-center gap-3 text-sm" dir="rtl">
+      <div className="flex flex-wrap items-center gap-3 text-sm" dir={uiVariant === "clients" ? "ltr" : "rtl"}>
+        {enableSavedViews && (
+          <>
+            <Select value={selectedViewId} onValueChange={applySavedView}>
+              <SelectTrigger className="h-8 w-[180px] text-muted-foreground">
+                <SelectValue placeholder="Saved view" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Default view</SelectItem>
+                {savedViews.map((view) => (
+                  <SelectItem key={view.id} value={view.id}>
+                    {view.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <button
+              type="button"
+              className="rounded-md border px-2 py-1 text-xs hover:bg-muted"
+              onClick={() => {
+                const id = crypto.randomUUID();
+                const next = upsertSavedView(tableId, {
+                  id,
+                  name: `View ${savedViews.length + 1}`,
+                  filters: getViewStateSnapshot?.() ?? {},
+                  sort: sorting,
+                  visibility: columnVisibility,
+                  createdAt: Date.now(),
+                });
+                setSavedViews(next);
+                setSelectedViewId(id);
+              }}
+            >
+              Save view
+            </button>
+            <button
+              type="button"
+              disabled={selectedViewId === "none"}
+              className="rounded-md border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
+              onClick={() => {
+                if (selectedViewId === "none") return;
+                const next = removeSavedView(tableId, selectedViewId);
+                setSavedViews(next);
+                setSelectedViewId("none");
+              }}
+            >
+              Delete view
+            </button>
+          </>
+        )}
         {sorting.length > 0 && (
           <div className="flex items-center gap-2 text-muted-foreground">
-            <span>مرتب حسب:</span>
+            <span>Sorted by:</span>
             <span className="font-medium text-foreground">
               {getColumnLabel(sorting[0].id)} {sorting[0].desc ? "↓" : "↑"}
             </span>
@@ -273,7 +365,7 @@ export function SortableDataTable<T>({
               type="button"
               onClick={() => setSorting([])}
               className="hover:text-foreground rounded p-0.5 text-lg leading-none"
-              aria-label="إزالة الترتيب"
+              aria-label="Clear sort"
             >
               ×
             </button>
@@ -290,11 +382,16 @@ export function SortableDataTable<T>({
             setSorting([{ id, desc: dir === "desc" }]);
           }}
         >
-          <SelectTrigger className="w-[160px] text-right h-8 text-muted-foreground">
-            <SelectValue placeholder="فرز" />
+          <SelectTrigger
+            className={cn(
+              "h-8 w-[160px] text-muted-foreground",
+              uiVariant === "clients" ? "text-left" : "text-right"
+            )}
+          >
+            <SelectValue placeholder="Sort" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="none">بدون ترتيب</SelectItem>
+            <SelectItem value="none">No sorting</SelectItem>
             {columns
               .filter((c) => c.enableSorting !== false && (c.id ?? (c as { accessorKey?: string }).accessorKey) && c.id !== dragColumnId)
               .map((col) => {
@@ -311,20 +408,28 @@ export function SortableDataTable<T>({
         </Select>
       </div>
 
-      <DndContext
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-        sensors={sensors}
-      >
-        <Table className="border-t" style={{ direction: "rtl" }}>
+      <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} sensors={sensors}>
+        <div className={cn(uiVariant === "clients" && "w-full overflow-x-auto")}>
+          <Table
+            className={cn(
+              uiVariant === "clients" ? "w-full min-w-[980px] border-collapse" : "border-t"
+            )}
+            dir={uiVariant === "clients" ? "ltr" : "rtl"}
+            style={{ direction: uiVariant === "clients" ? "ltr" : "rtl" }}
+          >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
+              <TableRow
+                key={headerGroup.id}
+                className={cn(uiVariant === "clients" && "border-b border-neutral-100 bg-neutral-50")}
+              >
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
                     className={cn(
-                      "text-right",
+                      uiVariant === "clients"
+                        ? "px-4 py-2.5 text-xs font-medium text-neutral-400 text-left"
+                        : "text-right",
                       header.column.id === "actions" && "w-10",
                       header.column.id === dragColumnId && "w-8 pr-1"
                     )}
@@ -346,6 +451,7 @@ export function SortableDataTable<T>({
                     row={row}
                     getRowId={getRowId}
                     dragColumnId={dragColumnId}
+                    uiVariant={uiVariant}
                   />
                 ))}
               </SortableContext>
@@ -353,30 +459,45 @@ export function SortableDataTable<T>({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="h-24 text-right text-muted-foreground"
+                  className={cn(
+                    "h-24 text-muted-foreground",
+                    uiVariant === "clients" ? "text-left" : "text-right"
+                  )}
                 >
-                  لا توجد بيانات.
+                  No data.
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       </DndContext>
 
       {enablePagination && table.getPageCount() > 1 && (
-        <div className="flex flex-row-reverse items-center justify-end gap-2 pt-4 text-right">
-          <div className="text-muted-foreground flex-1 text-sm text-right">
-            {table.getFilteredSelectedRowModel().rows.length} من{" "}
-            {table.getFilteredRowModel().rows.length} صفوف محددة.
+        <div
+          className={cn(
+            "flex items-center gap-2 pt-4",
+            uiVariant === "clients" ? "flex-row justify-between text-left" : "flex-row-reverse justify-end text-right"
+          )}
+        >
+          <div
+            className={cn(
+              "text-muted-foreground flex-1 text-sm",
+              uiVariant === "clients" ? "text-left" : "text-right"
+            )}
+          >
+            {table.getFilteredSelectedRowModel().rows.length} of{" "}
+            {table.getFilteredRowModel().rows.length} selected rows.
           </div>
-          <div className="flex flex-row-reverse gap-2">
+          <div className={cn("flex gap-2", uiVariant === "clients" ? "flex-row" : "flex-row-reverse")}
+          >
             <button
               type="button"
               className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
             >
-              السابق
+              Previous
             </button>
             <button
               type="button"
@@ -384,7 +505,7 @@ export function SortableDataTable<T>({
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
             >
-              التالي
+              Next
             </button>
           </div>
         </div>

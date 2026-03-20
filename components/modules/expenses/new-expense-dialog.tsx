@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
+import { enUS } from "date-fns/locale";
 import { createExpense, updateExpense, type ExpenseCategory } from "@/actions/expenses";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Button } from "@/components/ui/button";
@@ -47,10 +48,10 @@ const categoryValues = [
 ] as const;
 
 const formSchema = z.object({
-  title: z.string().min(1, "العنوان مطلوب"),
-  amount: z.coerce.number().positive("المبلغ يجب أن يكون موجباً"),
+  title: z.string().min(1, "Title is required"),
+  amount: z.coerce.number().positive("Amount must be greater than 0"),
   category: z.enum(categoryValues),
-  date: z.string().min(1, "التاريخ مطلوب"),
+  date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
   receiptUrl: z.string().url().optional().nullable(),
   teamMemberId: z.string().uuid().optional().nullable(),
@@ -143,9 +144,9 @@ export function NewExpenseDialog({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Upload failed");
       form.setValue("receiptUrl", data.url);
-      toast.success("تم رفع الإيصال");
+      toast.success("Receipt uploaded");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "فشل الرفع");
+      toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setReceiptUploading(false);
       e.target.value = "";
@@ -165,11 +166,11 @@ export function NewExpenseDialog({
         teamMemberId: values.teamMemberId ?? null,
       });
       if (res.ok) {
-        toast.success("تم تحديث المصروف");
+        toast.success("Expense updated");
         onOpenChange(false);
         onSuccess?.();
       } else {
-        toast.error(typeof res.error === "string" ? res.error : "فشل التحديث");
+        toast.error(typeof res.error === "string" ? res.error : "Failed to update expense");
       }
     } else {
       const res = await createExpense({
@@ -182,22 +183,22 @@ export function NewExpenseDialog({
         teamMemberId: values.teamMemberId ?? null,
       });
       if (res.ok) {
-        toast.success("تم إضافة المصروف");
+        toast.success("Expense added");
         onOpenChange(false);
         onSuccess?.();
       } else {
-        toast.error(typeof res.error === "string" ? res.error : "فشل الحفظ");
+        toast.error(typeof res.error === "string" ? res.error : "Failed to save expense");
       }
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" dir="rtl">
+      <DialogContent className="sm:max-w-md" dir="ltr">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "تعديل مصروف" : "إضافة مصروف"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit Expense" : "Add Expense"}</DialogTitle>
           <DialogDescription>
-            {isEdit ? "تعديل بيانات المصروف." : "أدخل تفاصيل المصروف الجديد."}
+            {isEdit ? "Update the expense details." : "Enter details for the new expense."}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -207,9 +208,9 @@ export function NewExpenseDialog({
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>العنوان</FormLabel>
+                  <FormLabel>Title</FormLabel>
                   <FormControl>
-                    <Input placeholder="مثال: Adobe Creative Cloud" {...field} />
+                    <Input placeholder="Example: Adobe Creative Cloud" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -220,7 +221,7 @@ export function NewExpenseDialog({
               name="amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>المبلغ بالريال</FormLabel>
+                  <FormLabel>Amount (SAR)</FormLabel>
                   <FormControl>
                     <Input type="number" step="0.01" min="0" placeholder="0" {...field} />
                   </FormControl>
@@ -233,11 +234,11 @@ export function NewExpenseDialog({
               name="category"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>الفئة</FormLabel>
+                  <FormLabel>Category</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="اختر الفئة" />
+                        <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -258,17 +259,17 @@ export function NewExpenseDialog({
                 name="teamMemberId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-right block">عضو الفريق</FormLabel>
+                    <FormLabel className="block text-left">Team Member</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
                       <FormControl>
-                        <SelectTrigger dir="rtl">
-                          <SelectValue placeholder="اختر عضو الفريق" />
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select team member" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent dir="rtl">
+                      <SelectContent>
                         {teamMembers.map((m) => (
                           <SelectItem key={m.id} value={m.id}>
                             {m.name} — {m.role ?? "—"}
@@ -286,12 +287,15 @@ export function NewExpenseDialog({
               name="date"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>التاريخ</FormLabel>
+                  <FormLabel>Date</FormLabel>
                   <FormControl>
                     <DatePickerAr
                       value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                       onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                      placeholder="اختر تاريخًا"
+                      placeholder="Select date"
+                      direction="ltr"
+                      locale={enUS}
+                      popoverAlign="start"
                     />
                   </FormControl>
                   <FormMessage />
@@ -303,9 +307,9 @@ export function NewExpenseDialog({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>ملاحظات (اختياري)</FormLabel>
+                  <FormLabel>Notes (optional)</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="وصف أو تفاصيل إضافية" className="min-h-[80px]" {...field} />
+                    <Textarea placeholder="Additional description or details" className="min-h-[80px]" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -316,7 +320,7 @@ export function NewExpenseDialog({
               name="receiptUrl"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>إيصال (اختياري)</FormLabel>
+                  <FormLabel>Receipt (optional)</FormLabel>
                   <FormControl>
                     <div className="flex flex-col gap-2">
                       <Input
@@ -332,7 +336,7 @@ export function NewExpenseDialog({
                           rel="noopener noreferrer"
                           className="text-sm text-primary underline"
                         >
-                          عرض الإيصال
+                          View receipt
                         </a>
                       )}
                     </div>
@@ -343,9 +347,9 @@ export function NewExpenseDialog({
             />
             <DialogFooter className="gap-2 sm:gap-0">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                إلغاء
+                Cancel
               </Button>
-              <Button type="submit">{isEdit ? "حفظ التعديلات" : "إضافة مصروف"}</Button>
+              <Button type="submit">{isEdit ? "Save Changes" : "Add Expense"}</Button>
             </DialogFooter>
           </form>
         </Form>

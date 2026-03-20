@@ -7,7 +7,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Select,
@@ -40,13 +40,12 @@ import {
 import { SortableDataTable } from "@/components/ui/sortable-data-table";
 import { NewProjectDialog } from "./new-project-dialog";
 import { EditProjectDialog } from "./edit-project-dialog";
-import { deleteProject, updateProject } from "@/actions/projects";
-import { PROJECT_STATUS_LABELS, PROJECT_STATUS_BADGE_CLASS } from "@/types";
-import { cn, formatBudgetSAR, formatDate } from "@/lib/utils";
+import { deleteProject, deleteProjects, updateProject } from "@/actions/projects";
+import { cn, formatAmount, formatDate } from "@/lib/utils";
 import { AvatarStack } from "@/components/ui/avatar-stack";
-import { Table as TableIcon, LayoutGrid, Columns, MoreHorizontal, Pencil, Trash2, ChevronDown } from "lucide-react";
-import { PlusCircledIcon } from "@radix-ui/react-icons";
+import { MoreHorizontal, Pencil, Trash2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 
 const STATUS_LIST = ["lead", "active", "on_hold", "review", "completed", "cancelled"] as const;
 
@@ -71,27 +70,28 @@ function StatusBadgePopover({
     const result = await updateProject({ id: projectId, status: status as (typeof STATUS_LIST)[number] });
     setUpdating(false);
     if (result.ok) {
-      const label = PROJECT_STATUS_LABELS[status] ?? status;
-      toast.success(`تم تحديث الحالة إلى ${label}`);
+      const label = PROJECT_STATUS_LABELS_EN[status] ?? status;
+      toast.success(`Status updated to ${label}`);
       setOpen(false);
       onSuccess();
     } else {
-      toast.error("فشل تحديث الحالة");
+      toast.error("Failed to update status");
     }
   };
 
-  const label = PROJECT_STATUS_LABELS[currentStatus] ?? currentStatus;
+  const label = PROJECT_STATUS_LABELS_EN[currentStatus] ?? currentStatus;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
           className={cn(
-            "inline-flex cursor-pointer items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-90",
-            PROJECT_STATUS_BADGE_CLASS[currentStatus] ?? "bg-muted"
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-90",
+            PROJECT_STATUS_PILL_CLASS[currentStatus] ?? "bg-neutral-100 text-neutral-600"
           )}
           onClick={(e) => e.stopPropagation()}
         >
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
           {label}
           <ChevronDown className="h-3 w-3 opacity-70" />
         </button>
@@ -105,7 +105,7 @@ function StatusBadgePopover({
               disabled={updating}
               onClick={() => handleSelect(status)}
               className={cn(
-                "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-right text-sm hover:bg-accent",
+                "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
                 status === currentStatus && "bg-accent font-medium"
               )}
             >
@@ -113,7 +113,7 @@ function StatusBadgePopover({
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: STATUS_COVER_COLOR[status] ?? "#94a3b8" }}
               />
-              {PROJECT_STATUS_LABELS[status] ?? status}
+              {PROJECT_STATUS_LABELS_EN[status] ?? status}
             </button>
           ))}
         </div>
@@ -137,8 +137,10 @@ type ProjectRow = {
 };
 
 type ClientOption = { id: string; companyName: string | null };
+type ServiceOption = { id: string; name: string; status: string };
 
 type ProjectMembersMap = Record<string, { id: string; name: string; avatarUrl: string | null }[]>;
+type ProjectServicesMap = Record<string, { id: string; name: string; status: string }[]>;
 
 type TeamMemberOption = { id: string; name: string; role: string | null };
 
@@ -146,22 +148,22 @@ type ProjectsListViewProps = {
   projects: ProjectRow[];
   taskCounts: Record<string, { total: number; done: number }>;
   projectMembers?: ProjectMembersMap;
+  projectServices?: ProjectServicesMap;
   clients: ClientOption[];
+  serviceOptions?: ServiceOption[];
   teamMembers?: TeamMemberOption[];
   defaultCurrency: string;
 };
 
 const STATUS_OPTIONS = [
-  { value: "all", label: "الكل" },
-  { value: "lead", label: "عميل محتمل" },
-  { value: "active", label: "نشط" },
-  { value: "on_hold", label: "متوقف" },
-  { value: "review", label: "مراجعة" },
-  { value: "completed", label: "مكتمل" },
-  { value: "cancelled", label: "ملغي" },
+  { value: "all", label: "All" },
+  { value: "lead", label: "Lead" },
+  { value: "active", label: "Active" },
+  { value: "on_hold", label: "On Hold" },
+  { value: "review", label: "Review" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
 ];
-
-const BOARD_COLUMNS = ["lead", "active", "on_hold", "review", "completed", "cancelled"] as const;
 
 const STATUS_COVER_COLOR: Record<string, string> = {
   lead: "#3b82f6",
@@ -172,20 +174,51 @@ const STATUS_COVER_COLOR: Record<string, string> = {
   cancelled: "#ef4444",
 };
 
+const STATUS_DOT_CLASS: Record<string, string> = {
+  lead: "bg-blue-500",
+  active: "bg-blue-500",
+  on_hold: "bg-amber-500",
+  review: "bg-purple-500",
+  completed: "bg-green-500",
+  cancelled: "bg-red-500",
+};
+
+const PROJECT_STATUS_PILL_CLASS: Record<string, string> = {
+  active: "bg-blue-50 text-blue-700",
+  completed: "bg-green-50 text-green-700",
+  lead: "bg-blue-50 text-blue-700",
+  on_hold: "bg-amber-50 text-amber-700",
+  review: "bg-purple-50 text-purple-700",
+  cancelled: "bg-red-50 text-red-700",
+};
+
+const PROJECT_STATUS_LABELS_EN: Record<string, string> = {
+  lead: "Lead",
+  active: "Active",
+  on_hold: "On Hold",
+  review: "Review",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
 export function ProjectsListView({
   projects,
   taskCounts,
   projectMembers = {},
+  projectServices = {},
   clients,
+  serviceOptions = [],
   teamMembers = [],
   defaultCurrency,
 }: ProjectsListViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [view, setView] = React.useState<"table" | "gallery" | "board">("gallery");
   const [editingProject, setEditingProject] = React.useState<ProjectRow | null>(null);
   const [projectToDelete, setProjectToDelete] = React.useState<{ id: string; name: string } | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
   const [newProjectOpen, setNewProjectOpen] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+  const headerCheckboxRef = React.useRef<HTMLInputElement>(null);
   const [searchInput, setSearchInput] = React.useState(searchParams.get("search") ?? "");
   const statusParam = searchParams.get("status") ?? "all";
   const clientIdParam = searchParams.get("clientId") ?? "all";
@@ -196,11 +229,48 @@ export function ProjectsListView({
     setProjectToDelete(null);
     const result = await deleteProject(id);
     if (result.ok) {
-      toast.success("تم حذف المشروع");
+      toast.success("Project deleted");
       router.refresh();
     } else {
       toast.error(result.error);
     }
+  };
+
+  const visibleProjectIdsKey = projects.map((p) => p.id).join("\0");
+  React.useEffect(() => {
+    const visibleSet = new Set(projects.map((p) => p.id));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleSet.has(id)));
+      if (next.size === prev.size && [...prev].every((id) => next.has(id))) return prev;
+      return next;
+    });
+  }, [visibleProjectIdsKey, projects]);
+
+  const selectedInView = projects.filter((p) => selectedIds.has(p.id)).length;
+  const allVisibleSelected = projects.length > 0 && selectedInView === projects.length;
+
+  React.useEffect(() => {
+    const el = headerCheckboxRef.current;
+    if (!el) return;
+    el.indeterminate = selectedInView > 0 && !allVisibleSelected;
+  }, [selectedInView, allVisibleSelected, projects.length]);
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) projects.forEach((p) => next.delete(p.id));
+      else projects.forEach((p) => next.add(p.id));
+      return next;
+    });
+  };
+
+  const toggleRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const updateParams = React.useCallback(
@@ -219,31 +289,48 @@ export function ProjectsListView({
     updateParams({ search: searchInput.trim() || undefined });
   };
 
-  const progress = (id: string) => {
-    const t = taskCounts[id];
-    if (!t || t.total === 0) return { pct: 0, label: "0 / 0" };
-    const pct = Math.round((t.done / t.total) * 100);
-    return { pct, label: `${t.done} / ${t.total}` };
-  };
-
   const projectTableColumns = React.useMemo<ColumnDef<ProjectRow>[]>(
     () => [
+      {
+        id: "select",
+        enableSorting: false,
+        header: () => (
+          <input
+            ref={headerCheckboxRef}
+            type="checkbox"
+            className="h-3.5 w-3.5 rounded accent-neutral-900"
+            checked={allVisibleSelected}
+            onChange={toggleSelectAll}
+            aria-label="Select all rows"
+          />
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 rounded accent-neutral-900"
+            checked={selectedIds.has(row.original.id)}
+            onChange={() => toggleRow(row.original.id)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={row.original.name}
+          />
+        ),
+      },
       { id: "drag", header: () => null, cell: () => null, enableSorting: false, size: 32 },
       {
         accessorKey: "clientName",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">الشركة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Client {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
-          <div className="flex items-center gap-2 justify-end w-full">
-            <span>{row.original.clientName ?? "—"}</span>
+          <div className="flex w-full items-center gap-2.5">
             <Avatar className="h-7 w-7 shrink-0">
               <AvatarImage src={row.original.clientLogoUrl ?? undefined} />
               <AvatarFallback className="text-xs">{(row.original.clientName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
             </Avatar>
+            <span className="text-sm font-medium text-neutral-900">{row.original.clientName ?? "—"}</span>
           </div>
         ),
       },
@@ -251,27 +338,53 @@ export function ProjectsListView({
         accessorKey: "name",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">اسم المشروع {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Project Name {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
-          <div className="text-right w-full">
-            <Link href={`/dashboard/projects/${row.original.id}`} className="font-medium text-primary hover:underline block text-right">
-              {row.original.name}
-            </Link>
-            {(projectMembers[row.original.id]?.length ?? 0) > 0 && (
-              <AvatarStack members={projectMembers[row.original.id] ?? []} className="justify-end" />
-            )}
+          <div className="flex w-full items-center gap-2.5">
+            <Avatar className="h-7 w-7 shrink-0">
+              <AvatarImage src={row.original.coverImageUrl ?? undefined} />
+              <AvatarFallback className="text-xs">
+                {(row.original.name ?? "?").slice(0, 1).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 text-left">
+              <Link href={`/dashboard/projects/${row.original.id}`} className="block truncate text-left font-medium text-primary hover:underline">
+                {row.original.name}
+              </Link>
+            </div>
           </div>
         ),
+      },
+      {
+        id: "services",
+        enableSorting: false,
+        header: () => <span className="text-left">Services</span>,
+        cell: ({ row }) => {
+          const services = projectServices[row.original.id] ?? [];
+          if (services.length === 0) return <span className="text-muted-foreground">—</span>;
+          return (
+            <div className="flex flex-wrap gap-1">
+              {services.slice(0, 2).map((s) => (
+                <Badge key={s.id} variant="secondary" className="text-xs">
+                  {s.name}
+                </Badge>
+              ))}
+              {services.length > 2 ? (
+                <Badge variant="outline" className="text-xs">+{services.length - 2}</Badge>
+              ) : null}
+            </div>
+          );
+        },
       },
       {
         accessorKey: "status",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Status {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -284,8 +397,8 @@ export function ProjectsListView({
         accessorKey: "endDate",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">الموعد النهائي {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Deadline {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => formatDate(row.original.endDate),
@@ -294,17 +407,16 @@ export function ProjectsListView({
         accessorKey: "budget",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">الميزانية {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Budget {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
-        cell: ({ row }) => formatBudgetSAR(row.original.budget),
-      },
-      {
-        id: "taskProgress",
-        enableSorting: false,
-        header: () => <span className="text-right">تقدم المهام</span>,
-        cell: ({ row }) => progress(row.original.id).label,
+        cell: ({ row }) => (
+          <span className="inline-flex items-center gap-1">
+            {formatAmount(row.original.budget)}
+            <SarCurrencyIcon className="text-neutral-500" />
+          </span>
+        ),
       },
       {
         id: "actions",
@@ -313,16 +425,20 @@ export function ProjectsListView({
         cell: ({ row }) => {
           const p = row.original;
           return (
-            <div className="flex justify-start">
+            <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
+                  >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <DropdownMenuItem onClick={() => setEditingProject(p)}>
-                    <Pencil className="me-2 h-4 w-4" />تعديل
+                    <Pencil className="me-2 h-4 w-4" />Edit
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
@@ -332,7 +448,7 @@ export function ProjectsListView({
                       setProjectToDelete({ id: p.id, name: p.name });
                     }}
                   >
-                    <Trash2 className="me-2 h-4 w-4" />حذف
+                    <Trash2 className="me-2 h-4 w-4" />Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -341,119 +457,166 @@ export function ProjectsListView({
         },
       },
     ],
-    [taskCounts, projectMembers, router, setEditingProject, setProjectToDelete]
+    [
+      allVisibleSelected,
+      selectedIds,
+      projectServices,
+      router,
+      setEditingProject,
+      setProjectToDelete,
+      toggleSelectAll,
+    ]
   );
 
+  const totalProjects = projects.length;
+  const activeProjects = projects.filter((p) => p.status === "active").length;
+  const completedProjects = projects.filter((p) => p.status === "completed").length;
+  const reviewProjects = projects.filter((p) => p.status === "review").length;
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">المشاريع</h1>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-md border border-input [&>button]:rounded-none [&>button:first-child]:rounded-l-md [&>button:last-child]:rounded-r-md [&>button:not(:first-child)]:border-l rtl:[&>button:first-child]:rounded-l-none rtl:[&>button:first-child]:rounded-r-md rtl:[&>button:last-child]:rounded-r-none rtl:[&>button:last-child]:rounded-l-md rtl:[&>button:not(:first-child)]:border-l-0 rtl:[&>button:not(:first-child)]:border-r">
-            <Button
-              variant={view === "table" ? "secondary" : "ghost"}
-              size="icon"
-              onClick={() => setView("table")}
-              aria-label="عرض الجدول"
-            >
-              <TableIcon className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={view === "gallery" ? "secondary" : "ghost"}
-              size="icon"
-              onClick={() => setView("gallery")}
-              aria-label="عرض المعرض"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={view === "board" ? "secondary" : "ghost"}
-              size="icon"
-              onClick={() => setView("board")}
-              aria-label="عرض اللوحة"
-            >
-              <Columns className="h-4 w-4" />
-            </Button>
-          </div>
-          <NewProjectDialog
-            open={newProjectOpen}
-            onOpenChange={setNewProjectOpen}
-            trigger={
-              <Button variant="secondary" className="hidden sm:inline-flex">
-                <PlusCircledIcon className="me-2 h-4 w-4" />
-                مشروع جديد
-              </Button>
-            }
-            clients={clients}
-            teamMembers={teamMembers}
-            defaultCurrency={defaultCurrency}
-            asChild
-            onSuccess={() => router.refresh()}
-          />
+    <div className="space-y-5" dir="ltr">
+      <div className="mb-7 flex items-center justify-between">
+        <h1 className="text-2xl font-medium text-neutral-900">Projects</h1>
+        <button
+          type="button"
+          onClick={() => setNewProjectOpen(true)}
+          className="inline-flex items-center gap-1 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+        >
+          + New Project
+        </button>
+        <NewProjectDialog
+          open={newProjectOpen}
+          onOpenChange={setNewProjectOpen}
+          clients={clients}
+          services={serviceOptions}
+          teamMembers={teamMembers}
+          defaultCurrency={defaultCurrency}
+          onSuccess={() => router.refresh()}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-neutral-100 bg-white p-4 text-left">
+          <p className="mb-1 text-xs text-neutral-400">Total Projects</p>
+          <p className="text-2xl font-bold text-black">{totalProjects}</p>
+        </div>
+        <div className="rounded-xl border border-neutral-100 bg-white p-4 text-left">
+          <p className="mb-1 text-xs text-neutral-400">Active Projects</p>
+          <p className="text-2xl font-bold text-black">{activeProjects}</p>
+        </div>
+        <div className="rounded-xl border border-neutral-100 bg-white p-4 text-left">
+          <p className="mb-1 text-xs text-neutral-400">Completed Projects</p>
+          <p className="text-2xl font-bold text-black">{completedProjects}</p>
+        </div>
+        <div className="rounded-xl border border-neutral-100 bg-white p-4 text-left">
+          <p className="mb-1 text-xs text-neutral-400">In Review</p>
+          <p className="text-2xl font-bold text-black">{reviewProjects}</p>
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-        <form onSubmit={handleSearchSubmit} className="w-full flex-1 sm:max-w-sm">
-          <Input
-            placeholder="البحث باسم المشروع أو العميل..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="w-full"
-          />
-        </form>
-        <Select
-          value={statusParam}
-          onValueChange={(v) => updateParams({ status: v })}
-        >
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="الحالة" />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={clientIdParam}
-          onValueChange={(v) => updateParams({ clientId: v })}
-        >
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue placeholder="العميل" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">كل العملاء</SelectItem>
-            {clients.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.companyName || c.id}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-2" dir="ltr">
+        <div className="flex flex-wrap items-center gap-2">
+          <form onSubmit={handleSearchSubmit}>
+            <div className="flex w-56 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-400">
+              <Input
+                placeholder="Search by project or client..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="h-auto w-full border-0 bg-transparent p-0 text-sm text-neutral-700 shadow-none outline-none placeholder:text-neutral-400 focus-visible:ring-0"
+              />
+            </div>
+          </form>
+          <Select dir="ltr" value={statusParam} onValueChange={(v) => updateParams({ status: v })}>
+            <SelectTrigger className="h-8 w-auto min-w-40 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  <span className="inline-flex items-center gap-2">
+                    {o.value !== "all" ? (
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full",
+                          STATUS_DOT_CLASS[o.value] ?? "bg-neutral-400"
+                        )}
+                        aria-hidden
+                      />
+                    ) : null}
+                    {o.label}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select dir="ltr" value={clientIdParam} onValueChange={(v) => updateParams({ clientId: v })}>
+            <SelectTrigger className="h-8 w-auto min-w-40 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25">
+              <SelectValue placeholder="Client" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All clients</SelectItem>
+              {clients.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  <span className="flex items-center gap-2">
+                    <Avatar className="h-5 w-5 shrink-0">
+                      <AvatarImage src={projects.find((p) => p.clientId === c.id)?.clientLogoUrl ?? undefined} />
+                      <AvatarFallback className="text-[10px]">
+                        {(c.companyName ?? "?").slice(0, 1).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span>{c.companyName || c.id}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
+
+      {selectedIds.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-2.5">
+          <span className="text-sm font-medium text-neutral-800">
+            {selectedIds.size} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear selection
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white hover:bg-destructive/90"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
 
       {projects.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-muted-foreground">لا توجد مشاريع تطابق التصفية.</p>
+            <p className="text-muted-foreground">No projects match the current filters.</p>
             <NewProjectDialog
-              trigger={<Button variant="link" className="mt-2">إنشاء أول مشروع</Button>}
+              trigger={<Button variant="link" className="mt-2">Create your first project</Button>}
               clients={clients}
+              services={serviceOptions}
               teamMembers={teamMembers}
               defaultCurrency={defaultCurrency}
               onSuccess={() => router.refresh()}
             />
           </CardContent>
         </Card>
-      ) : view === "table" ? (
+      ) : (
         <>
-        {/* Mobile: project cards (table view) */}
+        {/* Mobile: project cards */}
         <div className="space-y-2 md:hidden">
           {projects.map((p) => {
-            const { label } = progress(p.id);
             return (
               <div key={p.id} className="flex items-center justify-between rounded-xl border p-4">
                 <Link href={`/dashboard/projects/${p.id}`} className="flex items-center gap-3 min-w-0">
@@ -461,9 +624,18 @@ export function ProjectsListView({
                     <AvatarImage src={p.clientLogoUrl ?? undefined} />
                     <AvatarFallback className="text-sm">{(p.clientName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <div className="text-right min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 text-left">
                     <p className="font-medium truncate">{p.name}</p>
                     <p className="text-muted-foreground text-sm">{p.clientName ?? "—"}</p>
+                    {(projectServices[p.id]?.length ?? 0) > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(projectServices[p.id] ?? []).slice(0, 2).map((s) => (
+                          <Badge key={s.id} variant="secondary" className="text-[10px]">
+                            {s.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     {(projectMembers[p.id]?.length ?? 0) > 0 && (
                       <AvatarStack members={projectMembers[p.id] ?? []} className="mt-1 justify-end" />
                     )}
@@ -478,9 +650,9 @@ export function ProjectsListView({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem asChild><Link href={`/dashboard/projects/${p.id}`}>عرض</Link></DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setEditingProject(p)}><Pencil className="me-2 h-4 w-4" />تعديل</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={(e) => { e.preventDefault(); setProjectToDelete({ id: p.id, name: p.name }); }}><Trash2 className="me-2 h-4 w-4" />حذف</DropdownMenuItem>
+                      <DropdownMenuItem asChild><Link href={`/dashboard/projects/${p.id}`}>View</Link></DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setEditingProject(p)}><Pencil className="me-2 h-4 w-4" />Edit</DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={(e) => { e.preventDefault(); setProjectToDelete({ id: p.id, name: p.name }); }}><Trash2 className="me-2 h-4 w-4" />Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -488,198 +660,48 @@ export function ProjectsListView({
             );
           })}
         </div>
-        <Card className="hidden md:block">
+        <div className="hidden overflow-hidden rounded-xl border border-neutral-100 bg-white md:block">
           <CardContent className="pt-4">
             <SortableDataTable<ProjectRow>
               columns={projectTableColumns}
               data={projects}
               tableId="projects-table"
               getRowId={(p) => p.id}
+              uiVariant="clients"
               columnLabels={{
-                clientName: "الشركة",
-                name: "اسم المشروع",
-                status: "الحالة",
-                endDate: "الموعد النهائي",
-                budget: "الميزانية",
+                clientName: "Client",
+                name: "Project Name",
+                services: "Services",
+                status: "Status",
+                endDate: "Deadline",
+                budget: "Budget",
               }}
               enablePagination={false}
+              enableSavedViews
+              getViewStateSnapshot={() => ({
+                search: searchInput,
+                status: statusParam,
+                clientId: clientIdParam,
+              })}
+              applyViewStateSnapshot={(snapshot) => {
+                updateParams({
+                  search: snapshot.search,
+                  status: snapshot.status,
+                  clientId: snapshot.clientId,
+                });
+              }}
             />
           </CardContent>
-        </Card>
+          <div className="flex items-center justify-between border-t border-neutral-100 px-4 py-3">
+            <span className="text-xs text-neutral-400">Showing {projects.length} of {projects.length}</span>
+            <div className="flex gap-1">
+              <button type="button" className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50">Previous</button>
+              <button type="button" className="rounded-md border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-800">1</button>
+              <button type="button" className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50">Next</button>
+            </div>
+          </div>
+        </div>
         </>
-      ) : view === "gallery" ? (
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-          {projects.map((p) => {
-            const { pct, label } = progress(p.id);
-            const coverColor = STATUS_COVER_COLOR[p.status] ?? "#94a3b8";
-            const initial = (p.name ?? "?").slice(0, 1).toUpperCase();
-            const coverImage = p.coverImageUrl ?? p.clientLogoUrl;
-            return (
-              <Card key={p.id} className="group relative h-full overflow-hidden transition-colors hover:bg-muted/50">
-                <Link href={`/dashboard/projects/${p.id}`} className="block h-full">
-                  <div
-                    className="h-24 w-full shrink-0 bg-cover bg-center object-cover"
-                    style={
-                      coverImage
-                        ? { backgroundImage: `url(${coverImage})` }
-                        : { backgroundColor: coverColor }
-                    }
-                  >
-                    {!coverImage && (
-                      <span className="flex h-full w-full items-center justify-center text-2xl font-semibold text-white">
-                        {initial}
-                      </span>
-                    )}
-                  </div>
-                  <CardContent className="pt-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-semibold leading-tight">{p.name}</h3>
-                      <span onClick={(e) => e.stopPropagation()} className="shrink-0">
-                        <StatusBadgePopover
-                          projectId={p.id}
-                          currentStatus={p.status}
-                          onSuccess={() => router.refresh()}
-                        />
-                      </span>
-                    </div>
-                    {(projectMembers[p.id]?.length ?? 0) > 0 && (
-                      <div className="mt-2 flex justify-end">
-                        <AvatarStack members={projectMembers[p.id] ?? []} />
-                      </div>
-                    )}
-                    <div className="mt-2 flex items-center gap-2">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={p.clientLogoUrl ?? undefined} />
-                        <AvatarFallback className="text-xs">
-                          {(p.clientName ?? "?").slice(0, 1).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-muted-foreground text-sm">{p.clientName ?? "—"}</span>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between text-sm">
-<span className="text-muted-foreground">الموعد النهائي</span>
-                                      <span>{formatDate(p.endDate)}</span>
-                                    </div>
-                                    <div className="mt-2">
-                                      <div className="flex justify-between text-xs text-muted-foreground">
-                                        <span>المهام {label}</span>
-                        <span>{pct}%</span>
-                      </div>
-                      <Progress value={pct} className="mt-1 h-1.5" />
-                    </div>
-                    <div className="mt-3 text-sm">
-                      <span className="text-muted-foreground">الميزانية </span>
-                      <span>{formatBudgetSAR(p.budget)}</span>
-                    </div>
-                  </CardContent>
-                </Link>
-                <div className="absolute top-2 inset-s-2 opacity-0 transition-opacity group-hover:opacity-100 w-fit">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="h-8 w-8 shadow-sm"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/projects/${p.id}`}>عرض</Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setEditingProject(p)}>
-                        <Pencil className="me-2 h-4 w-4" />
-                        تعديل
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setProjectToDelete({ id: p.id, name: p.name });
-                        }}
-                      >
-                        <Trash2 className="me-2 h-4 w-4" />
-                        حذف
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="flex gap-4 overflow-x-auto pb-2 min-w-0">
-          {BOARD_COLUMNS.map((statusKey) => {
-            const columnProjects = projects.filter((p) => p.status === statusKey);
-            const label = PROJECT_STATUS_LABELS[statusKey] ?? statusKey;
-            const dotColor = STATUS_COVER_COLOR[statusKey] ?? "#94a3b8";
-            return (
-              <div
-                key={statusKey}
-                className="flex min-w-[280px] w-72 shrink-0 flex-col rounded-lg border bg-muted/30"
-              >
-                <div className="flex items-center gap-2 border-b px-3 py-2">
-                  <div
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: dotColor }}
-                  />
-                  <span className="font-medium">{label}</span>
-                  <span className="text-muted-foreground text-sm">({columnProjects.length})</span>
-                </div>
-                <div className="flex-1 space-y-2 overflow-y-auto p-2 max-h-[calc(100vh-16rem)]">
-                  {columnProjects.map((p) => {
-                    const { label: progressLabel } = progress(p.id);
-                    return (
-                      <div key={p.id} className="relative">
-                        <Link href={`/dashboard/projects/${p.id}`} className="block">
-                          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
-                            <CardContent className="p-3">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="font-medium leading-tight">{p.name}</p>
-                                <span onClick={(e) => e.stopPropagation()} className="shrink-0">
-                                  <StatusBadgePopover
-                                    projectId={p.id}
-                                    currentStatus={p.status}
-                                    onSuccess={() => router.refresh()}
-                                  />
-                                </span>
-                              </div>
-                              {(projectMembers[p.id]?.length ?? 0) > 0 && (
-                                <div className="mt-2 flex justify-end">
-                                  <AvatarStack members={projectMembers[p.id] ?? []} />
-                                </div>
-                              )}
-                              <div className="mt-2 flex items-center gap-2">
-                                <Avatar className="h-5 w-5">
-                                  <AvatarImage src={p.clientLogoUrl ?? undefined} />
-                                  <AvatarFallback className="text-[10px]">
-                                    {(p.clientName ?? "?").slice(0, 1).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className="text-muted-foreground text-xs">{p.clientName ?? "—"}</span>
-                              </div>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                استحقاق {formatDate(p.endDate)} · {formatBudgetSAR(p.budget)}
-                              </p>
-                              <p className="mt-0.5 text-xs text-muted-foreground">المهام {progressLabel}</p>
-                            </CardContent>
-                          </Card>
-                        </Link>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
       )}
 
       {editingProject && (
@@ -696,6 +718,8 @@ export function ProjectsListView({
             description: editingProject.description,
           }}
           clients={clients}
+          serviceOptions={serviceOptions}
+          initialServiceIds={(projectServices[editingProject.id] ?? []).map((s) => s.id)}
           defaultCurrency={defaultCurrency}
           open={!!editingProject}
           onOpenChange={(open) => !open && setEditingProject(null)}
@@ -708,15 +732,15 @@ export function ProjectsListView({
       <AlertDialog open={!!projectToDelete} onOpenChange={(open) => !open && setProjectToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>هل أنت متأكد؟</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               {projectToDelete
-                ? `سيتم حذف المشروع ${projectToDelete.name} نهائياً بما يشمل جميع مهامه. لا يمكن التراجع عن هذا الإجراء.`
+                ? `Project ${projectToDelete.name} will be deleted permanently with all its tasks. This action cannot be undone.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -724,7 +748,43 @@ export function ProjectsListView({
                 await handleConfirmDelete();
               }}
             >
-              حذف
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete selected projects?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`This will permanently delete ${selectedIds.size} projects and their related tasks. This action cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                e.preventDefault();
+                const ids = [...selectedIds];
+                if (ids.length === 0) {
+                  setBulkDeleteOpen(false);
+                  return;
+                }
+                const result = await deleteProjects(ids);
+                if (result.ok) {
+                  toast.success("Projects deleted");
+                  setSelectedIds(new Set());
+                  setBulkDeleteOpen(false);
+                  router.refresh();
+                } else {
+                  toast.error(result.error);
+                }
+              }}
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -733,7 +793,7 @@ export function ProjectsListView({
       <button
         type="button"
         className="md:hidden fixed bottom-24 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg text-2xl"
-        aria-label="مشروع جديد"
+        aria-label="New project"
         onClick={() => setNewProjectOpen(true)}
       >
         +

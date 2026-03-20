@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { getDashboardData } from "@/actions/dashboard";
 import { DashboardHome } from "@/components/dashboard-home";
 
@@ -8,6 +11,11 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) redirect("/login");
+  // Members go to their own view
+  if ((session.user as { role?: string }).role === "member") redirect("/dashboard/my-tasks");
+
   const data = await getDashboardData();
 
   return (

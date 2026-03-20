@@ -34,14 +34,16 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
+import { Badge } from "@/components/ui/badge";
+import { X } from "lucide-react";
 
 const projectStatusOptions = [
-  { value: "lead", label: "عميل محتمل" },
-  { value: "active", label: "نشط" },
-  { value: "on_hold", label: "متوقف" },
-  { value: "review", label: "مراجعة" },
-  { value: "completed", label: "مكتمل" },
-  { value: "cancelled", label: "ملغي" },
+  { value: "lead", label: "Lead" },
+  { value: "active", label: "Active" },
+  { value: "on_hold", label: "On Hold" },
+  { value: "review", label: "Review" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 const formSchema = z.object({
@@ -52,11 +54,13 @@ const formSchema = z.object({
   endDate: z.string().optional(),
   budget: z.coerce.number().min(0).optional(),
   description: z.string().optional(),
+  serviceIds: z.array(z.string()).optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 type ClientOption = { id: string; companyName: string | null };
+type ServiceOption = { id: string; name: string; status: string };
 
 type ProjectData = {
   id: string;
@@ -73,6 +77,8 @@ type ProjectData = {
 type EditProjectDialogProps = {
   project: ProjectData;
   clients: ClientOption[];
+  serviceOptions?: ServiceOption[];
+  initialServiceIds?: string[];
   defaultCurrency: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -82,6 +88,8 @@ type EditProjectDialogProps = {
 export function EditProjectDialog({
   project,
   clients,
+  serviceOptions = [],
+  initialServiceIds = [],
   defaultCurrency,
   open,
   onOpenChange,
@@ -101,6 +109,7 @@ export function EditProjectDialog({
       endDate: project.endDate ?? "",
       budget: project.budget != null ? Number(project.budget) : undefined,
       description: project.description ?? "",
+      serviceIds: initialServiceIds,
     },
   });
 
@@ -115,9 +124,10 @@ export function EditProjectDialog({
         endDate: project.endDate ?? "",
         budget: project.budget != null ? Number(project.budget) : undefined,
         description: project.description ?? "",
+        serviceIds: initialServiceIds,
       });
     }
-  }, [open, project, form]);
+  }, [open, project, form, initialServiceIds]);
 
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -153,9 +163,10 @@ export function EditProjectDialog({
       endDate: values.endDate || undefined,
       budget: values.budget,
       description: values.description || undefined,
+      serviceIds: values.serviceIds?.length ? values.serviceIds : [],
     });
     if (result.ok) {
-      toast.success("تم تحديث المشروع");
+      toast.success("Project updated");
       onOpenChange(false);
       onSuccess?.();
     } else {
@@ -169,13 +180,13 @@ export function EditProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>تعديل المشروع</DialogTitle>
-          <DialogDescription>تحديث بيانات المشروع أدناه.</DialogDescription>
+          <DialogTitle>Edit Project</DialogTitle>
+          <DialogDescription>Update project details below.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">صورة غلاف المشروع (اختياري)</label>
+              <label className="text-sm font-medium">Project Cover Image (optional)</label>
               <input
                 ref={coverInputRef}
                 type="file"
@@ -192,14 +203,14 @@ export function EditProjectDialog({
                   onClick={() => coverInputRef.current?.click()}
                   disabled={coverUploading}
                 >
-                  {coverUploading ? "جاري الرفع…" : coverImageUrl ? "استبدال الصورة" : "رفع غلاف"}
+                  {coverUploading ? "Uploading..." : coverImageUrl ? "Replace image" : "Upload cover"}
                 </Button>
                 {coverImageUrl && (
                   <>
                     <img src={coverImageUrl} alt="Cover preview" className="h-14 w-14 rounded object-cover border" />
-<Button type="button" variant="ghost" size="sm" onClick={() => setCoverImageUrl(null)}>
-                    إزالة
-                  </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setCoverImageUrl(null)}>
+                      Remove
+                    </Button>
                   </>
                 )}
               </div>
@@ -209,9 +220,9 @@ export function EditProjectDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-<FormLabel>اسم المشروع *</FormLabel>
+                  <FormLabel>Project Name *</FormLabel>
                 <FormControl>
-                  <Input placeholder="اسم المشروع" {...field} />
+                  <Input placeholder="Project name" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -222,11 +233,11 @@ export function EditProjectDialog({
               name="clientId"
               render={({ field }) => (
                 <FormItem>
-<FormLabel>العميل *</FormLabel>
+                  <FormLabel>Client *</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="اختر العميل" />
+                      <SelectValue placeholder="Select client" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -246,7 +257,7 @@ export function EditProjectDialog({
               name="status"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>الحالة</FormLabel>
+                  <FormLabel>Status</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
@@ -265,18 +276,78 @@ export function EditProjectDialog({
                 </FormItem>
               )}
             />
+            {serviceOptions.length > 0 && (
+              <FormField
+                control={form.control}
+                name="serviceIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Services</FormLabel>
+                    <FormControl>
+                      <div className="space-y-2">
+                        <Select
+                          value=""
+                          onValueChange={(v) => {
+                            const arr = field.value ?? [];
+                            if (v && !arr.includes(v)) {
+                              field.onChange([...arr, v]);
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Add service" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {serviceOptions
+                              .filter((s) => s.status === "active" || (field.value ?? []).includes(s.id))
+                              .filter((s) => !(field.value ?? []).includes(s.id))
+                              .map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        {(field.value ?? []).length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {(field.value ?? []).map((id) => {
+                              const s = serviceOptions.find((x) => x.id === id);
+                              return (
+                                <Badge key={id} variant="secondary" className="gap-1 pr-1.5 pl-1.5">
+                                  {s?.name ?? id}
+                                  <button
+                                    type="button"
+                                    className="rounded-full hover:bg-muted p-0.5"
+                                    onClick={() =>
+                                      field.onChange((field.value ?? []).filter((x) => x !== id))
+                                    }
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}
                 name="startDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>تاريخ البدء</FormLabel>
+                    <FormLabel>Start Date</FormLabel>
                     <FormControl>
                       <DatePickerAr
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder="اختر تاريخًا"
+                        placeholder="Select a date"
                       />
                     </FormControl>
                     <FormMessage />
@@ -288,12 +359,12 @@ export function EditProjectDialog({
                 name="endDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>تاريخ الانتهاء / الموعد النهائي</FormLabel>
+                    <FormLabel>End Date / Deadline</FormLabel>
                     <FormControl>
                       <DatePickerAr
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder="اختر تاريخًا"
+                        placeholder="Select a date"
                       />
                     </FormControl>
                     <FormMessage />
@@ -306,7 +377,7 @@ export function EditProjectDialog({
               name="budget"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>الميزانية (ر.س)</FormLabel>
+                  <FormLabel>Budget ({defaultCurrency})</FormLabel>
                   <FormControl>
                     <Input type="number" min={0} step="0.01" placeholder="0" {...field} />
                   </FormControl>
@@ -329,9 +400,9 @@ export function EditProjectDialog({
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                إلغاء
+                Cancel
               </Button>
-              <Button type="submit">حفظ التغييرات</Button>
+              <Button type="submit">Save changes</Button>
             </DialogFooter>
           </form>
         </Form>

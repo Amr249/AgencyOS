@@ -1,60 +1,79 @@
-<a id="readme-top"></a>
+# AgencyOS — لوحة تحكم العمليات
 
-**AgencyOS** — Solo operations dashboard (clients, projects, tasks, invoices, files). Full project docs: **[docs/](docs/README.md)** (overview, architecture, database, modules, API, decisions, changelog, TODO).
+Internal operations dashboard for a **solo-run Saudi web design agency**: clients, projects, tasks, invoices, expenses, proposals, team, and files in one place. The UI is **Arabic RTL-first** (English optional), built on **Next.js 16** (App Router), **TypeScript**, **shadcn/ui**, **Neon PostgreSQL**, and **Drizzle ORM**. Deployed on **Vercel**.
 
-<br />
-<div align="center">
-  <a href="https://github.com/othneildrew/Best-README-Template">
-    <img src="public/github.png" alt="Logo" width="80" height="80">
-  </a>
+---
 
-  <h3 align="center">Shadcn UI Kit</h3>
+## Quick Start
 
-  <p align="center">
-    Shadcn UI Kit is a comprehensive collection of ready-to-use admin dashboards, website templates, and customizable components.
-    <br />
-    <br />
-    <a href="https://shadcnuikit.com/">Home Page</a>
-    &nbsp;&bull;&nbsp;
-    <a href="https://shadcnuikit.com/dashboard/default">Dashboards</a>
-    &nbsp;&bull;&nbsp;
-    <a href="https://shadcnuikit.com/templates">Templates</a>
-    &nbsp;&bull;&nbsp;
-    <a href="https://free.shadcnuikit.com/">Free</a>
-  </p>
-    <br />
-</div>
+1. **Install dependencies**
 
-## 💎 About Shadcn UI Kit
+   ```bash
+   npm install
+   ```
 
-**Shadcn UI Kit** is a comprehensive and versatile collection of ready-to-use admin dashboards, website templates, and fully customizable components designed for modern web applications. It goes beyond standard UI libraries by offering enhanced functionality, greater design flexibility, and a seamless user experience. Whether you're building complex admin panels or sleek landing pages, Shadcn UI Kit provides the tools you need to create visually appealing and highly functional interfaces with ease.
+2. **Environment**
 
-<img src="public/preview.png" alt="shadcn free dashboard preview 1" width="100%">
-<img src="public/preview2.png" alt="shadcn free dashboard preview 2" width="100%">
+   Copy `.env.example` to `.env.local` and set at least:
 
-## 🪄 Get Lifetime Access (PRO)
+   | Variable | Purpose |
+   |----------|---------|
+   | `DATABASE_URL` | Neon pooled PostgreSQL connection string (required for Drizzle) |
+   | `NEXTAUTH_SECRET` | Secret for NextAuth sessions — generate e.g. `openssl rand -base64 32` |
+   | `NEXTAUTH_URL` | App URL (e.g. `http://localhost:3000` locally; production URL on Vercel) |
 
-Get lifetime use of the premium version of Shadcn UI Kit with hundreds of UI components, dashboards, website templates and pre-built pages. Free updates, newly added components and templates are also included.
+   Optional: `DATABASE_URL_DIRECT` (non-pooler URL for migrations), ImageKit keys for file uploads (`IMAGEKIT_*`), `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_APP_NAME`.
 
-| Free Version   | [Shadcn UI Kit PRO](https://shadcnuikit.com/pricing) |
-| -------------- | ---------------------------------------------------- |
-| 1 Dashboard    | ✔ 10 Dashboards                                     |
-| 5+ Pages       | ✔ 50+ Pages                                         |
-| 1 Color Scheme | ✔ 10+ Web Apps                                      |
-|                | ✔ 100+ Premium Components                           |
-|                | ✔ Premium Templates                                 |
-|                | ✔ 5+ Color Schemes                                  |
-|                | ✔ Theme Customization                               |
-|                | ✔ Dark/Light Mode 🌙                                |
-|                | ✔ LTR/RTL Support                                   |
-|                | ✔ New Sidebar                                       |
-|                | ✔ Multiple Layouts                                  |
-|                | ✔ and more..                                        |
+3. **Database schema**
 
-✅ [Click here](https://shadcnuikit.com/pricing) to get the Shadcn UI Kit and review it in detail
+   Apply the Drizzle schema to Neon (development-friendly):
 
-## ✉️ Contact
+   ```bash
+   npm run db:push
+   ```
 
-Toby Belhome - [@TobyBelhome](https://x.com/TobyBelhome)
+   For migration SQL workflows, use `npm run db:generate` then `npm run db:migrate` instead.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+4. **Run the app**
+
+   ```bash
+   npm run dev
+   ```
+
+   Open [http://localhost:3000](http://localhost:3000). Sign in at `/login`.
+
+---
+
+## Documentation
+
+Project documentation lives in **`/docs`**. Treat it as the source of truth as the codebase changes.
+
+| File | Contents |
+|------|----------|
+| [docs/project-overview.md](docs/project-overview.md) | Stack, goals, design principles |
+| [docs/architecture.md](docs/architecture.md) | Folder structure and module roles |
+| [docs/database-schema.md](docs/database-schema.md) | Full Drizzle schema reference |
+| [docs/server-actions.md](docs/server-actions.md) | All server actions, inputs, error handling |
+| [docs/ui-components.md](docs/ui-components.md) | Component inventory and RTL notes |
+| [docs/rtl-conventions.md](docs/rtl-conventions.md) | RTL patterns and known gotchas |
+| [docs/error-handling.md](docs/error-handling.md) | DB error strategy and coverage table |
+| [docs/changelog.md](docs/changelog.md) | Living changelog |
+| [docs/CHANGELOG-archive.md](docs/CHANGELOG-archive.md) | Full history archive |
+| [docs/MODULES.md](docs/MODULES.md) | Per-module behavior (clients, projects, expenses, …) — **update when changing features** |
+
+More: [docs/README.md](docs/README.md) (index of all docs, including legacy deep-dives).
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript |
+| UI | shadcn/ui + Tailwind CSS |
+| Database | Neon PostgreSQL |
+| ORM | Drizzle |
+| Auth | NextAuth.js v4 (credentials, JWT; DB-backed users) |
+| i18n | next-intl (Arabic + English) |
+| Deployment | Vercel |

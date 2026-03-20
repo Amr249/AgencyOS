@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,39 +25,73 @@ import {
 import { getTasks, deleteTask } from "@/actions/tasks";
 import { toast } from "sonner";
 import type { TaskWithProject, GetTasksFilters } from "@/actions/tasks";
-import { TASK_STATUS_LABELS, TASK_PRIORITY_LABELS } from "@/types";
 import { TasksKanban } from "./tasks-kanban";
 import { TasksListView } from "./tasks-list-view";
 import { NewTaskModal } from "./new-task-modal";
 import { TaskDetailModal } from "./task-detail-modal";
 import { LayoutGrid, List, Plus } from "lucide-react";
+import { useTranslateActionError } from "@/hooks/use-translate-action-error";
+import { isDbErrorKey } from "@/lib/i18n-errors";
 
 type ProjectOption = { id: string; name: string };
+
+type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: string;
+};
+
+type AssigneeForCard = {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+};
 
 type TasksPageContentProps = {
   initialTasks: TaskWithProject[];
   projects: ProjectOption[];
+  teamMembers: TeamMember[];
+  assigneesByTaskId: Record<string, AssigneeForCard[]>;
 };
 
-const PRIORITY_OPTIONS = [
-  { value: "all", label: "كل الأولويات" },
-  { value: "low", label: TASK_PRIORITY_LABELS.low },
-  { value: "medium", label: TASK_PRIORITY_LABELS.medium },
-  { value: "high", label: TASK_PRIORITY_LABELS.high },
-  { value: "urgent", label: TASK_PRIORITY_LABELS.urgent },
-];
-
-const STATUS_OPTIONS = [
-  { value: "all", label: "كل الحالات" },
-  { value: "todo", label: TASK_STATUS_LABELS.todo },
-  { value: "in_progress", label: TASK_STATUS_LABELS.in_progress },
-  { value: "in_review", label: TASK_STATUS_LABELS.in_review },
-  { value: "done", label: TASK_STATUS_LABELS.done },
-  { value: "blocked", label: TASK_STATUS_LABELS.blocked },
-];
-
-export function TasksPageContent({ initialTasks, projects }: TasksPageContentProps) {
+export function TasksPageContent({
+  initialTasks,
+  projects,
+  teamMembers,
+  assigneesByTaskId,
+}: TasksPageContentProps) {
   const router = useRouter();
+  const locale = useLocale();
+  const t = useTranslations("tasks");
+  const tc = useTranslations("common");
+  const translateErr = useTranslateActionError();
+  const dialogDir = locale === "ar" ? "rtl" : "ltr";
+
+  const PRIORITY_OPTIONS = React.useMemo(
+    () => [
+      { value: "all", label: t("allPriorities") },
+      { value: "low", label: t("taskPrioLow") },
+      { value: "medium", label: t("taskPrioMedium") },
+      { value: "high", label: t("taskPrioHigh") },
+      { value: "urgent", label: t("taskPrioUrgent") },
+    ],
+    [t]
+  );
+
+  const STATUS_OPTIONS = React.useMemo(
+    () => [
+      { value: "all", label: t("allStatuses") },
+      { value: "todo", label: t("taskStatusTodo") },
+      { value: "in_progress", label: t("taskStatusInProgress") },
+      { value: "in_review", label: t("taskStatusInReview") },
+      { value: "done", label: t("taskStatusDone") },
+      { value: "blocked", label: t("taskStatusBlocked") },
+    ],
+    [t]
+  );
+
   const [tasks, setTasks] = React.useState<TaskWithProject[]>(initialTasks);
   const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
   const [search, setSearch] = React.useState("");
@@ -116,10 +151,11 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
     deleteTask(taskIdToDelete).then((res) => {
       if (res.ok) {
         setTaskIdToDelete(null);
-        toast.success("تم حذف المهمة");
+        toast.success(t("deleteSuccess"));
         refetch();
       } else {
-        toast.error(res.error);
+        const err = typeof res.error === "string" ? res.error : "";
+        toast.error(isDbErrorKey(err) ? translateErr(err) : err);
       }
     });
   };
@@ -130,46 +166,46 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
     <>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h1 className="text-2xl font-bold tracking-tight">المهام</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
           <div className="flex items-center gap-2">
             <Button
               variant={viewMode === "kanban" ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setViewMode("kanban")}
-              title="كانبان"
+              title={t("kanban")}
             >
-              <LayoutGrid className="h-4 w-4 ml-1" />
-              كانبان
+              <LayoutGrid className="me-1 h-4 w-4" />
+              {t("kanban")}
             </Button>
             <Button
               variant={viewMode === "list" ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setViewMode("list")}
-              title="قائمة"
+              title={t("list")}
             >
-              <List className="h-4 w-4 ml-1" />
-              قائمة
+              <List className="me-1 h-4 w-4" />
+              {t("list")}
             </Button>
             <Button onClick={() => handleAddTask()}>
-              <Plus className="h-4 w-4 ml-1" />
-              مهمة جديدة
+              <Plus className="me-1 h-4 w-4" />
+              {t("newTask")}
             </Button>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <Input
-            placeholder="البحث باسم المهمة..."
+            placeholder={t("searchPlaceholder")}
             className="w-full sm:max-w-xs"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <Select value={projectFilter} onValueChange={setProjectFilter}>
             <SelectTrigger className="w-full sm:w-[180px]">
-              <SelectValue placeholder="كل المشاريع" />
+              <SelectValue placeholder={t("allProjects")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">كل المشاريع</SelectItem>
+              <SelectItem value="all">{t("allProjects")}</SelectItem>
               {projects.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.name}
@@ -191,11 +227,11 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
           </Select>
           {viewMode === "list" && (
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map((o) => (
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
                     {o.label}
                   </SelectItem>
@@ -208,6 +244,7 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
         {viewMode === "kanban" ? (
           <TasksKanban
             tasks={tasks}
+            assigneesByTaskId={assigneesByTaskId}
             onAddTask={handleAddTask}
             onOpenTask={setTaskDetailId}
             onDeleteTask={handleDeleteTask}
@@ -215,6 +252,7 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
         ) : (
           <TasksListView
             tasks={filteredTasksForList}
+            assigneesByTaskId={assigneesByTaskId}
             onOpenTask={setTaskDetailId}
             onDeleteTask={handleDeleteTask}
           />
@@ -231,25 +269,24 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
 
       <TaskDetailModal
         taskId={taskDetailId}
+        teamMembers={teamMembers}
         onClose={() => setTaskDetailId(null)}
         onSuccess={refetch}
       />
 
       <AlertDialog open={!!taskIdToDelete} onOpenChange={(o) => !o && setTaskIdToDelete(null)}>
-        <AlertDialogContent dir="rtl">
+        <AlertDialogContent dir={dialogDir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>هل أنت متأكد؟</AlertDialogTitle>
-            <AlertDialogDescription>
-              سيتم حذف المهمة ولا يمكن التراجع عن ذلك.
-            </AlertDialogDescription>
+            <AlertDialogTitle>{tc("areYouSure")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("deleteTaskConfirm")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel>{tc("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-destructive text-destructive-foreground"
             >
-              حذف
+              {tc("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -257,8 +294,8 @@ export function TasksPageContent({ initialTasks, projects }: TasksPageContentPro
 
       <button
         type="button"
-        className="md:hidden fixed bottom-24 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg text-2xl"
-        aria-label="مهمة جديدة"
+        className="fixed bottom-24 start-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-primary-foreground shadow-lg md:hidden"
+        aria-label={t("fabNewTask")}
         onClick={() => handleAddTask()}
       >
         +

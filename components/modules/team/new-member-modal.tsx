@@ -35,9 +35,9 @@ import {
 import { toast } from "sonner";
 
 const formSchema = z.object({
-  name: z.string().min(1, "الاسم مطلوب"),
+  name: z.string().min(1, "Name is required"),
   role: z.string().optional(),
-  email: z.string().email("بريد إلكتروني غير صالح").optional().or(z.literal("")),
+  email: z.string().email("Invalid email address").optional().or(z.literal("")),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
   status: z.enum(["active", "inactive"]),
@@ -46,7 +46,7 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-const ROLE_SUGGESTIONS = ["مصمم", "مطور", "مدير مشروع", "محاسب", "أخرى"];
+const ROLE_SUGGESTIONS = ["Designer", "Developer", "Project Manager", "Accountant", "Other"];
 
 type NewMemberModalProps = {
   trigger: React.ReactNode;
@@ -122,9 +122,9 @@ export function NewMemberModal({
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (data.url) form.setValue("avatarUrl", data.url);
-      else toast.error("فشل رفع الصورة");
+      else toast.error("Failed to upload image");
     } catch {
-      toast.error("فشل رفع الصورة");
+      toast.error("Failed to upload image");
     } finally {
       setAvatarUploading(false);
     }
@@ -144,21 +144,21 @@ export function NewMemberModal({
     if (isEdit) {
       const result = await updateTeamMember({ id: member.id, ...payload });
       if (result.ok) {
-        toast.success("تم تحديث العضو");
+        toast.success("Member updated");
         setOpen(false);
         onSuccess?.();
       } else {
-        toast.error(typeof result.error === "string" ? result.error : "فشل التحديث");
+        toast.error(typeof result.error === "string" ? result.error : "Update failed");
       }
     } else {
       const result = await createTeamMember(payload);
       if (result.ok) {
-        toast.success("تمت إضافة العضو");
+        toast.success("Member added");
         setOpen(false);
         onSuccess?.();
       } else {
         const err = result.error as Record<string, string[] | undefined>;
-        const msg = err?.name?.[0] ?? (typeof result.error === "string" ? result.error : "فشل الإضافة");
+        const msg = err?.name?.[0] ?? (typeof result.error === "string" ? result.error : "Create failed");
         toast.error(msg);
       }
     }
@@ -167,11 +167,11 @@ export function NewMemberModal({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild={asChild}>{trigger}</DialogTrigger>
-      <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-lg" dir="rtl">
-        <DialogHeader className="text-right">
-          <DialogTitle>{isEdit ? "تعديل عضو الفريق" : "إضافة عضو جديد"}</DialogTitle>
+      <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-lg" dir="ltr">
+        <DialogHeader className="text-left">
+          <DialogTitle>{isEdit ? "Edit Team Member" : "Add New Member"}</DialogTitle>
           <DialogDescription>
-            {isEdit ? "تحديث بيانات العضو." : "أدخل بيانات العضو الجديد."}
+            {isEdit ? "Update member details." : "Enter new member details."}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -180,10 +180,10 @@ export function NewMemberModal({
               control={form.control}
               name="name"
               render={({ field }) => (
-                <FormItem className="text-right">
-                  <FormLabel>الاسم *</FormLabel>
+                <FormItem className="text-left">
+                  <FormLabel>Name *</FormLabel>
                   <FormControl>
-                    <Input placeholder="الاسم الكامل" className="text-right" {...field} />
+                    <Input placeholder="Full name" className="text-left" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -193,12 +193,12 @@ export function NewMemberModal({
               control={form.control}
               name="role"
               render={({ field }) => (
-                <FormItem className="text-right">
-                  <FormLabel>الدور</FormLabel>
+                <FormItem className="text-left">
+                  <FormLabel>Role</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="مصمم / مطور / مدير مشروع / محاسب / أخرى"
-                      className="text-right"
+                      placeholder="Designer / Developer / Project Manager / Accountant / Other"
+                      className="text-left"
                       {...field}
                     />
                   </FormControl>
@@ -210,10 +210,10 @@ export function NewMemberModal({
               control={form.control}
               name="email"
               render={({ field }) => (
-                <FormItem className="text-right">
-                  <FormLabel>البريد الإلكتروني</FormLabel>
+                <FormItem className="text-left">
+                  <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="email@example.com" className="text-right" {...field} />
+                    <Input type="email" placeholder="email@example.com" className="text-left" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -223,10 +223,10 @@ export function NewMemberModal({
               control={form.control}
               name="phone"
               render={({ field }) => (
-                <FormItem className="text-right">
-                  <FormLabel>الهاتف</FormLabel>
+                <FormItem className="text-left">
+                  <FormLabel>Phone</FormLabel>
                   <FormControl>
-                    <Input placeholder="رقم الهاتف" className="text-right" {...field} />
+                    <Input placeholder="Phone number" className="text-left" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -236,8 +236,8 @@ export function NewMemberModal({
               control={form.control}
               name="avatarUrl"
               render={({ field }) => (
-                <FormItem className="text-right">
-                  <FormLabel>الصورة الشخصية</FormLabel>
+                <FormItem className="text-left">
+                  <FormLabel>Avatar</FormLabel>
                   <FormControl>
                     <div className="flex items-center gap-3">
                       {avatarUrl && (
@@ -264,17 +264,17 @@ export function NewMemberModal({
               control={form.control}
               name="status"
               render={({ field }) => (
-                <FormItem className="text-right">
-                  <FormLabel>الحالة</FormLabel>
+                <FormItem className="text-left">
+                  <FormLabel>Status</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger className="text-right">
+                      <SelectTrigger className="text-left">
                         <SelectValue />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="active">نشط</SelectItem>
-                      <SelectItem value="inactive">غير نشط</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -285,10 +285,10 @@ export function NewMemberModal({
               control={form.control}
               name="notes"
               render={({ field }) => (
-                <FormItem className="text-right">
-                  <FormLabel>ملاحظات</FormLabel>
+                <FormItem className="text-left">
+                  <FormLabel>Notes</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="ملاحظات اختيارية" className="text-right min-h-[80px]" {...field} />
+                    <Textarea placeholder="Optional notes" className="text-left min-h-[80px]" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -296,9 +296,9 @@ export function NewMemberModal({
             />
             <DialogFooter className="gap-2 sm:gap-0">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                إلغاء
+                Cancel
               </Button>
-              <Button type="submit">{isEdit ? "حفظ" : "إضافة"}</Button>
+              <Button type="submit">{isEdit ? "Save" : "Add"}</Button>
             </DialogFooter>
           </form>
         </Form>

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import {
   getTaskById,
   updateTask,
@@ -9,6 +10,8 @@ import {
   createSubtask,
   toggleSubtask,
 } from "@/actions/tasks";
+import { getTaskAssignees } from "@/actions/assignments";
+import { AssigneePicker } from "@/components/dashboard/assignee-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -70,8 +73,24 @@ type TaskWithSubtasks = {
   }>;
 };
 
+type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role?: string;
+};
+
+type Assignee = {
+  userId: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+};
+
 type TaskDetailModalProps = {
   taskId: string | null;
+  teamMembers: TeamMember[];
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -89,9 +108,13 @@ function formatDate(d: string | null) {
   }
 }
 
-export function TaskDetailModal({ taskId, onClose, onSuccess }: TaskDetailModalProps) {
+export function TaskDetailModal({ taskId, teamMembers, onClose, onSuccess }: TaskDetailModalProps) {
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { role?: string })?.role === "admin";
+
   const [task, setTask] = React.useState<TaskWithSubtasks | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [currentAssignees, setCurrentAssignees] = React.useState<Assignee[]>([]);
   const [titleEdit, setTitleEdit] = React.useState("");
   const [descriptionEdit, setDescriptionEdit] = React.useState("");
   const [newSubtaskTitle, setNewSubtaskTitle] = React.useState("");
@@ -103,15 +126,23 @@ export function TaskDetailModal({ taskId, onClose, onSuccess }: TaskDetailModalP
   React.useEffect(() => {
     if (!taskId) {
       setTask(null);
+      setCurrentAssignees([]);
       return;
     }
     setLoading(true);
-    getTaskById(taskId)
-      .then((res) => {
-        if (res.ok) {
-          setTask(res.data as TaskWithSubtasks);
-          setTitleEdit(res.data.title);
-          setDescriptionEdit(res.data.description ?? "");
+    Promise.all([
+      getTaskById(taskId),
+      getTaskAssignees(taskId),
+    ])
+      .then(([taskRes, assigneesRes]) => {
+        if (taskRes.ok) {
+          const data = taskRes.data as TaskWithSubtasks;
+          setTask(data);
+          setTitleEdit(data.title);
+          setDescriptionEdit(data.description ?? "");
+        }
+        if (assigneesRes.data) {
+          setCurrentAssignees(assigneesRes.data);
         }
       })
       .finally(() => setLoading(false));
@@ -290,6 +321,32 @@ export function TaskDetailModal({ taskId, onClose, onSuccess }: TaskDetailModalP
                   placeholder="لا يوجد وصف"
                 />
               </div>
+              {isAdmin && (
+                <AssigneePicker
+                  taskId={task.id}
+                  teamMembers={teamMembers}
+                  currentAssignees={currentAssignees}
+                  onAssigneesChange={() => {
+                    setCurrentAssignees((prev) => prev);
+                    getTaskAssignees(task.id).then((res) => {
+                      if (res.data) setCurrentAssignees(res.data);
+                    });
+                    onSuccess();
+                  }}
+                />
+              )}
+              {!isAdmin && currentAssignees.length > 0 && (
+                <div className="space-y-2" dir="rtl">
+                  <p className="text-sm font-medium text-muted-foreground">المُعيَّنون</p>
+                  <div className="flex flex-wrap gap-2">
+                    {currentAssignees.map((a) => (
+                      <div key={a.userId} className="flex items-center gap-1.5 bg-secondary rounded-full px-3 py-1">
+                        <span className="text-xs">{a.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
                 <h4 className="mb-2 font-medium">المهام الفرعية</h4>
                 <ul className="space-y-2">

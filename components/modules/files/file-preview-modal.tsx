@@ -13,14 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Download, Copy, Trash2, File } from "lucide-react";
 import type { FileRow } from "@/actions/files";
 import { format } from "date-fns";
-import { ar } from "date-fns/locale";
+import { enUS } from "date-fns/locale";
 
 function formatDateSafe(value: Date | string | null | undefined): string {
   if (value == null) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return "—";
   try {
-    return format(date, "dd/MM/yyyy", { locale: ar });
+    return format(date, "dd/MM/yyyy", { locale: enUS });
   } catch {
     return "—";
   }
@@ -80,7 +80,7 @@ export function FilePreviewModal({
 
   const handleCopy = () => {
     onCopyLink(file.imagekitUrl);
-    toast.success("تم نسخ الرابط");
+    toast.success("Link copied.");
   };
 
   const handleDelete = () => {
@@ -91,7 +91,7 @@ export function FilePreviewModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        dir="rtl"
+        dir="ltr"
         className={`w-[95vw] max-w-[95vw] ${contentMaxWidth} flex max-h-[90vh] flex-col overflow-hidden p-0`}
         showCloseButton={false}
       >
@@ -103,11 +103,11 @@ export function FilePreviewModal({
             size="icon"
             className="absolute left-4 top-4 h-8 w-8 shrink-0"
             onClick={() => onOpenChange(false)}
-            aria-label="إغلاق"
+            aria-label="Close"
           >
             <span className="text-lg leading-none">×</span>
           </Button>
-          <div className="min-w-0 flex-1 text-right">
+          <div className="min-w-0 flex-1 text-left">
             <p className="truncate text-base font-bold" title={file.name}>
               {file.name}
             </p>
@@ -142,10 +142,10 @@ export function FilePreviewModal({
 
           {isPdfType && pdfLoadFailed && (
             <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
-              <p className="text-muted-foreground">لا يمكن عرض الملف مباشرة</p>
+              <p className="text-muted-foreground">Unable to preview this file directly</p>
               <Button variant="outline" onClick={handleDownload} className="gap-2">
                 <Download className="h-4 w-4" />
-                تحميل
+                Download
               </Button>
             </div>
           )}
@@ -158,7 +158,7 @@ export function FilePreviewModal({
                 {formatSize(file.sizeBytes)}
               </p>
               <p className="text-muted-foreground text-sm">
-                لا تتوفر معاينة لهذا النوع من الملفات
+                Preview is not available for this file type
               </p>
             </div>
           )}
@@ -168,11 +168,11 @@ export function FilePreviewModal({
         <DialogFooter className="flex flex-row gap-2 border-t px-6 py-4 sm:justify-start">
           <Button variant="outline" size="sm" onClick={handleDownload} className="gap-1">
             <Download className="h-3.5 w-3.5" />
-            تحميل
+            Download
           </Button>
           <Button variant="outline" size="sm" onClick={handleCopy} className="gap-1">
             <Copy className="h-3.5 w-3.5" />
-            نسخ الرابط
+            Copy Link
           </Button>
           <Button
             variant="destructive"
@@ -181,7 +181,7 @@ export function FilePreviewModal({
             className="gap-1"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            حذف
+            Delete
           </Button>
         </DialogFooter>
       </DialogContent>

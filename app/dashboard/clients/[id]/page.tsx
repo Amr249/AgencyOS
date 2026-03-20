@@ -2,7 +2,8 @@ import { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import { getClientById } from "@/actions/clients";
+import { getLocale, getTranslations } from "next-intl/server";
+import { getClientById, getClientServiceIds } from "@/actions/clients";
 import { getProjectsByClientId, getProjectTaskCounts } from "@/actions/projects";
 import { getInvoicesByClientId, getNextInvoiceNumber } from "@/actions/invoices";
 import { getSettings } from "@/actions/settings";
@@ -27,6 +28,7 @@ import { ClientOverview } from "@/components/modules/clients/client-overview";
 import { ClientProjectsTab } from "@/components/modules/clients/client-projects-tab";
 import { ClientInvoicesTab } from "@/components/modules/clients/client-invoices-tab";
 import { FileManager } from "@/components/modules/files/file-manager";
+import { getServices } from "@/actions/services";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -42,7 +44,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ClientDetailPage({ params }: Props) {
   const { id } = await params;
-  const [clientResult, projectsResult, invoicesResult, settingsResult, nextNumResult, filesResult, teamMembersResult] = await Promise.all([
+  const locale = await getLocale();
+  const t = await getTranslations("clients");
+  const isArabic = locale === "ar";
+  const [clientResult, projectsResult, invoicesResult, settingsResult, nextNumResult, filesResult, teamMembersResult, servicesResult, clientServicesResult] = await Promise.all([
     getClientById(id),
     getProjectsByClientId(id),
     getInvoicesByClientId(id),
@@ -50,6 +55,8 @@ export default async function ClientDetailPage({ params }: Props) {
     getNextInvoiceNumber(),
     getFiles({ clientId: id }),
     getTeamMembers(),
+    getServices(),
+    getClientServiceIds(id),
   ]);
 
   if (!clientResult.ok) {
@@ -64,14 +71,28 @@ export default async function ClientDetailPage({ params }: Props) {
   }
 
   const client = clientResult.data;
-  const statusLabel = CLIENT_STATUS_LABELS[client.status] ?? client.status;
+  const statusLabelByKey: Record<string, string> = {
+    lead: t("statusLeadFull"),
+    active: t("statusActive"),
+    on_hold: t("statusOnHold"),
+    completed: t("statusCompleted"),
+    closed: t("statusClosed"),
+  };
+  const statusLabel =
+    statusLabelByKey[client.status] ??
+    CLIENT_STATUS_LABELS[client.status] ??
+    client.status;
   const projects = projectsResult.ok ? projectsResult.data : [];
   const projectIds = projects.map((p) => p.id);
   const taskCountsResult = projectIds.length > 0 ? await getProjectTaskCounts(projectIds) : { ok: true as const, data: {} as Record<string, { total: number; done: number }> };
   const taskCounts = taskCountsResult.ok ? taskCountsResult.data : {};
   const invoices = invoicesResult.ok ? invoicesResult.data : [];
   const settings = settingsResult.ok ? settingsResult.data : null;
-  const nextInvoiceNumber = nextNumResult.ok ? nextNumResult.data : "فاتورة-001";
+  const nextInvoiceNumber = nextNumResult.ok
+    ? nextNumResult.data
+    : isArabic
+      ? "فاتورة-001"
+      : "INV-001";
 
   let totalInvoiced = 0;
   let totalPaid = 0;
@@ -87,11 +108,15 @@ export default async function ClientDetailPage({ params }: Props) {
   const defaultCurrency = settings?.defaultCurrency ?? "SAR";
   const initialFiles = filesResult.ok ? filesResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
+  const serviceOptions = servicesResult.ok ? servicesResult.data : [];
+  const initialServiceIds = clientServicesResult.ok ? clientServicesResult.data : [];
 
   return (
-    <div className="flex flex-col gap-4" dir="rtl">
+    <div className="flex flex-col gap-4" dir={isArabic ? "rtl" : "ltr"}>
       <Breadcrumb>
-        <BreadcrumbList className="flex flex-row-reverse justify-end">
+        <BreadcrumbList
+          className={`flex justify-end ${isArabic ? "flex-row-reverse" : "flex-row"}`}
+        >
           <BreadcrumbItem>
             <BreadcrumbPage>{client.companyName}</BreadcrumbPage>
           </BreadcrumbItem>
@@ -100,21 +125,33 @@ export default async function ClientDetailPage({ params }: Props) {
           </BreadcrumbSeparator>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/dashboard/clients">العملاء</Link>
+              <Link href="/dashboard/clients">{t("title")}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex flex-col gap-4 sm:flex-row-reverse sm:items-center sm:justify-between">
+      <div
+        className={`flex flex-col gap-4 sm:items-center sm:justify-between ${
+          isArabic ? "sm:flex-row-reverse" : "sm:flex-row"
+        }`}
+      >
         <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-          <EditClientButton client={client} />
+          <EditClientButton
+            client={client}
+            serviceOptions={serviceOptions}
+            initialServiceIds={initialServiceIds}
+          />
           <Button variant="outline" asChild>
-            <Link href="/dashboard/clients">العودة للقائمة</Link>
+            <Link href="/dashboard/clients">{t("backToList")}</Link>
           </Button>
         </div>
-        <div className="flex flex-col gap-4 sm:flex-row-reverse sm:items-center sm:gap-4">
-          <div className="text-right">
+        <div
+          className={`flex flex-col gap-4 sm:items-center sm:gap-4 ${
+            isArabic ? "sm:flex-row-reverse" : "sm:flex-row"
+          }`}
+        >
+          <div className={isArabic ? "text-right" : "text-left"}>
             <h1 className="text-2xl font-bold tracking-tight">{client.companyName}</h1>
             <Badge
               variant="outline"
@@ -123,7 +160,11 @@ export default async function ClientDetailPage({ params }: Props) {
               {statusLabel}
             </Badge>
           </div>
-          <Avatar className="size-20 shrink-0 ring-2 ring-border self-end sm:self-center">
+          <Avatar
+            className={`size-20 shrink-0 ring-2 ring-border sm:self-center ${
+              isArabic ? "self-end" : "self-start"
+            }`}
+          >
             {client.logoUrl ? (
               <AvatarImage src={client.logoUrl} alt={client.companyName} />
             ) : null}
@@ -137,17 +178,16 @@ export default async function ClientDetailPage({ params }: Props) {
       </div>
 
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap md:grid md:grid-cols-2 lg:grid-cols-5" dir="rtl">
-          <TabsTrigger value="overview">نظرة عامة</TabsTrigger>
-          <TabsTrigger value="projects">المشاريع</TabsTrigger>
-          <TabsTrigger value="invoices">الفواتير</TabsTrigger>
-          <TabsTrigger value="files">الملفات</TabsTrigger>
-          <TabsTrigger value="notes">ملاحظات</TabsTrigger>
+        <TabsList
+          className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap md:grid md:grid-cols-2 lg:grid-cols-3"
+          dir={isArabic ? "rtl" : "ltr"}
+        >
+          <TabsTrigger value="overview">{t("tabOverview")}</TabsTrigger>
+          <TabsTrigger value="files">Files</TabsTrigger>
+          <TabsTrigger value="notes">{t("tabNotes")}</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
           <ClientOverview client={client} />
-        </TabsContent>
-        <TabsContent value="projects" className="mt-4">
           <ClientProjectsTab
             clientId={id}
             clientName={client.companyName}
@@ -163,8 +203,6 @@ export default async function ClientDetailPage({ params }: Props) {
             teamMembers={teamMembers}
             defaultCurrency={defaultCurrency}
           />
-        </TabsContent>
-        <TabsContent value="invoices" className="mt-4">
           <ClientInvoicesTab
             clientId={id}
             clientName={client.companyName}
@@ -195,13 +233,13 @@ export default async function ClientDetailPage({ params }: Props) {
         <TabsContent value="notes" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>ملاحظات</CardTitle>
+              <CardTitle>{t("tabNotes")}</CardTitle>
             </CardHeader>
             <CardContent>
               {client.notes ? (
                 <p className="whitespace-pre-wrap text-sm text-muted-foreground">{client.notes}</p>
               ) : (
-                <p className="text-muted-foreground text-sm">لا توجد ملاحظات بعد.</p>
+                <p className="text-muted-foreground text-sm">{t("notesEmpty")}</p>
               )}
             </CardContent>
           </Card>

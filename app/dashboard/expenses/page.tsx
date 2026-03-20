@@ -4,8 +4,8 @@ import { getTeamMembers } from "@/actions/team-members";
 import { ExpensesListView } from "@/components/modules/expenses/expenses-list-view";
 
 export const metadata: Metadata = {
-  title: "المصروفات",
-  description: "تتبع المصروفات والفئات",
+  title: "Expenses",
+  description: "Track expenses and categories",
 };
 
 const categoryValues: ExpenseCategory[] = [

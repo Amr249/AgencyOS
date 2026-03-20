@@ -1,6 +1,8 @@
 import React from "react";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { getServerSession } from "next-auth";
+import { getLocale } from "next-intl/server";
+import { authOptions } from "@/lib/auth";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
@@ -14,10 +16,13 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await getServerSession(authOptions);
   if (!session?.user) {
     redirect("/login?callbackUrl=/dashboard");
   }
+
+  const locale = await getLocale();
+  const sidebarSide = locale === "ar" ? "right" : "left";
 
   return (
     <SidebarProvider
@@ -28,7 +33,7 @@ export default async function DashboardLayout({
         } as React.CSSProperties
       }
     >
-      <AppSidebar user={session.user} variant="inset" side="right" />
+      <AppSidebar variant="inset" side={sidebarSide} />
       <SidebarInset>
         <SiteHeader />
         <div className="flex flex-1 flex-col pb-20 md:pb-0">

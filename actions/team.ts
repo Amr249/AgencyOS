@@ -5,7 +5,7 @@ import { z } from "zod";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teamMembers, projectMembers, projects, clients, expenses } from "@/lib/db";
-import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
+import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 
 const statusValues = ["active", "inactive"] as const;
 
@@ -92,7 +92,7 @@ export async function getTeamMembers(): Promise<
   } catch (e) {
     console.error("getTeamMembers", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load team members" };
   }
@@ -121,7 +121,7 @@ export async function getTeamMemberById(id: string) {
   } catch (e) {
     console.error("getTeamMemberById", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load team member" };
   }
@@ -152,7 +152,7 @@ export async function createTeamMember(input: CreateTeamMemberInput) {
   } catch (e) {
     console.error("createTeamMember", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to create team member" };
   }
@@ -188,7 +188,7 @@ export async function updateTeamMember(input: UpdateTeamMemberInput) {
   } catch (e) {
     console.error("updateTeamMember", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to update" };
   }
@@ -205,7 +205,7 @@ export async function deleteTeamMember(id: string) {
   } catch (e) {
     console.error("deleteTeamMember", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to delete" };
   }
@@ -247,7 +247,7 @@ export async function assignMemberToProject(
   } catch (e) {
     console.error("assignMemberToProject", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to assign" };
   }
@@ -275,7 +275,7 @@ export async function removeMemberFromProject(projectId: string, teamMemberId: s
   } catch (e) {
     console.error("removeMemberFromProject", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to remove" };
   }
@@ -285,7 +285,11 @@ export type ProjectMemberRow = {
   id: string;
   projectId: string;
   projectName: string;
+  projectCoverImageUrl: string | null;
+  endDate: string | null;
+  budget: string | null;
   clientName: string | null;
+  clientLogoUrl: string | null;
   projectStatus: string;
   roleOnProject: string | null;
   assignedAt: Date;
@@ -300,7 +304,11 @@ export async function getProjectMembers(projectId: string) {
         id: projectMembers.id,
         projectId: projectMembers.projectId,
         projectName: projects.name,
+        projectCoverImageUrl: projects.coverImageUrl,
+        endDate: projects.endDate,
+        budget: projects.budget,
         clientName: clients.companyName,
+        clientLogoUrl: clients.logoUrl,
         projectStatus: projects.status,
         roleOnProject: projectMembers.roleOnProject,
         assignedAt: projectMembers.assignedAt,
@@ -314,7 +322,11 @@ export async function getProjectMembers(projectId: string) {
       id: r.id,
       projectId: r.projectId,
       projectName: r.projectName,
+      projectCoverImageUrl: r.projectCoverImageUrl,
+      endDate: r.endDate,
+      budget: r.budget,
       clientName: r.clientName,
+      clientLogoUrl: r.clientLogoUrl,
       projectStatus: r.projectStatus,
       roleOnProject: r.roleOnProject,
       assignedAt: r.assignedAt,
@@ -324,7 +336,7 @@ export async function getProjectMembers(projectId: string) {
   } catch (e) {
     console.error("getProjectMembers", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load project members" };
   }
@@ -339,7 +351,11 @@ export async function getMemberProjects(teamMemberId: string) {
         id: projectMembers.id,
         projectId: projectMembers.projectId,
         projectName: projects.name,
+        projectCoverImageUrl: projects.coverImageUrl,
+        endDate: projects.endDate,
+        budget: projects.budget,
         clientName: clients.companyName,
+        clientLogoUrl: clients.logoUrl,
         projectStatus: projects.status,
         roleOnProject: projectMembers.roleOnProject,
         assignedAt: projectMembers.assignedAt,
@@ -354,7 +370,11 @@ export async function getMemberProjects(teamMemberId: string) {
       id: r.id,
       projectId: r.projectId,
       projectName: r.projectName,
+      projectCoverImageUrl: r.projectCoverImageUrl,
+      endDate: r.endDate,
+      budget: r.budget,
       clientName: r.clientName,
+      clientLogoUrl: r.clientLogoUrl,
       projectStatus: r.projectStatus,
       roleOnProject: r.roleOnProject,
       assignedAt: r.assignedAt,
@@ -364,7 +384,7 @@ export async function getMemberProjects(teamMemberId: string) {
   } catch (e) {
     console.error("getMemberProjects", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load projects" };
   }

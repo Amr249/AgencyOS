@@ -4,6 +4,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useTranslations } from "next-intl";
 import { createClient, updateClient, type CreateClientInput } from "@/actions/clients";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +35,10 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import type { clients } from "@/lib/db/schema";
+import { useTranslateActionError } from "@/hooks/use-translate-action-error";
+import { isDbErrorKey } from "@/lib/i18n-errors";
+import { Badge } from "@/components/ui/badge";
+import { X } from "lucide-react";
 
 const formSchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
@@ -44,6 +49,7 @@ const formSchema = z.object({
   website: z.string().url("Invalid URL").optional().or(z.literal("")),
   logoUrl: z.string().url().optional().or(z.literal("")),
   notes: z.string().optional(),
+  serviceIds: z.array(z.string()).optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -56,6 +62,8 @@ type ClientFormSheetProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   asChild?: boolean;
+  serviceOptions?: { id: string; name: string; status: string }[];
+  initialServiceIds?: string[];
 };
 
 export function ClientFormSheet({
@@ -64,7 +72,12 @@ export function ClientFormSheet({
   open,
   onOpenChange,
   asChild,
+  serviceOptions = [],
+  initialServiceIds = [],
 }: ClientFormSheetProps) {
+  const t = useTranslations("clients");
+  const tc = useTranslations("common");
+  const translateErr = useTranslateActionError();
   const isEdit = !!client;
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const isControlled = open !== undefined && onOpenChange !== undefined;
@@ -72,6 +85,20 @@ export function ClientFormSheet({
   const setEffectiveOpen = isControlled ? onOpenChange : setDialogOpen;
 
   const [logoUploading, setLogoUploading] = React.useState(false);
+  const statusLabel = (status: FormValues["status"]) => {
+    if (status === "lead") return t("statusLeadFull");
+    if (status === "active") return tc("active");
+    if (status === "on_hold") return t("statusOnHold");
+    if (status === "completed") return tc("completed");
+    return t("statusClosed");
+  };
+  const statusDotClass = (status: FormValues["status"]) => {
+    if (status === "lead") return "bg-blue-500";
+    if (status === "active") return "bg-green-500";
+    if (status === "on_hold") return "bg-amber-500";
+    if (status === "completed") return "bg-neutral-400";
+    return "bg-red-500";
+  };
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -84,6 +111,7 @@ export function ClientFormSheet({
       website: client?.website ?? "",
       logoUrl: client?.logoUrl ?? "",
       notes: client?.notes ?? "",
+      serviceIds: initialServiceIds,
     },
   });
 
@@ -98,6 +126,7 @@ export function ClientFormSheet({
         website: client.website ?? "",
         logoUrl: client.logoUrl ?? "",
         notes: client.notes ?? "",
+        serviceIds: initialServiceIds,
       });
     } else if (effectiveOpen && !client) {
       form.reset({
@@ -109,9 +138,10 @@ export function ClientFormSheet({
         website: "",
         logoUrl: "",
         notes: "",
+        serviceIds: [],
       });
     }
-  }, [effectiveOpen, client, form]);
+  }, [effectiveOpen, client, form, initialServiceIds]);
 
   async function onLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -145,14 +175,15 @@ export function ClientFormSheet({
         website: values.website || undefined,
         logoUrl: values.logoUrl || undefined,
         notes: values.notes || undefined,
+        serviceIds: values.serviceIds ?? [],
       });
       if (result.ok) {
-        toast.success("Client updated");
+        toast.success(t("toastUpdated"));
         setEffectiveOpen(false);
       } else {
         const err = result.error as { _form?: string[] };
         const msg = err._form?.[0] ?? "Failed to update";
-        toast.error(msg);
+        toast.error(isDbErrorKey(msg) ? translateErr(msg) : msg);
       }
     } else {
       const result = await createClient({
@@ -164,14 +195,15 @@ export function ClientFormSheet({
         website: values.website || undefined,
         logoUrl: values.logoUrl || undefined,
         notes: values.notes || undefined,
+        serviceIds: values.serviceIds ?? [],
       } as CreateClientInput);
       if (result.ok) {
-        toast.success("Client created");
+        toast.success(t("toastCreated"));
         setEffectiveOpen(false);
       } else {
         const err = result.error as { _form?: string[] };
         const msg = err._form?.[0] ?? "Failed to create";
-        toast.error(msg);
+        toast.error(isDbErrorKey(msg) ? translateErr(msg) : msg);
       }
     }
   }
@@ -179,11 +211,9 @@ export function ClientFormSheet({
   const content = (
     <>
       <DialogHeader>
-        <DialogTitle>{isEdit ? "تعديل العميل" : "عميل جديد"}</DialogTitle>
+        <DialogTitle>{isEdit ? t("formEditTitle") : t("formNewTitle")}</DialogTitle>
         <DialogDescription>
-          {isEdit
-            ? "تحديث بيانات العميل أدناه."
-            : "إضافة عميل جديد. الحقول المطلوبة معلمة."}
+          {isEdit ? t("formDescEdit") : t("formDescNew")}
         </DialogDescription>
       </DialogHeader>
       <Form {...form}>
@@ -193,9 +223,9 @@ export function ClientFormSheet({
             name="companyName"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>الشركة *</FormLabel>
+                <FormLabel>{t("companyLabel")}</FormLabel>
                 <FormControl>
-                  <Input placeholder="اسم الشركة" {...field} />
+                  <Input placeholder={t("companyPlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -206,19 +236,44 @@ export function ClientFormSheet({
             name="status"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>الحالة</FormLabel>
+                <FormLabel>{tc("status")}</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="اختر الحالة" />
+                    <SelectTrigger className="justify-start">
+                      <SelectValue placeholder={t("statusPlaceholder")} />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="lead">عميل محتمل</SelectItem>
-                    <SelectItem value="active">نشط</SelectItem>
-                    <SelectItem value="on_hold">متوقف</SelectItem>
-                    <SelectItem value="completed">مكتمل</SelectItem>
-                    <SelectItem value="closed">مغلق</SelectItem>
+                    <SelectItem value="lead">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />
+                        {t("statusLeadFull")}
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="active">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden />
+                        {tc("active")}
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="on_hold">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+                        {t("statusOnHold")}
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="completed">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-neutral-400" aria-hidden />
+                        {tc("completed")}
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="closed">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-red-500" aria-hidden />
+                        {t("statusClosed")}
+                      </span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -230,9 +285,9 @@ export function ClientFormSheet({
             name="contactName"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>جهة الاتصال</FormLabel>
+                <FormLabel>{t("contact")}</FormLabel>
                 <FormControl>
-                  <Input placeholder="الاسم" {...field} />
+                  <Input placeholder={t("contactNamePlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -243,7 +298,7 @@ export function ClientFormSheet({
             name="contactEmail"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>البريد الإلكتروني (اختياري)</FormLabel>
+                <FormLabel>{t("emailOptional")}</FormLabel>
                 <FormControl>
                   <Input type="email" placeholder="email@example.com" {...field} />
                 </FormControl>
@@ -256,9 +311,9 @@ export function ClientFormSheet({
             name="contactPhone"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>الهاتف *</FormLabel>
+                <FormLabel>{t("phoneLabel")}</FormLabel>
                 <FormControl>
-                  <Input placeholder="رقم الهاتف" {...field} />
+                  <Input placeholder={t("phonePlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -269,7 +324,7 @@ export function ClientFormSheet({
             name="website"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>الموقع (اختياري)</FormLabel>
+                <FormLabel>{t("websiteOptional")}</FormLabel>
                 <FormControl>
                   <Input placeholder="https://..." {...field} />
                 </FormControl>
@@ -282,7 +337,7 @@ export function ClientFormSheet({
             name="logoUrl"
             render={() => (
               <FormItem>
-                <FormLabel>الشعار (اختياري)</FormLabel>
+                <FormLabel>{t("logoOptional")}</FormLabel>
                 <FormControl>
                   <div className="flex items-center gap-3">
                     <Input
@@ -310,19 +365,79 @@ export function ClientFormSheet({
             name="notes"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>ملاحظات</FormLabel>
+                <FormLabel>{t("notesLabel")}</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="ملاحظات داخلية..." className="resize-none" {...field} />
+                  <Textarea placeholder={t("notesPlaceholder")} className="resize-none" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
+          {serviceOptions.length > 0 && (
+            <FormField
+              control={form.control}
+              name="serviceIds"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Services</FormLabel>
+                  <FormControl>
+                    <div className="space-y-2">
+                      <Select
+                        value=""
+                        onValueChange={(v) => {
+                          const arr = field.value ?? [];
+                          if (v && !arr.includes(v)) {
+                            field.onChange([...arr, v]);
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Add service" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {serviceOptions
+                            .filter((s) => s.status === "active" || (field.value ?? []).includes(s.id))
+                            .filter((s) => !(field.value ?? []).includes(s.id))
+                            .map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {(field.value ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {(field.value ?? []).map((id) => {
+                            const s = serviceOptions.find((x) => x.id === id);
+                            return (
+                              <Badge key={id} variant="secondary" className="gap-1 pr-1.5 pl-1.5">
+                                {s?.name ?? id}
+                                <button
+                                  type="button"
+                                  className="rounded-full hover:bg-muted p-0.5"
+                                  onClick={() =>
+                                    field.onChange((field.value ?? []).filter((x) => x !== id))
+                                  }
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setEffectiveOpen(false)}>
-              إلغاء
+              {t("cancel")}
             </Button>
-            <Button type="submit">{isEdit ? "حفظ التغييرات" : "إنشاء عميل"}</Button>
+            <Button type="submit">{isEdit ? t("saveChanges") : t("createClientSubmit")}</Button>
           </DialogFooter>
         </form>
       </Form>

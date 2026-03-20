@@ -16,6 +16,8 @@ import { TASK_STATUS_LABELS, TASK_PRIORITY_LABELS, TASK_PRIORITY_BADGE_CLASS } f
 import { cn } from "@/lib/utils";
 import { MoreHorizontal } from "lucide-react";
 import type { TaskWithProject } from "@/actions/tasks";
+import { AssigneeAvatars } from "@/components/dashboard/assignee-avatars";
+import { EntityTableShell } from "@/components/ui/entity-table-shell";
 
 function formatDate(d: string | null) {
   if (!d) return "—";
@@ -39,13 +41,20 @@ function isOverdue(dueDate: string | null) {
   }
 }
 
+type AssigneeForCard = {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+};
+
 type TasksListViewProps = {
   tasks: TaskWithProject[];
+  assigneesByTaskId: Record<string, AssigneeForCard[]>;
   onOpenTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
 };
 
-export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListViewProps) {
+export function TasksListView({ tasks, assigneesByTaskId, onOpenTask, onDeleteTask }: TasksListViewProps) {
   const taskTableColumns = React.useMemo<ColumnDef<TaskWithProject>[]>(
     () => [
       { id: "drag", header: () => null, cell: () => null, enableSorting: false, size: 32 },
@@ -53,7 +62,7 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
         accessorKey: "title",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">المهمة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -67,7 +76,7 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
         accessorKey: "projectName",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">المشروع {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -81,7 +90,7 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
         accessorKey: "priority",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">الأولوية {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -95,7 +104,7 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
         accessorKey: "status",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -105,7 +114,7 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
         accessorKey: "dueDate",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
             <span className="text-right">تاريخ الاستحقاق {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
@@ -118,6 +127,14 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
             </span>
           );
         },
+      },
+      {
+        id: "assignees",
+        enableSorting: false,
+        header: () => <span className="text-right">المُعيَّنون</span>,
+        cell: ({ row }) => (
+          <AssigneeAvatars assignees={assigneesByTaskId[row.original.id] ?? []} max={3} />
+        ),
       },
       {
         id: "actions",
@@ -138,12 +155,14 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
         ),
       },
     ],
-    [onOpenTask, onDeleteTask]
+    [onOpenTask, onDeleteTask, assigneesByTaskId]
   );
 
   return (
-    <>
-      {/* Mobile: card list */}
+    <EntityTableShell
+      title="المهام"
+      dir="rtl"
+      mobileContent={
       <div className="space-y-2 md:hidden">
         {tasks.map((task) => {
           const overdue = isOverdue(task.dueDate);
@@ -165,6 +184,9 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
                   {formatDate(task.dueDate)}
                   {overdue && " (متأخر)"}
                 </p>
+                <div className="mt-1.5">
+                  <AssigneeAvatars assignees={assigneesByTaskId[task.id] ?? []} max={3} />
+                </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Badge variant="secondary" className={cn("text-xs", TASK_PRIORITY_BADGE_CLASS[task.priority] ?? "")}>
@@ -186,7 +208,8 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
           );
         })}
       </div>
-      <div className="hidden md:block rounded-md border p-4">
+      }
+      tableContent={<div className="hidden md:block p-4">
         <SortableDataTable<TaskWithProject>
           columns={taskTableColumns}
           data={tasks}
@@ -200,8 +223,9 @@ export function TasksListView({ tasks, onOpenTask, onDeleteTask }: TasksListView
             dueDate: "تاريخ الاستحقاق",
           }}
           enablePagination={false}
+          enableSavedViews
         />
-      </div>
-    </>
+      </div>}
+    />
   );
 }

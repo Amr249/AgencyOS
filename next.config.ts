@@ -1,4 +1,7 @@
+import createNextIntlPlugin from "next-intl/plugin";
 import type { NextConfig } from "next";
+
+const withNextIntl = createNextIntlPlugin("./i18n.ts");
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@react-pdf/renderer"],
@@ -6,14 +9,14 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "**"
+        hostname: "**",
       },
       {
         protocol: "http",
-        hostname: "**"
-      }
-    ]
-  }
+        hostname: "**",
+      },
+    ],
+  },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

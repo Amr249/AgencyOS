@@ -53,7 +53,7 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
     <div
       className={cn(
         "relative -mx-4 mt-2 w-full overflow-hidden rounded-xl bg-muted sm:-mx-6 sm:rounded-none",
-        coverImageUrl ? "aspect-video" : "aspect-video border border-dashed border-muted-foreground/30"
+        coverImageUrl ? "h-[200px]" : "h-[200px] border border-dashed border-muted-foreground/30"
       )}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}

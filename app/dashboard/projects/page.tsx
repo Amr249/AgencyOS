@@ -4,6 +4,8 @@ import { getProjects, getProjectTaskCounts } from "@/actions/projects";
 import { getClientsList } from "@/actions/clients";
 import { getSettings } from "@/actions/settings";
 import { getProjectMemberIdsByProjectIds, getTeamMembers } from "@/actions/team-members";
+import { getServices } from "@/actions/services";
+import { getServiceIdsByProjectIds } from "@/actions/project-services";
 import { ProjectsListView } from "@/components/modules/projects/projects-list-view";
 
 export const metadata: Metadata = {
@@ -23,10 +25,11 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     clientId: clientId && clientId !== "all" ? clientId : undefined,
   };
 
-  const [projectsResult, clientsResult, settingsResult] = await Promise.all([
+  const [projectsResult, clientsResult, settingsResult, servicesResult] = await Promise.all([
     getProjects(filters),
     getClientsList(),
     getSettings(),
+    getServices(),
   ]);
 
   if (!projectsResult.ok) {
@@ -44,14 +47,17 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     ? settingsResult.data.defaultCurrency
     : "USD";
 
-  const [taskCountsResult, projectMembersResult, teamMembersResult] = await Promise.all([
+  const [taskCountsResult, projectMembersResult, teamMembersResult, projectServicesResult] = await Promise.all([
     getProjectTaskCounts(projects.map((p) => p.id)),
     getProjectMemberIdsByProjectIds(projects.map((p) => p.id)),
     getTeamMembers(),
+    getServiceIdsByProjectIds(projects.map((p) => p.id)),
   ]);
   const taskCounts = taskCountsResult.ok ? taskCountsResult.data : {};
   const projectMembers = projectMembersResult.ok ? projectMembersResult.data : {};
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
+  const serviceOptions = servicesResult.ok ? servicesResult.data : [];
+  const projectServices = projectServicesResult.ok ? projectServicesResult.data : {};
 
   return (
     <Suspense fallback={<div className="text-muted-foreground">جارٍ التحميل…</div>}>
@@ -59,7 +65,9 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         projects={projects}
         taskCounts={taskCounts}
         projectMembers={projectMembers}
+        projectServices={projectServices}
         clients={clients.map((c) => ({ id: c.id, companyName: c.companyName }))}
+        serviceOptions={serviceOptions}
         teamMembers={teamMembers}
         defaultCurrency={defaultCurrency}
       />

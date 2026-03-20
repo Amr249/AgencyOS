@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db, settings } from "@/lib/db";
-import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
+import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import {
   agencyProfileSchema,
   invoiceDefaultsSchema,
@@ -23,7 +23,7 @@ export async function getSettings() {
   } catch (e) {
     console.error("getSettings", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load settings" };
   }
@@ -72,7 +72,7 @@ export async function updateAgencyProfile(input: AgencyProfileInput) {
   } catch (e) {
     console.error("updateAgencyProfile", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] } };
   }
@@ -99,7 +99,7 @@ export async function updateInvoiceDefaults(input: InvoiceDefaultsInput) {
   } catch (e) {
     console.error("updateInvoiceDefaults", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] } };
   }
@@ -122,7 +122,7 @@ export async function updateBranding(input: BrandingInput) {
   } catch (e) {
     console.error("updateBranding", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] } };
   }

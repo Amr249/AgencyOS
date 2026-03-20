@@ -1,56 +1,28 @@
 "use client";
 
 import * as React from "react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-  arrayMove,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  ColumnDef,
-  ColumnFiltersState,
-  SortingState,
-  VisibilityState,
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-  type Row,
-} from "@tanstack/react-table";
-import { GripVertical, MoreHorizontal, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowUpDown,
+  Check,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,719 +34,846 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { CLIENT_STATUS_LABELS, CLIENT_STATUS_BADGE_CLASS } from "@/types";
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ClientFormSheet } from "@/components/modules/clients/client-form-sheet";
-import { archiveClient, unarchiveClient, deleteClient } from "@/actions/clients";
+import {
+  archiveClient,
+  unarchiveClient,
+  deleteClient,
+  deleteClients,
+  updateClient,
+} from "@/actions/clients";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import type { clients } from "@/lib/db/schema";
+import { useTranslateActionError } from "@/hooks/use-translate-action-error";
+import { isDbErrorKey } from "@/lib/i18n-errors";
+import { listSavedViews, removeSavedView, upsertSavedView } from "@/lib/table-views";
 
-type ClientRow = typeof clients.$inferSelect;
-
-/** Priority for "active clients first" sort (lower = earlier in list). */
-const STATUS_SORT_ORDER: Record<string, number> = {
-  active: 0,
-  lead: 1,
-  on_hold: 2,
-  completed: 3,
-  closed: 4,
-};
-
-const TABLE_ID = "clients-table";
-const ROW_ORDER_KEY = "sortable-table-row-order";
-
-function reorderRowsById<T>(rows: Row<T>[], rowOrder: string[], getRowId: (original: T) => string): Row<T>[] {
-  const validRows = rows.filter((r) => r.original != null);
-  if (rowOrder.length === 0) return validRows;
-  const orderSet = new Set(rowOrder);
-  const byId = new Map(validRows.map((r) => [getRowId(r.original), r]));
-  const result: Row<T>[] = [];
-  for (const id of rowOrder) {
-    const row = byId.get(id);
-    if (row) result.push(row);
-  }
-  for (const row of validRows) {
-    if (!orderSet.has(getRowId(row.original))) result.push(row);
-  }
-  return result;
-}
-
-function SortableClientRow({ row }: { row: Row<ClientRow> }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: row.original.id,
-  });
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    background: isDragging ? "var(--accent)" : undefined,
-    zIndex: isDragging ? 10 : undefined,
-    position: isDragging ? "relative" : undefined,
-  };
-  return (
-    <TableRow ref={setNodeRef} style={style} data-state={row.getIsSelected() ? "selected" : undefined}>
-      {row.getVisibleCells().map((cell) =>
-        cell.column.id === "drag" ? (
-          <TableCell
-            key={cell.id}
-            className="w-8 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground pr-1 text-right"
-            {...attributes}
-            {...listeners}
-          >
-            <div className="flex justify-end">
-              <GripVertical className="h-4 w-4" />
-            </div>
-          </TableCell>
-        ) : (
-          <TableCell
-            key={cell.id}
-            className={cn("text-right", cell.column.id === "actions" ? "w-10" : undefined)}
-          >
-            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-          </TableCell>
-        )
-      )}
-    </TableRow>
-  );
-}
+type ClientRow = typeof clients.$inferSelect & { projectCount: number };
 
 type ClientsDataTableProps = {
-  data: ClientRow[];
-  showArchived?: boolean;
+  activeClients: ClientRow[];
+  archivedClients: ClientRow[];
+  selectedTab?: string;
+  serviceOptions: { id: string; name: string; status: string }[];
+  clientServiceMap: Record<string, { id: string; name: string; status: string }[]>;
 };
 
+function ClientAvatar({ name, logoUrl }: { name: string; logoUrl?: string | null }) {
+  const [logoFailed, setLogoFailed] = React.useState(false);
+  React.useEffect(() => {
+    setLogoFailed(false);
+  }, [logoUrl]);
+  const colors = [
+    "bg-blue-100 text-blue-700",
+    "bg-purple-100 text-purple-700",
+    "bg-amber-100 text-amber-700",
+    "bg-green-100 text-green-700",
+    "bg-red-100 text-red-700",
+    "bg-pink-100 text-pink-700",
+  ];
+  const index = (name.charCodeAt(0) || 0) % colors.length;
+  const showLogo = logoUrl && !logoFailed;
+
+  if (showLogo) {
+    return (
+      <Image
+        src={logoUrl}
+        alt=""
+        width={32}
+        height={32}
+        className="h-8 w-8 flex-shrink-0 rounded-lg object-cover"
+        onError={() => setLogoFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`h-8 w-8 flex-shrink-0 rounded-lg text-xs font-medium flex items-center justify-center ${colors[index]}`}
+    >
+      {name[0] ?? "?"}
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: ClientRow["status"] }) {
+  const t = useTranslations("clients");
+  const tc = useTranslations("common");
+  if (status === "active") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        {tc("active")}
+      </span>
+    );
+  }
+  if (status === "completed") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-500">
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        {tc("completed")}
+      </span>
+    );
+  }
+  if (status === "lead") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        {t("statusLead")}
+      </span>
+    );
+  }
+  if (status === "on_hold") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        {t("statusOnHold")}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {t("statusClosed")}
+    </span>
+  );
+}
+
+const CLIENT_STATUSES: ClientRow["status"][] = [
+  "lead",
+  "active",
+  "on_hold",
+  "completed",
+  "closed",
+];
+
+function ClientStatusCell({ client }: { client: ClientRow }) {
+  const t = useTranslations("clients");
+  const tc = useTranslations("common");
+  const router = useRouter();
+  const translateErr = useTranslateActionError();
+  const [pending, setPending] = React.useState(false);
+
+  function labelFor(status: ClientRow["status"]): string {
+    if (status === "active") return tc("active");
+    if (status === "completed") return tc("completed");
+    const labels: Record<string, string> = {
+      lead: t("statusLead"),
+      on_hold: t("statusOnHold"),
+      closed: t("statusClosed"),
+    };
+    return labels[status] ?? status;
+  }
+  function dotClassFor(status: ClientRow["status"]): string {
+    if (status === "active") return "bg-green-500";
+    if (status === "completed") return "bg-neutral-400";
+    if (status === "lead") return "bg-blue-500";
+    if (status === "on_hold") return "bg-amber-500";
+    return "bg-red-500";
+  }
+
+  async function apply(next: ClientRow["status"]) {
+    if (next === client.status || pending) return;
+    setPending(true);
+    try {
+      const res = await updateClient({ id: client.id, status: next });
+      if (!res.ok) {
+        const e = res.error as Record<string, string[] | undefined>;
+        const msg = e._form?.[0] ?? Object.values(e).flat()[0] ?? tc("error");
+        toast.error(translateErr(msg));
+        return;
+      }
+      toast.success(t("toastUpdated"));
+      router.refresh();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={pending}>
+        <button
+          type="button"
+          className="inline-flex max-w-full cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none ring-offset-2 transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:cursor-wait disabled:opacity-60"
+          aria-label={t("changeStatusAria")}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <StatusPill status={client.status} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-40" onClick={(e) => e.stopPropagation()}>
+        {CLIENT_STATUSES.map((s) => (
+          <DropdownMenuItem
+            key={s}
+            disabled={s === client.status || pending}
+            onSelect={() => void apply(s)}
+          >
+            <span className="flex w-full items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${dotClassFor(s)}`} aria-hidden />
+                {labelFor(s)}
+              </span>
+              {s === client.status ? <Check className="h-4 w-4 shrink-0 opacity-60" aria-hidden /> : null}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function ClientsDataTable({
-  data,
-  showArchived = false,
+  activeClients,
+  archivedClients,
+  selectedTab = "all",
+  serviceOptions,
+  clientServiceMap,
 }: ClientsDataTableProps) {
   const router = useRouter();
+  const locale = useLocale();
+  const t = useTranslations("clients");
+  const tc = useTranslations("common");
+  const translateErr = useTranslateActionError();
+
   const [editingClient, setEditingClient] = React.useState<ClientRow | null>(null);
   const [clientToDelete, setClientToDelete] = React.useState<ClientRow | null>(null);
-  const [archivingId, setArchivingId] = React.useState<string | null>(null);
-  const [restoringId, setRestoringId] = React.useState<string | null>(null);
-  const [sorting, setSorting] = React.useState<SortingState>(() => {
-    if (typeof window === "undefined") return [{ id: "status", desc: false }];
-    try {
-      const saved = localStorage.getItem(`sort-${TABLE_ID}`);
-      return saved ? JSON.parse(saved) : [{ id: "status", desc: false }];
-    } catch {
-      return [{ id: "status", desc: false }];
-    }
-  });
-  const [rowOrder, setRowOrder] = React.useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(`${ROW_ORDER_KEY}-${TABLE_ID}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
-  const [rowSelection, setRowSelection] = React.useState({});
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+  const headerCheckboxRef = React.useRef<HTMLInputElement>(null);
+  const [search, setSearch] = React.useState("");
+  const [sortBy, setSortBy] = React.useState<
+    | "newest"
+    | "oldest"
+    | "name"
+    | "contact_asc"
+    | "contact_desc"
+    | "projects_asc"
+    | "projects_desc"
+    | "status_asc"
+    | "status_desc"
+  >("newest");
+  const [statusFilters, setStatusFilters] = React.useState<ClientRow["status"][]>([]);
+  const [savedViews, setSavedViews] = React.useState(() => listSavedViews("clients-table"));
+  const [selectedViewId, setSelectedViewId] = React.useState("none");
 
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(`sort-${TABLE_ID}`, JSON.stringify(sorting));
-    } catch {
-      /* ignore */
-    }
-  }, [sorting]);
-
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(`${ROW_ORDER_KEY}-${TABLE_ID}`, JSON.stringify(rowOrder));
-    } catch {
-      /* ignore */
-    }
-  }, [rowOrder]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  const columns: ColumnDef<ClientRow>[] = React.useMemo(
-    () => [
-      {
-        id: "drag",
-        header: () => null,
-        cell: () => null,
-        enableSorting: false,
-        size: 32,
-      },
-      {
-        accessorKey: "companyName",
-        enableSorting: true,
-        filterFn: (row, _columnId, filterValue) => {
-          const s = String(filterValue ?? "").toLowerCase().trim();
-          if (!s) return true;
-          const name = String(row.original.companyName ?? "").toLowerCase();
-          const phone = String(row.original.contactPhone ?? "").toLowerCase();
-          return name.includes(s) || phone.includes(s);
-        },
-        header: ({ column }) => (
-          <Button
-            variant="ghost"
-            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            <span className="text-right">
-              الشركة
-              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
-            </span>
-          </Button>
-        ),
-        cell: ({ row }) => {
-          const name = row.getValue("companyName") as string;
-          const logoUrl = row.original.logoUrl;
-          const initial = name ? name.charAt(0).toUpperCase() : "?";
-          return (
-            <Link
-              href={`/dashboard/clients/${row.original.id}`}
-              className="font-medium text-primary hover:underline"
-            >
-              <div className="flex items-center gap-2 justify-end w-full">
-                <span>{name}</span>
-                <Avatar className="h-8 w-8 shrink-0">
-                  {logoUrl ? (
-                    <AvatarImage src={logoUrl} alt={name} />
-                  ) : null}
-                  <AvatarFallback className="bg-muted text-muted-foreground text-sm font-medium">
-                    {initial}
-                  </AvatarFallback>
-                </Avatar>
-              </div>
-            </Link>
-          );
-        },
-      },
-      {
-        accessorKey: "contactName",
-        enableSorting: true,
-        header: ({ column }) => (
-          <Button
-            variant="ghost"
-            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            <span className="text-right">
-              جهة الاتصال
-              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
-            </span>
-          </Button>
-        ),
-        cell: ({ row }) => (
-          <span className="text-right block">{row.getValue("contactName") ?? "—"}</span>
-        ),
-      },
-      {
-        accessorKey: "contactPhone",
-        enableSorting: true,
-        header: ({ column }) => (
-          <Button
-            variant="ghost"
-            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            <span className="text-right">
-              الهاتف
-              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
-            </span>
-          </Button>
-        ),
-        cell: ({ row }) => (
-          <div className="text-right">
-            <span dir="ltr">{row.getValue("contactPhone") ?? "—"}</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "status",
-        enableSorting: true,
-        sortingFn: (rowA, rowB) => {
-          const a = STATUS_SORT_ORDER[rowA.original.status ?? ""] ?? 99;
-          const b = STATUS_SORT_ORDER[rowB.original.status ?? ""] ?? 99;
-          return a - b;
-        },
-        filterFn: (row, columnId, filterValue) =>
-          !filterValue ||
-          filterValue === "all" ||
-          row.getValue(columnId) === filterValue,
-        header: ({ column }) => (
-          <Button
-            variant="ghost"
-            className="-ms-3 flex w-full justify-end gap-1 flex-row-reverse"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            <span className="text-right">
-              الحالة
-              {column.getIsSorted() === "asc" ? " ↑" : column.getIsSorted() === "desc" ? " ↓" : " ↕"}
-            </span>
-          </Button>
-        ),
-        cell: ({ row }) => {
-          const status = row.original.status;
-          const label = CLIENT_STATUS_LABELS[status] ?? status;
-          const className = CLIENT_STATUS_BADGE_CLASS[status];
-          return (
-            <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
-              <Badge variant="outline" className={className ?? undefined}>
-                {label}
-              </Badge>
-            </div>
-          );
-        },
-      },
-      {
-        id: "actions",
-        enableHiding: false,
-        header: () => null,
-        cell: ({ row }) => (
-          <div className="flex justify-start">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuLabel>الإجراءات</DropdownMenuLabel>
-              <DropdownMenuItem asChild>
-                <Link href={`/dashboard/clients/${row.original.id}`}>عرض العميل</Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setEditingClient(row.original)}>
-                تعديل
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setClientToDelete(row.original);
-                }}
-              >
-                <Trash2 className="me-2 h-4 w-4" />
-                حذف
-              </DropdownMenuItem>
-              {showArchived ? (
-                <DropdownMenuItem
-                  className="text-green-600 focus:text-green-600"
-                  onSelect={async () => {
-                    const id = row.original.id;
-                    setRestoringId(id);
-                    const result = await unarchiveClient(id);
-                    setRestoringId(null);
-                    if (result.ok) {
-                      toast.success("تم استعادة العميل");
-                      router.refresh();
-                    } else {
-                      toast.error(result.error);
-                    }
-                  }}
-                  disabled={restoringId === row.original.id}
-                >
-                  <ArchiveRestore className="me-2 h-4 w-4" />
-                  استعادة
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem
-                  className="text-amber-600 focus:text-amber-600"
-                  onSelect={async () => {
-                    const id = row.original.id;
-                    setArchivingId(id);
-                    const result = await archiveClient(id);
-                    setArchivingId(null);
-                    if (result.ok) {
-                      toast.success("تم أرشفة العميل");
-                      router.refresh();
-                    } else {
-                      toast.error(result.error);
-                    }
-                  }}
-                  disabled={archivingId === row.original.id}
-                >
-                  <Archive className="me-2 h-4 w-4" />
-                  أرشفة
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          </div>
-        ),
-      },
-    ],
-    [showArchived]
-  );
-
-  const table = useReactTable({
-    data,
-    columns,
-    getRowId: (row) => row.id,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: setRowSelection,
-    state: {
-      sorting,
-      columnFilters,
-      columnVisibility,
-      rowSelection,
-    },
-  });
-
-  const sortedRows = table.getRowModel().rows;
-  const displayRows = React.useMemo(
-    () => reorderRowsById(sortedRows, rowOrder, (original) => original?.id ?? ""),
-    [sortedRows, rowOrder]
-  );
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = displayRows.findIndex((r) => r.original.id === active.id);
-    const newIndex = displayRows.findIndex((r) => r.original.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    const reordered = arrayMove(displayRows, oldIndex, newIndex);
-    setRowOrder(reordered.map((r) => r.original.id));
+  const sortLocale = locale === "ar" ? "ar" : "en";
+  const dateLocale = locale === "ar" ? "ar-SA" : "en-US";
+  const statusFilterSet = React.useMemo(() => new Set(statusFilters), [statusFilters]);
+  const statusRank: Record<ClientRow["status"], number> = {
+    lead: 1,
+    active: 2,
+    on_hold: 3,
+    completed: 4,
+    closed: 5,
   };
 
-  const CLIENT_COLUMN_LABELS: Record<string, string> = {
-    companyName: "الشركة",
-    contactName: "جهة الاتصال",
-    contactPhone: "الهاتف",
-    status: "الحالة",
+  const allClients = React.useMemo(
+    () => [...activeClients, ...archivedClients],
+    [activeClients, archivedClients]
+  );
+  const baseClients =
+    selectedTab === "archived"
+      ? archivedClients
+      : selectedTab === "active"
+        ? allClients.filter((c) => c.status === "active")
+        : allClients;
+
+  const visibleClients = React.useMemo(() => {
+    let rows = [...baseClients];
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      rows = rows.filter((c) => {
+        const company = (c.companyName ?? "").toLowerCase();
+        const contact = (c.contactName ?? "").toLowerCase();
+        const phone = (c.contactPhone ?? "").toLowerCase();
+        return company.includes(q) || contact.includes(q) || phone.includes(q);
+      });
+    }
+    if (statusFilterSet.size > 0) {
+      rows = rows.filter((c) => statusFilterSet.has(c.status));
+    }
+    rows.sort((a, b) => {
+      if (sortBy === "name") return (a.companyName ?? "").localeCompare(b.companyName ?? "", sortLocale);
+      if (sortBy === "contact_asc")
+        return (a.contactName ?? "").localeCompare(b.contactName ?? "", sortLocale);
+      if (sortBy === "contact_desc")
+        return (b.contactName ?? "").localeCompare(a.contactName ?? "", sortLocale);
+      if (sortBy === "projects_asc") return a.projectCount - b.projectCount;
+      if (sortBy === "projects_desc") return b.projectCount - a.projectCount;
+      if (sortBy === "status_asc") return statusRank[a.status] - statusRank[b.status];
+      if (sortBy === "status_desc") return statusRank[b.status] - statusRank[a.status];
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return sortBy === "oldest" ? aTime - bTime : bTime - aTime;
+    });
+    return rows;
+  }, [baseClients, search, sortBy, sortLocale, statusFilterSet, statusRank]);
+
+  const visibleIdKey = visibleClients.map((c) => c.id).join("\0");
+  React.useEffect(() => {
+    const visibleSet = new Set(visibleClients.map((c) => c.id));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleSet.has(id)));
+      if (next.size === prev.size && [...prev].every((id) => next.has(id))) return prev;
+      return next;
+    });
+  }, [visibleIdKey]);
+
+  const selectedInView = visibleClients.filter((c) => selectedIds.has(c.id)).length;
+  const allVisibleSelected =
+    visibleClients.length > 0 && selectedInView === visibleClients.length;
+
+  React.useEffect(() => {
+    const el = headerCheckboxRef.current;
+    if (!el) return;
+    el.indeterminate = selectedInView > 0 && !allVisibleSelected;
+  }, [selectedInView, allVisibleSelected, visibleClients.length]);
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleClients.forEach((c) => next.delete(c.id));
+      } else {
+        visibleClients.forEach((c) => next.add(c.id));
+      }
+      return next;
+    });
   };
 
-  const filteredRows = table.getFilteredRowModel().rows;
+  const toggleRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const tableDir = locale === "ar" ? "rtl" : "ltr";
+  const activeFilterCount = statusFilters.length;
+  const statusLabel = (status: ClientRow["status"]) => {
+    if (status === "active") return tc("active");
+    if (status === "completed") return tc("completed");
+    if (status === "lead") return t("statusLead");
+    if (status === "on_hold") return t("statusOnHold");
+    return t("statusClosed");
+  };
+  const statusDotClass = (status: ClientRow["status"]) => {
+    if (status === "active") return "bg-green-500";
+    if (status === "completed") return "bg-neutral-400";
+    if (status === "lead") return "bg-blue-500";
+    if (status === "on_hold") return "bg-amber-500";
+    return "bg-red-500";
+  };
+  const toggleStatusFilter = (status: ClientRow["status"]) => {
+    setStatusFilters((prev) =>
+      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
+    );
+  };
+  const saveCurrentView = () => {
+    const id = crypto.randomUUID();
+    const next = upsertSavedView("clients-table", {
+      id,
+      name: `View ${savedViews.length + 1}`,
+      filters: { search, sortBy, statuses: statusFilters.join(","), tab: selectedTab },
+      createdAt: Date.now(),
+    });
+    setSavedViews(next);
+    setSelectedViewId(id);
+  };
+  const applySavedView = (viewId: string) => {
+    if (viewId === "none") {
+      setSelectedViewId("none");
+      return;
+    }
+    const view = savedViews.find((v) => v.id === viewId);
+    if (!view?.filters) return;
+    setSearch(view.filters.search ?? "");
+    setSortBy((view.filters.sortBy as typeof sortBy) ?? "newest");
+    setStatusFilters((view.filters.statuses ?? "").split(",").filter(Boolean) as ClientRow["status"][]);
+    setSelectedViewId(viewId);
+  };
+  const getSortIcon = (asc: string, desc: string) =>
+    sortBy === asc ? "↑" : sortBy === desc ? "↓" : "↕";
+  const toggleSort = (asc: typeof sortBy, desc: typeof sortBy) => {
+    setSortBy((prev) => (prev === asc ? desc : asc));
+  };
 
   return (
     <>
-      <div className="w-full">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
-          <Input
-            dir="rtl"
-            placeholder="البحث بالاسم أو رقم الهاتف..."
-            value={(table.getColumn("companyName")?.getFilterValue() as string) ?? ""}
-            onChange={(e) => table.getColumn("companyName")?.setFilterValue(e.target.value)}
-            className="w-full text-right sm:max-w-sm"
-          />
-          <Select
-            value={
-              (columnFilters.find((f) => f.id === "status")?.value as string) ?? "all"
+      <div
+        className="mb-4 flex flex-wrap items-center justify-between gap-2"
+        dir={tableDir}
+      >
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/clients?tab=all")}
+            className={
+              selectedTab === "all"
+                ? "rounded-md bg-white px-3 py-1 text-sm font-medium shadow-sm"
+                : "cursor-pointer px-3 py-1 text-sm text-neutral-500 hover:text-neutral-700"
             }
-            onValueChange={(value) =>
-              setColumnFilters((prev) => [
-                ...prev.filter((f) => f.id !== "status"),
-                ...(value && value !== "all" ? [{ id: "status", value }] : []),
-              ])
+          >
+            {t("tabAll")}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/clients?tab=active")}
+            className={
+              selectedTab === "active"
+                ? "rounded-md bg-white px-3 py-1 text-sm font-medium shadow-sm"
+                : "cursor-pointer px-3 py-1 text-sm text-neutral-500 hover:text-neutral-700"
+            }
+          >
+            {t("tabActive")}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/clients?tab=archived")}
+            className={
+              selectedTab === "archived"
+                ? "rounded-md bg-white px-3 py-1 text-sm font-medium shadow-sm"
+                : "cursor-pointer px-3 py-1 text-sm text-neutral-500 hover:text-neutral-700"
+            }
+          >
+            {t("tabArchived")}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={selectedViewId} onValueChange={applySavedView}>
+            <SelectTrigger
+              size="sm"
+              className="h-8 w-auto min-w-40 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25"
+            >
+              <SelectValue placeholder="Views" />
+            </SelectTrigger>
+            <SelectContent align="start" position="popper" sideOffset={4}>
+              <SelectItem value="none">Default view</SelectItem>
+              {savedViews.map((view) => (
+                <SelectItem key={view.id} value={view.id}>
+                  {view.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <button
+            type="button"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-500 hover:bg-neutral-50"
+            onClick={saveCurrentView}
+          >
+            Save view
+          </button>
+          <button
+            type="button"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-500 hover:bg-neutral-50 disabled:opacity-50"
+            disabled={selectedViewId === "none"}
+            onClick={() => {
+              if (selectedViewId === "none") return;
+              const next = removeSavedView("clients-table", selectedViewId);
+              setSavedViews(next);
+              setSelectedViewId("none");
+            }}
+          >
+            Delete view
+          </button>
+          <div className="flex w-56 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-400">
+            <Search className="h-4 w-4 shrink-0" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("searchPlaceholderShort")}
+              className="w-full bg-transparent text-sm text-neutral-700 outline-none placeholder:text-neutral-400"
+            />
+          </div>
+          <Select
+            value={sortBy}
+            onValueChange={(v) =>
+              setSortBy(
+                v as
+                  | "newest"
+                  | "oldest"
+                  | "name"
+                  | "contact_asc"
+                  | "contact_desc"
+                  | "projects_asc"
+                  | "projects_desc"
+                  | "status_asc"
+                  | "status_desc"
+              )
             }
           >
             <SelectTrigger
-              className={cn(
-                "w-full text-right sm:w-[180px]",
-                columnFilters.some((f) => f.id === "status" && f.value) &&
-                  "border-primary ring-2 ring-primary/20"
-              )}
+              size="sm"
+              className="h-8 w-auto min-w-40 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25"
             >
-              <SelectValue placeholder="الحالة" />
+              <ArrowUpDown className="h-4 w-4 shrink-0 text-neutral-500" aria-hidden />
+              <SelectValue placeholder={tc("sort")} />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">الكل</SelectItem>
-              <SelectItem value="lead">عميل محتمل</SelectItem>
-              <SelectItem value="active">نشط</SelectItem>
-              <SelectItem value="on_hold">متوقف</SelectItem>
-              <SelectItem value="completed">مكتمل</SelectItem>
-              <SelectItem value="closed">مغلق</SelectItem>
+            <SelectContent align="start" position="popper" sideOffset={4}>
+              <SelectGroup>
+                <SelectLabel>{tc("sort")}</SelectLabel>
+                <SelectItem value="newest">{t("sortNewest")}</SelectItem>
+                <SelectItem value="oldest">{t("sortOldest")}</SelectItem>
+                <SelectItem value="name">{t("sortByName")}</SelectItem>
+                <SelectItem value="contact_asc">{t("tableContact")} ↑</SelectItem>
+                <SelectItem value="contact_desc">{t("tableContact")} ↓</SelectItem>
+                <SelectItem value="projects_asc">{t("tableProjects")} ↑</SelectItem>
+                <SelectItem value="projects_desc">{t("tableProjects")} ↓</SelectItem>
+                <SelectItem value="status_asc">{t("tableStatus")} ↑</SelectItem>
+                <SelectItem value="status_desc">{t("tableStatus")} ↓</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
-        </div>
-
-        {/* Notion-style sort toolbar (desktop) */}
-        <div className="mb-2 hidden flex-wrap items-center gap-3 text-sm md:flex" dir="rtl">
-          {sorting.length > 0 && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <span>مرتب حسب:</span>
-              <span className="font-medium text-foreground">
-                {CLIENT_COLUMN_LABELS[sorting[0].id] ?? sorting[0].id} {sorting[0].desc ? "↓" : "↑"}
-              </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                onClick={() => setSorting([])}
-                className="hover:text-foreground rounded p-0.5 text-lg leading-none"
-                aria-label="إزالة الترتيب"
+                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-500 hover:bg-neutral-50"
               >
-                ×
+                <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                {tc("filter")}
+                {activeFilterCount > 0 ? (
+                  <span className="rounded-full bg-neutral-900 px-1.5 text-xs text-white">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
               </button>
-            </div>
-          )}
-          <Select
-            value={sorting.length ? `${sorting[0].id}:${sorting[0].desc ? "desc" : "asc"}` : "none"}
-            onValueChange={(value) => {
-              if (value === "none") {
-                setSorting([]);
-                return;
-              }
-              const [id, dir] = value.split(":");
-              setSorting([{ id, desc: dir === "desc" }]);
-            }}
-          >
-            <SelectTrigger className="h-8 w-[160px] text-right text-muted-foreground">
-              <SelectValue placeholder="فرز" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">بدون ترتيب</SelectItem>
-              <SelectItem value="companyName:asc">الشركة ↑</SelectItem>
-              <SelectItem value="companyName:desc">الشركة ↓</SelectItem>
-              <SelectItem value="contactName:asc">جهة الاتصال ↑</SelectItem>
-              <SelectItem value="contactName:desc">جهة الاتصال ↓</SelectItem>
-              <SelectItem value="contactPhone:asc">الهاتف ↑</SelectItem>
-              <SelectItem value="contactPhone:desc">الهاتف ↓</SelectItem>
-              <SelectItem value="status:asc">الحالة ↑</SelectItem>
-              <SelectItem value="status:desc">الحالة ↓</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Mobile: card list */}
-        <div className="space-y-2 md:hidden">
-          {filteredRows.length === 0 ? (
-            <p className="text-muted-foreground py-8 text-center text-sm">
-              {showArchived ? "لا يوجد عملاء مؤرشفون." : "لا يوجد عملاء بعد. أضف أول عميل للبدء."}
-            </p>
-          ) : (
-            filteredRows.map((row) => {
-              const c = row.original;
-              const name = c.companyName ?? "—";
-              const initial = name !== "—" ? name.charAt(0).toUpperCase() : "?";
-              const status = c.status;
-              const label = CLIENT_STATUS_LABELS[status] ?? status;
-              const statusClassName = CLIENT_STATUS_BADGE_CLASS[status];
-              return (
-                <div
-                  key={row.id}
-                  className="flex items-center justify-between rounded-xl border p-4"
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-40">
+              <DropdownMenuLabel>{tc("filter")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {CLIENT_STATUSES.map((status) => (
+                <DropdownMenuCheckboxItem
+                  key={status}
+                  checked={statusFilterSet.has(status)}
+                  onCheckedChange={() => toggleStatusFilter(status)}
                 >
-                  <Link
-                    href={`/dashboard/clients/${c.id}`}
-                    className="flex items-center gap-3"
-                  >
-                    <Avatar className="size-10 shrink-0">
-                      {c.logoUrl ? (
-                        <AvatarImage src={c.logoUrl} alt={name} />
-                      ) : null}
-                      <AvatarFallback className="bg-muted text-muted-foreground text-sm font-medium">
-                        {initial}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="text-right">
-                      <p className="font-medium">{name}</p>
-                      <p className="text-muted-foreground text-sm">{c.contactPhone ?? "—"}</p>
-                    </div>
-                  </Link>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={statusClassName ?? undefined}>
-                      {label}
-                    </Badge>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9">
-                          <span className="sr-only">Open menu</span>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuLabel>الإجراءات</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/clients/${c.id}`}>عرض العميل</Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => setEditingClient(c)}>
-                          تعديل
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            setClientToDelete(c);
-                          }}
-                        >
-                          <Trash2 className="me-2 h-4 w-4" />
-                          حذف
-                        </DropdownMenuItem>
-                        {showArchived ? (
-                          <DropdownMenuItem
-                            className="text-green-600 focus:text-green-600"
-                            onSelect={async () => {
-                              const id = c.id;
-                              setRestoringId(id);
-                              const result = await unarchiveClient(id);
-                              setRestoringId(null);
-                              if (result.ok) {
-                                toast.success("تم استعادة العميل");
-                                router.refresh();
-                              } else {
-                                toast.error(result.error);
-                              }
-                            }}
-                            disabled={restoringId === c.id}
-                          >
-                            <ArchiveRestore className="me-2 h-4 w-4" />
-                            استعادة
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            className="text-amber-600 focus:text-amber-600"
-                            onSelect={async () => {
-                              const id = c.id;
-                              setArchivingId(id);
-                              const result = await archiveClient(id);
-                              setArchivingId(null);
-                              if (result.ok) {
-                                toast.success("تم أرشفة العميل");
-                                router.refresh();
-                              } else {
-                                toast.error(result.error);
-                              }
-                            }}
-                            disabled={archivingId === c.id}
-                          >
-                            <Archive className="me-2 h-4 w-4" />
-                            أرشفة
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Desktop: table with drag-to-reorder */}
-        <div className="hidden md:block" dir="rtl">
-        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} sensors={sensors}>
-          <Table className="border-t" style={{ direction: "rtl" }}>
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead
-                      key={header.id}
-                      className={cn(
-                        "text-right",
-                        header.column.id === "actions" ? "w-10" : undefined,
-                        header.column.id === "drag" ? "w-8 pr-1" : undefined
-                      )}
-                    >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                    </TableHead>
-                  ))}
-                </TableRow>
+                  <span className="inline-flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full ${statusDotClass(status)}`} aria-hidden />
+                    {statusLabel(status)}
+                  </span>
+                </DropdownMenuCheckboxItem>
               ))}
-            </TableHeader>
-            <TableBody>
-              {displayRows.length ? (
-                <SortableContext
-                  items={displayRows.map((r) => r.original.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  {displayRows.map((row) => (
-                    <SortableClientRow key={row.id} row={row} />
-                  ))}
-                </SortableContext>
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-right">
-                    {showArchived
-                      ? "لا يوجد عملاء مؤرشفون."
-                      : "لا يوجد عملاء بعد. أضف أول عميل للبدء."}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </DndContext>
-        <div className="flex flex-row-reverse items-center justify-end gap-2 pt-4 text-right">
-          <div className="text-muted-foreground flex-1 text-sm text-right">
-            {table.getFilteredSelectedRowModel().rows.length} من{" "}
-            {table.getFilteredRowModel().rows.length} صفوف محددة.
-          </div>
-          <div className="flex flex-row-reverse gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              السابق
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              التالي
-            </Button>
-          </div>
-        </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={activeFilterCount === 0}
+                onSelect={() => setStatusFilters([])}
+              >
+                {t("clearSelection")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+
+      {selectedIds.size > 0 && (
+        <div
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-2.5"
+          dir={tableDir}
+        >
+          <span className="text-sm font-medium text-neutral-800">
+            {t("bulkSelected", { count: selectedIds.size })}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              {t("clearSelection")}
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white hover:bg-destructive/90"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              {tc("delete")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl border border-neutral-100 bg-white">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[860px] border-collapse" dir={tableDir}>
+          <thead className="border-b border-neutral-100 bg-neutral-50">
+            <tr>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
+                <input
+                  ref={headerCheckboxRef}
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded accent-neutral-900"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAll}
+                  aria-label={t("selectAllRows")}
+                />
+              </th>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
+                <button type="button" onClick={() => toggleSort("name", "name")} className="inline-flex items-center gap-1">
+                  {t("tableClient")} {getSortIcon("name", "name")}
+                </button>
+              </th>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
+                <button type="button" onClick={() => toggleSort("contact_asc", "contact_desc")} className="inline-flex items-center gap-1">
+                  {t("tableContact")} {getSortIcon("contact_asc", "contact_desc")}
+                </button>
+              </th>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
+                <button type="button" onClick={() => toggleSort("projects_asc", "projects_desc")} className="inline-flex items-center gap-1">
+                  {t("tableProjects")} {getSortIcon("projects_asc", "projects_desc")}
+                </button>
+              </th>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
+                <button type="button" onClick={() => toggleSort("oldest", "newest")} className="inline-flex items-center gap-1">
+                  {t("tableAddedDate")} {getSortIcon("oldest", "newest")}
+                </button>
+              </th>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
+                <button type="button" onClick={() => toggleSort("status_asc", "status_desc")} className="inline-flex items-center gap-1">
+                  {t("tableStatus")} {getSortIcon("status_asc", "status_desc")}
+                </button>
+              </th>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleClients.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-sm text-neutral-400" colSpan={7}>
+                  {t("noMatchingRows")}
+                </td>
+              </tr>
+            ) : (
+              visibleClients.map((client) => (
+                <tr
+                  key={client.id}
+                  className="group cursor-pointer border-b border-neutral-50 transition-colors last:border-0 hover:bg-neutral-50"
+                >
+                  <td className="px-4 py-3 text-start">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded accent-neutral-900"
+                      checked={selectedIds.has(client.id)}
+                      onChange={() => toggleRow(client.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={client.companyName ?? ""}
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-start">
+                    <Link href={`/dashboard/clients/${client.id}`}>
+                      <div className="flex items-center gap-2.5">
+                        <ClientAvatar name={client.companyName} logoUrl={client.logoUrl} />
+                        <div className="text-sm font-medium text-neutral-900">{client.companyName}</div>
+                      </div>
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-start">
+                    <div className="text-sm text-neutral-800">{client.contactName || "—"}</div>
+                    <div className="mt-0.5 text-xs text-neutral-400">{client.contactPhone || "—"}</div>
+                  </td>
+                  <td className="px-4 py-3 text-start text-sm text-neutral-400">
+                    {client.projectCount}{" "}
+                    {t("projectsCount")}
+                  </td>
+                  <td className="px-4 py-3 text-start text-sm text-neutral-400">
+                    {new Date(client.createdAt).toLocaleDateString(dateLocale, {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </td>
+                  <td className="px-4 py-3 text-start" onClick={(e) => e.stopPropagation()}>
+                    <ClientStatusCell client={client} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        type="button"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
+                        onClick={() => setEditingClient(client)}
+                      >
+                        ✎
+                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
+                          >
+                            ⋯
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuLabel>{tc("actions")}</DropdownMenuLabel>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/clients/${client.id}`}>{t("viewClient")}</Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => setEditingClient(client)}>{tc("edit")}</DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setClientToDelete(client);
+                            }}
+                          >
+                            <Trash2 className="me-2 h-4 w-4" />
+                            {tc("delete")}
+                          </DropdownMenuItem>
+                          {selectedTab === "archived" ? (
+                            <DropdownMenuItem
+                              className="text-green-600 focus:text-green-600"
+                              onSelect={async () => {
+                                const result = await unarchiveClient(client.id);
+                                if (result.ok) {
+                                  toast.success(t("restoreSuccess"));
+                                  router.refresh();
+                                } else {
+                                  const err = typeof result.error === "string" ? result.error : "";
+                                  toast.error(isDbErrorKey(err) ? translateErr(err) : err);
+                                }
+                              }}
+                            >
+                              <ArchiveRestore className="me-2 h-4 w-4" />
+                              {t("restore")}
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              className="text-amber-600 focus:text-amber-600"
+                              onSelect={async () => {
+                                const result = await archiveClient(client.id);
+                                if (result.ok) {
+                                  toast.success(t("archiveSuccess"));
+                                  router.refresh();
+                                } else {
+                                  const err = typeof result.error === "string" ? result.error : "";
+                                  toast.error(isDbErrorKey(err) ? translateErr(err) : err);
+                                }
+                              }}
+                            >
+                              <Archive className="me-2 h-4 w-4" />
+                              {t("archive")}
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-neutral-100 px-4 py-3">
+          <span className="text-xs text-neutral-400">
+            {t("paginationShowing", { visible: visibleClients.length, total: allClients.length })}
+          </span>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50"
+            >
+              {tc("previous")}
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-800"
+            >
+              1
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50"
+            >
+              {tc("next")}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <ClientFormSheet
         open={!!editingClient}
         onOpenChange={(open) => !open && setEditingClient(null)}
         client={editingClient ?? undefined}
+        serviceOptions={serviceOptions}
+        initialServiceIds={
+          editingClient ? (clientServiceMap[editingClient.id] ?? []).map((s) => s.id) : []
+        }
       />
-      <AlertDialog open={!!clientToDelete} onOpenChange={(open) => !open && setClientToDelete(null)}>
+
+      <AlertDialog
+        open={!!clientToDelete || bulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setClientToDelete(null);
+            setBulkDeleteOpen(false);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>هل أنت متأكد؟</AlertDialogTitle>
+            <AlertDialogTitle>
+              {bulkDeleteOpen ? t("bulkDeleteConfirmTitle") : t("deleteConfirmTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {clientToDelete
-                ? `سيتم حذف العميل ${clientToDelete.companyName ?? "هذا العميل"} نهائياً. لا يمكن التراجع عن هذا الإجراء.`
-                : ""}
+              {bulkDeleteOpen
+                ? t("bulkDeleteConfirmBody", { count: selectedIds.size })
+                : clientToDelete
+                  ? t("deleteConfirmBody", { name: clientToDelete.companyName })
+                  : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel>{tc("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
                 e.preventDefault();
-                if (!clientToDelete) return;
-                const id = clientToDelete.id;
-                setClientToDelete(null);
-                const res = await deleteClient(id);
-                if (res.ok) {
-                  toast.success("تم حذف العميل");
-                  router.push("/dashboard/clients");
-                } else {
-                  toast.error(res.error);
+                if (bulkDeleteOpen) {
+                  const ids = [...selectedIds];
+                  if (ids.length === 0) {
+                    setBulkDeleteOpen(false);
+                    return;
+                  }
+                  const res = await deleteClients(ids);
+                  if (res.ok) {
+                    toast.success(t("bulkDeleteSuccess", { count: ids.length }));
+                    setSelectedIds(new Set());
+                    setBulkDeleteOpen(false);
+                    router.refresh();
+                  } else {
+                    const err = typeof res.error === "string" ? res.error : "";
+                    toast.error(isDbErrorKey(err) ? translateErr(err) : err);
+                  }
+                  return;
                 }
+                if (!clientToDelete) return;
+                const res = await deleteClient(clientToDelete.id);
+                if (res.ok) {
+                  toast.success(t("deleteSuccess"));
+                  router.refresh();
+                } else {
+                  const err = typeof res.error === "string" ? res.error : "";
+                  toast.error(isDbErrorKey(err) ? translateErr(err) : err);
+                }
+                setClientToDelete(null);
               }}
             >
-              حذف
+              {tc("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

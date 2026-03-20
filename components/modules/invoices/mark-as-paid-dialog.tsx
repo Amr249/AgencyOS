@@ -22,14 +22,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { markAsPaid } from "@/actions/invoices";
 import { toast } from "sonner";
+import { enUS } from "date-fns/locale";
 
 const PAYMENT_METHODS = [
-  { value: "bank_transfer", label: "تحويل بنكي" },
-  { value: "cash", label: "نقداً" },
-  { value: "credit_card", label: "بطاقة ائتمان" },
-  { value: "other", label: "أخرى" },
+  { value: "bank_transfer", label: "Bank transfer" },
+  { value: "cash", label: "Cash" },
+  { value: "credit_card", label: "Credit card" },
+  { value: "other", label: "Other" },
 ] as const;
-
 
 type MarkAsPaidDialogProps = {
   invoiceId: string;
@@ -70,38 +70,43 @@ export function MarkAsPaidDialog({
     });
     setLoading(false);
     if (res.ok) {
-      toast.success("تم تسجيل الدفعة بنجاح");
+      toast.success("Payment recorded");
       onOpenChange(false);
       onSuccess?.();
       router.refresh();
     } else {
       const err = (res as { error?: unknown }).error;
-      const msg = typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? "فشل";
+      const msg = typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? "Failed";
       toast.error(msg);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" dir="rtl">
-        <DialogHeader>
-          <DialogTitle>تأكيد استلام الدفعة</DialogTitle>
-          <DialogDescription>أدخل تاريخ استلام الدفعة لهذه الفاتورة{invoiceNumber ? ` (${invoiceNumber})` : ""}.</DialogDescription>
+      <DialogContent className="sm:max-w-md" dir="ltr">
+        <DialogHeader className="text-left">
+          <DialogTitle>Confirm payment</DialogTitle>
+          <DialogDescription>
+            Enter the payment date for this invoice{invoiceNumber ? ` (${invoiceNumber})` : ""}.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label>تاريخ الدفع</Label>
+            <Label>Payment date</Label>
             <DatePickerAr
+              direction="ltr"
+              locale={enUS}
+              popoverAlign="start"
               value={paidAt}
               onChange={setPaidAt}
-              placeholder="اختر تاريخًا"
+              placeholder="Pick a date"
             />
           </div>
           <div className="grid gap-2">
-            <Label>طريقة الدفع (اختياري)</Label>
+            <Label>Payment method (optional)</Label>
             <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-              <SelectTrigger className="text-right">
-                <SelectValue placeholder="اختر طريقة الدفع" />
+              <SelectTrigger className="text-left">
+                <SelectValue placeholder="Select method" />
               </SelectTrigger>
               <SelectContent>
                 {PAYMENT_METHODS.map((m) => (
@@ -113,12 +118,12 @@ export function MarkAsPaidDialog({
             </Select>
           </div>
         </div>
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:justify-end">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            إلغاء
+            Cancel
           </Button>
           <Button onClick={handleConfirm} disabled={loading}>
-            تأكيد الدفع
+            Confirm payment
           </Button>
         </DialogFooter>
       </DialogContent>

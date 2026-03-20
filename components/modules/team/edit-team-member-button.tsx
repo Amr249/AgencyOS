@@ -9,7 +9,7 @@ export function EditTeamMemberButton({ member }: { member: TeamMemberRow }) {
   const router = useRouter();
   return (
     <NewMemberModal
-      trigger={<Button variant="outline">تعديل العضو</Button>}
+      trigger={<Button variant="outline">Edit member</Button>}
       member={member}
       asChild
       onSuccess={() => router.refresh()}

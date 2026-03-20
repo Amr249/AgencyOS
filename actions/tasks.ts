@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { isDbConnectionError, DB_CONNECTION_ERROR_MESSAGE } from "@/lib/db-errors";
+import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { eq, isNull, and, sql, ilike, desc, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tasks, projects } from "@/lib/db";
@@ -129,7 +129,7 @@ export async function getTasks(filters?: GetTasksFilters) {
   } catch (e) {
     console.error("getTasks", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load tasks" };
   }
@@ -181,7 +181,7 @@ export async function getTaskById(id: string) {
   } catch (e) {
     console.error("getTaskById", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load task" };
   }
@@ -215,7 +215,7 @@ export async function createTask(input: CreateTaskInput) {
   } catch (e) {
     console.error("createTask", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return { ok: false as const, error: { _form: ["حدث خطأ غير متوقع."] } };
   }
@@ -252,7 +252,7 @@ export async function updateTask(input: UpdateTaskInput) {
   } catch (e) {
     console.error("updateTask", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return {
       ok: false as const,
@@ -283,7 +283,7 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
   } catch (e) {
     console.error("updateTaskStatus", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to update status" };
   }
@@ -307,7 +307,7 @@ export async function deleteTask(id: string) {
   } catch (e) {
     console.error("deleteTask", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: e instanceof Error ? e.message : "Failed to delete task" };
   }
@@ -345,7 +345,7 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
   } catch (e) {
     console.error("createSubtask", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: { _form: [DB_CONNECTION_ERROR_MESSAGE] } };
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     }
     return {
       ok: false as const,
@@ -379,7 +379,7 @@ export async function toggleSubtask(id: string) {
   } catch (e) {
     console.error("toggleSubtask", e);
     if (isDbConnectionError(e)) {
-      return { ok: false as const, error: DB_CONNECTION_ERROR_MESSAGE };
+      return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to toggle subtask" };
   }

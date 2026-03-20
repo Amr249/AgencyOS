@@ -4,13 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import type { ExpenseCategory } from "@/actions/expenses";
 
 const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
-  software: "برمجيات",
-  hosting: "استضافة",
-  marketing: "تسويق",
-  salaries: "رواتب",
-  equipment: "معدات",
-  office: "مكتب",
-  other: "أخرى",
+  software: "Software",
+  hosting: "Hosting",
+  marketing: "Marketing",
+  salaries: "Salaries",
+  equipment: "Equipment",
+  office: "Office",
+  other: "Other",
 };
 
 const CATEGORY_BADGE_CLASS: Record<ExpenseCategory, string> = {

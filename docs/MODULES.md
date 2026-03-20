@@ -228,7 +228,7 @@ One section per module: what it does, pages, Server Actions, and main components
 
 | Route | File | Description |
 |-------|------|-------------|
-| List | `app/dashboard/invoices/page.tsx` | Server: fetches `getInvoices(filters)`, `getInvoiceStats()`, `getClientsList()`, `getSettings()`, `getNextInvoiceNumber()`. Renders `InvoicesListView`: KPI cards (إجمالي الفواتير, المحصّل, المستحق); filters (search, status: الكل \| بانتظار الدفع \| تم الدفع, date range); table. **حذف** allowed for pending and paid; confirmation dialog. |
+| List | `app/dashboard/invoices/page.tsx` | Server: fetches `getInvoices(filters)`, `getInvoiceStats()`, `getClientsList()`, `getSettings()`, `getNextInvoiceNumber()`. Renders `InvoicesListView`: three **English** summary cards — **Total invoiced** (lime accent `bg-[rgba(164,254,25,1)]`), **Collected** (default card), **Outstanding** (light gray `#ededed`, black title/amount/`AmountWithSarIcon`); filters (search, status: الكل \| بانتظار الدفع \| تم الدفع, date range); table. **حذف** allowed for pending and paid; confirmation dialog. |
 | Detail | `app/dashboard/invoices/[id]/page.tsx` | Server: `getInvoiceById(id)`, `getSettings()`. `InvoiceDetailActions`: تحميل PDF, تحديد كمدفوعة (opens payment date dialog if pending), نسخ. When status is paid, preview card shows تاريخ الدفع (DD/MM/YYYY) and طريقة الدفع (تحويل بنكي / نقداً / بطاقة ائتمان / أخرى). |
 | Edit | `app/dashboard/invoices/[id]/edit/page.tsx` | Pending only. Server: `getInvoiceById`, `getSettings()`; 404 if not pending. `EditInvoiceForm`: Save calls `updateInvoice`. |
 
@@ -258,7 +258,7 @@ One section per module: what it does, pages, Server Actions, and main components
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| InvoicesListView | `components/modules/invoices/invoices-list-view.tsx` | Summary cards, filters, table, New Invoice button + modal. |
+| InvoicesListView | `components/modules/invoices/invoices-list-view.tsx` | **Summary row:** `AmountWithSarIcon` (optional `className` / `iconClassName`) for stats; **Total invoiced** / **Collected** / **Outstanding** cards as above. Filters, `SortableDataTable`, New Invoice button + modal. |
 | NewInvoiceDialog | `components/modules/invoices/new-invoice-dialog.tsx` | Single button: "إنشاء وتحميل" — creates invoice as pending and triggers PDF download. |
 | InvoiceDetailHeader | `components/modules/invoices/invoice-detail-header.tsx` | Client wrapper for detail page: renders InvoiceDetailActions, InvoiceStatusBadge, and one MarkAsPaidDialog so both the button and the badge open the same payment dialog. |
 | InvoiceDetailActions | `components/modules/invoices/invoice-detail-actions.tsx` | تحميل PDF, تحديد كمدفوعة (opens MarkAsPaidDialog or parent callback), نسخ. |
@@ -274,11 +274,13 @@ One section per module: what it does, pages, Server Actions, and main components
 
 **Purpose:** Track agency expenses by category (software, hosting, marketing, salaries, equipment, office, other). Used in Financial Reports for profit (collected − expenses). Receipt upload via ImageKit (folder `agencyos/expenses/receipts`).
 
+**UI note:** The expenses list page is implemented in **English** with an explicit **`dir="ltr"`** subtree (table + filters + modal), so it stays LTR even when the app locale is Arabic. Amounts use **`SarCurrencyIcon`** + numeric **`formatAmount`** (same pattern as Projects budget column).
+
 **Pages:**
 
 | Route | File | Description |
 |-------|------|-------------|
-| List | `app/dashboard/expenses/page.tsx` | Server: fetches `getExpenses(filters)` (category, dateFrom, dateTo from searchParams), `getExpensesSummary()`, **getTeamMembers()**. Renders `ExpensesListView`: title "المصروفات", "+ إضافة مصروف" button; summary bar (إجمالي المصروفات هذا الشهر, إجمالي المصروفات هذه السنة, أكبر فئة مصروفات); filters (category dropdown, date range); RTL table (العنوان — for رواتب with teamMemberId shows 👤 member name below title, الفئة badge, المبلغ, التاريخ DD/MM/YYYY, ملاحظات, إجراءات … تعديل \| حذف). New/Edit expense dialog (when category = رواتب shows "عضو الفريق" select); delete AlertDialog. |
+| List | `app/dashboard/expenses/page.tsx` | Server: fetches `getExpenses(filters)` (category, dateFrom, dateTo from searchParams), `getExpensesSummary()`, **getTeamMembers()**. Metadata title/description: **Expenses**. Renders `ExpensesListView`: title **Expenses**, **+ New Expense**; summary cards (**Total expenses this month/year**, **Top expense category**) with amount + SAR icon; filters (category, **From date** / **To date** with LTR `DatePickerAr`); **`SortableDataTable`** with **`uiVariant="clients"`** (rounded bordered table, LTR toolbar): checkbox column, drag handle, **Title** (for **Salaries** + linked member: 👤 name under title), **Category** badge, **Amount** (icon + number), **Date** (DD/MM/YYYY), **Notes**, actions (Edit \| Delete). **Bulk selection** bar: count, Clear selection, **Delete** → confirms then **`deleteExpenses`**. Single-row delete AlertDialog (English). |
 
 **Server Actions** (`actions/expenses.ts`):
 
@@ -286,19 +288,20 @@ One section per module: what it does, pages, Server Actions, and main components
 |--------|---------|
 | `getExpenses(filters?)` | category (expense_category), dateFrom, dateTo. Returns list ordered by date desc. Zod-validated. |
 | `getExpensesSummary()` | totalThisMonth, totalThisYear, topCategory (category with highest spend). |
-| `createExpense(data)` | Zod: title, amount, category, date, notes, receiptUrl. Revalidates /dashboard/expenses, /dashboard/reports. |
+| `createExpense(data)` | Zod: title, amount, category, date, notes, receiptUrl, teamMemberId (optional). Revalidates /dashboard/expenses, /dashboard/reports. |
 | `updateExpense(input)` | Partial update by id. Revalidates expenses + reports. |
-| `deleteExpense(id)` | Hard delete. Revalidates expenses + reports. |
+| `deleteExpense(id)` | Hard delete one row. Revalidates expenses + reports. |
+| `deleteExpenses(ids)` | Hard delete many rows (`inArray` on ids). Revalidates expenses + reports. |
 
 **Components:**
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| ExpensesListView | `components/modules/expenses/expenses-list-view.tsx` | Summary cards, category + date range filters, table, "+ إضافة مصروف" opens NewExpenseDialog; row … menu (تعديل \| حذف). |
-| NewExpenseDialog | `components/modules/expenses/new-expense-dialog.tsx` | Dialog RTL: العنوان, المبلغ بالريال, الفئة (برمجيات \| استضافة \| تسويق \| رواتب \| معدات \| مكتب \| أخرى), التاريخ (default today), ملاحظات, إيصال (optional file upload → /api/upload folder expenses/receipts). Create or Edit mode. |
-| ExpenseCategoryBadge | `components/modules/expenses/expense-category-badge.tsx` | Colored badge per category: برمجيات blue, استضافة purple, تسويق pink, رواتب amber, معدات orange, مكتب gray, أخرى slate. |
+| ExpensesListView | `components/modules/expenses/expenses-list-view.tsx` | LTR layout; summary with **`AmountWithSarIcon`** helper; filters; bulk-delete toolbar; **`SortableDataTable`** (`tableId` `expenses-table`, `uiVariant="clients"`). |
+| NewExpenseDialog | `components/modules/expenses/new-expense-dialog.tsx` | Dialog **LTR**, English labels; fields: Title, Amount (SAR), Category, optional **Team member** when category = Salaries, Date (`DatePickerAr` LTR/enUS), Notes, Receipt upload → `/api/upload` folder `agencyos/expenses/receipts`. Create or Edit mode. |
+| ExpenseCategoryBadge | `components/modules/expenses/expense-category-badge.tsx` | Colored outline badge; **English** labels (Software, Hosting, Marketing, Salaries, Equipment, Office, Other). |
 
-**Category badge colors:** برمجيات → blue, استضافة → purple, تسويق → pink, رواتب → amber, معدات → orange, مكتب → gray, أخرى → slate.
+**Category badge colors:** Software → blue, Hosting → purple, Marketing → pink, Salaries → amber, Equipment → orange, Office → gray, Other → slate.
 
 ---
 

@@ -20,14 +20,14 @@ import { Upload, FileText, File, Download, Copy, Trash2, FolderOpen } from "luci
 import { getFiles, createFile, deleteFile, type FileRow } from "@/actions/files";
 import { FilePreviewModal } from "@/components/modules/files/file-preview-modal";
 import { format } from "date-fns";
-import { ar } from "date-fns/locale";
+import { enUS } from "date-fns/locale";
 
 function formatDateSafe(value: Date | string | null | undefined): string {
   if (value == null) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return "—";
   try {
-    return format(date, "dd/MM/yyyy", { locale: ar });
+    return format(date, "dd/MM/yyyy", { locale: enUS });
   } catch {
     return "—";
   }
@@ -126,7 +126,7 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
       });
 
       if (res.error || !res.url || !res.fileId) {
-        toast.error("فشل رفع الملف. حاول مرة أخرى.");
+        toast.error("Upload failed. Please try again.");
         return null;
       }
 
@@ -155,10 +155,10 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
           projectId: row.projectId,
           createdAt: row.createdAt,
         };
-        toast.success("تم رفع الملف بنجاح");
+        toast.success("File uploaded successfully.");
         return newFile;
       }
-      toast.error("فشل حفظ الملف في القاعدة.");
+      toast.error("Failed to save file in database.");
       return null;
     } catch {
       setUploading((prev) => {
@@ -171,7 +171,7 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
         delete n[key];
         return n;
       });
-      toast.error("فشل رفع الملف. حاول مرة أخرى.");
+      toast.error("Upload failed. Please try again.");
       return null;
     }
   };
@@ -203,19 +203,19 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
     setDeleteTarget(null);
     if (result.ok) {
       setFiles((prev) => prev.filter((f) => f.id !== deleteTarget.id));
-      toast.success("تم حذف الملف");
+      toast.success("File deleted.");
       router.refresh();
     } else {
-      toast.error(result.error ?? "فشل الحذف");
+      toast.error(result.error ?? "Delete failed.");
     }
   };
 
   const handleCopyLink = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("تم نسخ الرابط");
+      toast.success("Link copied.");
     } catch {
-      toast.error("فشل نسخ الرابط");
+      toast.error("Failed to copy link.");
     }
   };
 
@@ -234,16 +234,16 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
   };
 
   return (
-    <div className="space-y-4" dir="rtl">
+    <div className="space-y-4" dir="ltr">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">الملفات</h2>
+        <h2 className="text-lg font-semibold">Files</h2>
         <Button
           onClick={() => inputRef.current?.click()}
           disabled={!folder}
           className="gap-2"
         >
           <Upload className="h-4 w-4" />
-          رفع ملف +
+          Upload File +
         </Button>
       </div>
       <input
@@ -265,7 +265,7 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
         onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
       >
         <p className="text-muted-foreground text-sm">
-          اسحب الملفات هنا أو انقر للاختيار
+          Drag files here or click to select
         </p>
       </div>
 
@@ -275,8 +275,8 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
           <CardContent className="p-4">
             <div className="flex items-center gap-4">
               <div className="bg-muted h-[100px] w-[140px] shrink-0 rounded animate-pulse" />
-              <div className="min-w-0 flex-1 text-right">
-                <p className="text-muted-foreground truncate text-sm">جاري الرفع…</p>
+              <div className="min-w-0 flex-1 text-left">
+                <p className="text-muted-foreground truncate text-sm">Uploading...</p>
                 <Progress value={uploadProgress[key] ?? 0} className="mt-2 h-2 w-full" />
               </div>
             </div>
@@ -288,7 +288,7 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
         <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed bg-muted/20 py-12">
           <FolderOpen className="text-muted-foreground h-12 w-12" />
           <p className="text-muted-foreground text-sm">
-            لا توجد ملفات بعد. ارفع أول ملف.
+            No files yet. Upload your first file.
           </p>
         </div>
       ) : (
@@ -305,7 +305,7 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
                 onKeyDown={(e) => e.key === "Enter" && setPreviewFile(f)}
               >
                 <CardContent className="p-0">
-                  <div className="relative aspect-[4/3] bg-muted">
+                  <div className="relative aspect-4/3 bg-muted">
                     {thumb ? (
                       <img
                         src={thumb}
@@ -332,7 +332,7 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
                         }}
                       >
                         <Download className="h-3.5 w-3.5" />
-                        تحميل
+                        Download
                       </Button>
                       <Button
                         size="sm"
@@ -344,7 +344,7 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
                         }}
                       >
                         <Copy className="h-3.5 w-3.5" />
-                        نسخ الرابط
+                        Copy Link
                       </Button>
                       <Button
                         size="sm"
@@ -356,11 +356,11 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        حذف
+                        Delete
                       </Button>
                     </div>
                   </div>
-                  <div className="p-3 text-right">
+                  <div className="p-3 text-left">
                     <p className="truncate text-sm font-medium" title={f.name}>
                       {f.name}
                     </p>
@@ -390,19 +390,19 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>حذف الملف</AlertDialogTitle>
+            <AlertDialogTitle>Delete file</AlertDialogTitle>
             <AlertDialogDescription>
-              هل تريد حذف {deleteTarget?.name}؟ لا يمكن التراجع عن هذا الإجراء.
+              Do you want to delete {deleteTarget?.name}? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? "جاري الحذف…" : "حذف"}
+              {isDeleting ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

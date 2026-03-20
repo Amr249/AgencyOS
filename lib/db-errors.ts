@@ -9,5 +9,13 @@ export function isDbConnectionError(e: unknown): boolean {
   );
 }
 
-export const DB_CONNECTION_ERROR_MESSAGE =
-  "تعذر الاتصال بقاعدة البيانات. تحقق من الاتصال بالإنترنت وحاول مرة أخرى.";
+/** Keys under `errors` namespace — translate in UI with `useTranslations('errors')` / `getTranslations('errors')`. */
+export type DbErrorKey = "connectionTimeout" | "unknown" | "fetchFailed";
+
+export function getDbErrorKey(error: unknown): DbErrorKey {
+  if (isDbConnectionError(error)) return "connectionTimeout";
+  if (error instanceof Error && error.message.toLowerCase().includes("fetch failed")) {
+    return "fetchFailed";
+  }
+  return "unknown";
+}

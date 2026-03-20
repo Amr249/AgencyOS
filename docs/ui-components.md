@@ -1,0 +1,82 @@
+# UI components (`/components`)
+
+`components/ui/*` is mostly **shadcn/ui** primitives. Below are **custom or notable** pieces and feature modules. **RTL:** many layouts rely on global `dir="rtl"` plus logical Tailwind (`ms-`, `me-`, `ps-`, `pe-`); some components use explicit `dir` or JSX order.
+
+## App shell & navigation
+
+| Component | Description |
+|-----------|-------------|
+| [`app-sidebar`](../components/app-sidebar.tsx) | Dashboard sidebar nav + user menu; works with `Sidebar` `side` prop for RTL. |
+| [`site-header`](../components/site-header.tsx) | Top bar: sidebar trigger, search, user nav. |
+| [`mobile-bottom-nav`](../components/mobile-bottom-nav.tsx) | Fixed bottom navigation on small screens. |
+| [`nav-main`](../components/nav-main.tsx) / [`nav-secondary`](../components/nav-secondary.tsx) | Sidebar link groups. |
+| [`nav-user`](../components/nav-user.tsx) | User dropdown in sidebar. |
+| [`global-search`](../components/global-search.tsx) | Command palette hitting `/api/search` (debounced). |
+| [`layout/search`](../components/layout/search.tsx) | Static ⌘K route jumper using `CommandDialog` + `nav` routes. |
+| [`layout/header`](../components/layout/header.tsx) | Alternate/legacy header patterns. |
+| [`layout/logo`](../components/layout/logo.tsx) | Branding mark. |
+| [`anchor`](../components/anchor.tsx) | Link helper. |
+
+## Dashboard & widgets
+
+| Component | Description |
+|-----------|-------------|
+| [`dashboard-home`](../components/dashboard-home.tsx) | Home dashboard composition. |
+| [`section-cards`](../components/section-cards.tsx) | KPI / stat cards. |
+| [`chart-area-interactive`](../components/chart-area-interactive.tsx) | Interactive chart wrapper. |
+| [`dashboard/assignee-avatars`](../components/dashboard/assignee-avatars.tsx) | Stacked avatars with **`dir="rtl"`** and negative overlap for correct visual order. |
+| [`dashboard/assignee-picker`](../components/dashboard/assignee-picker.tsx) | User picker for task assignment. |
+| [`dashboard/user-nav`](../components/dashboard/user-nav.tsx) | Header user menu. |
+
+## Data display & tables
+
+| Component | Description |
+|-----------|-------------|
+| [`data-table`](../components/data-table.tsx) | Generic data table helper. |
+| [`ui/sortable-data-table`](../components/ui/sortable-data-table.tsx) | Drag-and-drop + TanStack Table + persistence (Notion-style). |
+| [`ui/entity-table-shell`](../components/ui/entity-table-shell.tsx) / [`entity-table-contract`](../components/ui/entity-table-contract.ts) | Shared table/list contracts. |
+| [`ui/table`](../components/ui/table.tsx) | shadcn table primitive. |
+
+## RTL / locale-specific UI
+
+| Component | Description |
+|-----------|-------------|
+| [`ui/date-picker-ar`](../components/ui/date-picker-ar.tsx) | Date picker with Arabic calendar locale **by default** (`arSA`). Optional props: **`direction`** (`"rtl"` \| `"ltr"`), **`locale`** (e.g. `enUS` from `date-fns/locale`), **`popoverAlign`** — used on **Expenses** (LTR + English) for filters and modal. |
+| [`ui/sar-currency-icon`](../components/ui/sar-currency-icon.tsx) | Saudi Riyal: **Next/Image** of [`/public/Saudi_Riyal_Symbol.png`](../public/Saudi_Riyal_Symbol.png) (accessible `title="Saudi Riyal"`). Used next to **`formatAmount`** on Expenses list/summary and alongside project budgets. |
+| [`ui/kbd`](../components/ui/kbd.tsx) | Keyboard hint styling (used with search shortcuts). |
+
+## Feature modules (`components/modules/*`)
+
+| Area | Notable files |
+|------|----------------|
+| **clients** | `client-form-sheet`, `client-overview`, `client-*-tab`, `clients-page-fab`, `edit-client-button`, `data-table` (via app) |
+| **projects** | `projects-list-view`, `new-project-dialog`, `edit-project-dialog`, `project-*-tab`, `project-cover-banner`, `project-tasks-tab` (Kanban wiring) |
+| **tasks** | `tasks-list-view`, `tasks-kanban`, `tasks-page-content`, `new-task-modal`, `task-detail-modal` |
+| **invoices** | `invoices-list-view` (EN **Total invoiced** / **Collected** / **Outstanding** stat cards; Outstanding = `#ededed` + black text/SAR icon; local **`AmountWithSarIcon`**), `new-invoice-dialog`, `edit-invoice-form`, `invoice-*-header/actions`, `invoice-pdf-document`, `mark-as-paid-dialog` |
+| **expenses** | `expenses-list-view` (LTR, `SortableDataTable` `uiVariant="clients"`, bulk delete, `SarCurrencyIcon` + `formatAmount`), `new-expense-dialog` (English/LTR), `expense-category-badge` (English labels) |
+| **proposals** | `proposals-list-view`, `new-proposal-dialog`, `edit-proposal-dialog`, `convert-to-client-dialog`, `proposal-status-badge` |
+| **team** | `team-list-view`, `new-member-modal`, `team-member-detail-tabs`, `edit-team-member-button` |
+| **services** | `services-list-view`, `new-service-modal` |
+| **files** | `file-manager`, `file-preview-modal` |
+
+## Reports & charts
+
+| Component | Description |
+|-----------|-------------|
+| [`reports/*`](../components/reports/) | Revenue charts, productivity tab helpers, outstanding invoices table. |
+| [`modules/reports/top-clients-pie-chart`](../components/modules/reports/top-clients-pie-chart.tsx) | Pie chart widget. |
+
+## Other
+
+| Component | Description |
+|-----------|-------------|
+| [`theme-selector`](../components/theme-selector.tsx) / [`theme-toggle`](../components/theme-toggle.tsx) | Theme switching (note: sidebar stays dark in CSS vars). |
+| [`providers`](../components/providers.tsx) | Root client providers. |
+| [`providers/session-provider`](../components/providers/session-provider.tsx) | NextAuth session. |
+| [`ui/avatar-stack`](../components/ui/avatar-stack.tsx) | Overlapping avatars for project cards (mind RTL overlap). |
+| [`ui/sonner`](../components/ui/sonner.tsx) | Toaster styling. |
+
+## shadcn overrides worth knowing
+
+- **`globals.css`** — Sidebar tokens set to **black `#000000`** and zinc accents so the rail stays dark regardless of light/dark theme toggle.
+- **Sidebar** — `AppSidebar` receives `side={sidebarSide}` from dashboard layout (`ar` → `right`).

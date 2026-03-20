@@ -8,6 +8,13 @@
       "when": 1772746971338,
       "tag": "0000_common_sage",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773689264789,
+      "tag": "0001_add_project_members_task_assignments",
+      "breakpoints": true
     }
   ]
 }

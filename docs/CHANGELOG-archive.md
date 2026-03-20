@@ -1,8 +1,12 @@
-# Changelog
+# Changelog (archive — detailed append-only history)
 
 Running list of what was built or changed, in order. **Append-only: add one line per meaningful addition or change; do not delete or edit past entries.**
 
+This file preserves the detailed log that was previously in `CHANGELOG.md` before the living [`changelog.md`](./changelog.md) format was introduced (2026-03-21).
+
 ---
+
+[2026-03-21] - Invoices list (`components/modules/invoices/invoices-list-view.tsx`): **Outstanding** summary KPI card restyled from black background + white text to light gray (`#ededed`) with black title, amount, and SAR icon (`AmountWithSarIcon` without `imageStyle` override). Docs: `MODULES.md`, `ui-components.md`, `changelog.md`.
 
 [2026-03-08] - Notion-style sortable tables applied to all list views. **Packages:** @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities (already in package.json). **Reusable component:** components/ui/sortable-data-table.tsx — DndContext + SortableContext, vertical drag-to-reorder rows, TanStack Table with column sorting, sort persistence to localStorage (key `sort-{tableId}`), row order persistence (`sortable-table-row-order-{tableId}`), Notion-style toolbar (مرتب حسب + فرز dropdown). **Applied to:** (1) **Clients** (app/dashboard/clients/data-table.tsx) — drag column, sortable headers, status custom sort (active first), persistence, toolbar. (2) **Projects** (projects-list-view.tsx) — table view uses SortableDataTable with columns الشركة, اسم المشروع, الحالة, الموعد النهائي, الميزانية, تقدم المهام, إجراءات; tableId projects-table. (3) **Invoices** (invoices-list-view.tsx) — SortableDataTable with رقم الفاتورة, العميل, المشروع, المبلغ, الحالة, تاريخ الإصدار; tableId invoices-table. (4) **Tasks** (tasks-list-view.tsx) — SortableDataTable with المهمة, المشروع, الأولوية, الحالة, تاريخ الاستحقاق; tableId tasks-table. (5) **Expenses** (expenses-list-view.tsx) — SortableDataTable with العنوان, الفئة, المبلغ, التاريخ, ملاحظات; tableId expenses-table. (6) **Proposals** (proposals-list-view.tsx) — SortableDataTable with العنوان, الفئة, الميزانية, عرضي, الحالة, تاريخ التقديم; tableId proposals-table. (7) **Team** (team-list-view.tsx) — view toggle "بطاقات" | "جدول"; table view uses SortableDataTable with الاسم, الدور, الهاتف, الحالة, المشاريع; tableId team-table. Docs: CHANGELOG.
 
