@@ -17,6 +17,7 @@ Neon (PostgreSQL) via Drizzle ORM. All tables use UUID primary keys unless noted
 | `expense_category` | `software`, `hosting`, `marketing`, `salaries`, `equipment`, `office`, `other` |
 | `team_member_status` | `active`, `inactive` |
 | `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
+| `workspace_view` | `board`, `list`, `timeline` |
 
 **Migrating `invoice_status` from old values:** If the DB currently has `draft`/`sent`/`overdue`/`cancelled`, run a data migration before changing the enum: map all non-`paid` to `pending` (e.g. `UPDATE invoices SET status = 'pending' WHERE status IN ('draft','sent','overdue','cancelled')`). Then recreate the enum: create new type `invoice_status_new` with values `('pending','paid')`, alter column to use it with a `USING` expression, drop old type, rename new type. Alternatively use `drizzle-kit generate` and adapt the generated migration.
 
@@ -138,11 +139,47 @@ type AddressJson = {
 | priority | task_priority | NOT NULL, default `medium` |
 | due_date | date | |
 | estimated_hours | numeric(6,2) | |
+| sort_order | integer | NOT NULL, default 0 |
+| assignee_id | uuid | FK → team_members.id, ON DELETE SET NULL |
+| actual_hours | numeric(6,2) | Logged tracked hours aggregate |
 | notes | text | |
 | created_at | timestamptz | NOT NULL, default now() |
 | deleted_at | timestamptz | Soft delete |
 
 **Relations:** Many-to-one `project`, `phase`, `parentTask`; one-to-many `subtasks`, `files`.
+
+---
+
+### time_logs
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default `gen_random_uuid()` |
+| task_id | uuid | NOT NULL, FK → tasks.id, ON DELETE CASCADE |
+| team_member_id | uuid | FK → team_members.id, ON DELETE SET NULL |
+| description | text | Optional |
+| started_at | timestamptz | Optional |
+| ended_at | timestamptz | Optional |
+| hours | numeric(6,2) | NOT NULL |
+| logged_at | timestamptz | NOT NULL, default now() |
+| created_at | timestamptz | NOT NULL, default now() |
+
+**Relations:** many-to-one `task`, optional many-to-one `team_member`.
+
+---
+
+### task_comments
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default `gen_random_uuid()` |
+| task_id | uuid | NOT NULL, FK → tasks.id, ON DELETE CASCADE |
+| author_name | text | NOT NULL, default `Admin` |
+| body | text | NOT NULL |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+
+**Relations:** many-to-one `task`.
 
 ---
 
@@ -293,6 +330,7 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 - **projects** → client, phases, tasks, invoices, files  
 - **phases** → project, tasks  
 - **tasks** → project, phase, parentTask, subtasks, files  
+- **tasks** → optional assignee (`team_members`) + many `time_logs` + many `task_comments`
 - **invoices** → client, project, invoice_items  
 - **invoice_items** → invoice  
 - **expenses** → team_member (optional, for salary)

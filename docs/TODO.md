@@ -51,6 +51,17 @@ What is built, in progress, and not started, by module. **Update at the start an
 
 ---
 
+## Workspace
+
+- [x] Schema extensions: `workspace_view`, `tasks.sort_order`, `tasks.assignee_id`, `tasks.actual_hours`
+- [x] New tables: `time_logs`, `task_comments`
+- [x] Server Actions: `actions/workspace.ts` (board, timeline, my-tasks, workload, sort, logs, comments, assign)
+- [x] Routes: `/dashboard/workspace`, `/board`, `/timeline`, `/workload`
+- [x] Components: nav, my-tasks view, board view, timeline view, workload view, task detail panel
+- [x] Sidebar + mobile nav entry for Workspace (`الفضاء`)
+
+---
+
 ## Invoices
 
 - [x] Drizzle schema (invoices, invoice_items, payment_method)

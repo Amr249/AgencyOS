@@ -85,6 +85,29 @@ export const TASK_STATUS_HEADER_CLASS: Record<string, string> = {
   blocked: "bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800",
 };
 
+export const WORKSPACE_COLUMN_LABELS = {
+  todo: "قيد الانتظار",
+  in_progress: "قيد التنفيذ",
+  in_review: "قيد المراجعة",
+  done: "مكتمل",
+  blocked: "موقوف",
+} as const;
+
+export const WORKSPACE_COLUMN_COLORS = {
+  todo: "bg-gray-100 text-gray-700",
+  in_progress: "bg-blue-100 text-blue-700",
+  in_review: "bg-purple-100 text-purple-700",
+  done: "bg-green-100 text-green-700",
+  blocked: "bg-red-100 text-red-700",
+} as const;
+
+export const TASK_PRIORITY_BORDER = {
+  low: "border-l-gray-300",
+  medium: "border-l-blue-400",
+  high: "border-l-amber-400",
+  urgent: "border-l-red-500",
+} as const;
+
 // Invoice status (Arabic) — pending | paid only
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
   pending: "بانتظار الدفع",

@@ -45,6 +45,7 @@ export const taskStatusEnum = pgEnum("task_status", [
   "blocked",
 ]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "urgent"]);
+export const workspaceViewEnum = pgEnum("workspace_view", ["board", "list", "timeline"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["pending", "paid"]);
 export const expenseCategoryEnum = pgEnum("expense_category", [
   "software",
@@ -141,8 +142,11 @@ export const tasks = pgTable("tasks", {
   description: text("description"),
   status: taskStatusEnum("status").notNull().default("todo"),
   priority: taskPriorityEnum("priority").notNull().default("medium"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  assigneeId: uuid("assignee_id").references(() => teamMembers.id, { onDelete: "set null" }),
   dueDate: date("due_date"),
   estimatedHours: numeric("estimated_hours", { precision: 6, scale: 2 }),
+  actualHours: numeric("actual_hours", { precision: 6, scale: 2 }),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -336,6 +340,31 @@ export const expenses = pgTable("expenses", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const timeLogs = pgTable("time_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  teamMemberId: uuid("team_member_id").references(() => teamMembers.id, { onDelete: "set null" }),
+  description: text("description"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  hours: numeric("hours", { precision: 6, scale: 2 }).notNull(),
+  loggedAt: timestamp("logged_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const taskComments = pgTable("task_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  authorName: text("author_name").notNull().default("Admin"),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // settings — single row (id always 1)
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey().default(1),
@@ -376,6 +405,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 
 export const teamMembersRelations = relations(teamMembers, ({ many }) => ({
   projectMembers: many(projectMembers),
+  tasks: many(tasks),
+  timeLogs: many(timeLogs),
 }));
 
 export const servicesRelations = relations(services, ({ many }) => ({
@@ -418,9 +449,12 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
   phase: one(phases, { fields: [tasks.phaseId], references: [phases.id] }),
   parentTask: one(tasks, { fields: [tasks.parentTaskId], references: [tasks.id] }),
+  assignee: one(teamMembers, { fields: [tasks.assigneeId], references: [teamMembers.id] }),
   subtasks: many(tasks),
   files: many(files),
   taskAssignments: many(taskAssignments),
+  timeLogs: many(timeLogs),
+  comments: many(taskComments),
 }));
 
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
@@ -446,6 +480,15 @@ export const proposalsRelations = relations(proposals, ({ one }) => ({
 
 export const expensesRelations = relations(expenses, ({ one }) => ({
   teamMember: one(teamMembers, { fields: [expenses.teamMemberId], references: [teamMembers.id] }),
+}));
+
+export const timeLogsRelations = relations(timeLogs, ({ one }) => ({
+  task: one(tasks, { fields: [timeLogs.taskId], references: [tasks.id] }),
+  teamMember: one(teamMembers, { fields: [timeLogs.teamMemberId], references: [teamMembers.id] }),
+}));
+
+export const taskCommentsRelations = relations(taskComments, ({ one }) => ({
+  task: one(tasks, { fields: [taskComments.taskId], references: [tasks.id] }),
 }));
 
 export type ProjectMember = typeof projectUserMembers.$inferSelect;

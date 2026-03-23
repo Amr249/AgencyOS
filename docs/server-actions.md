@@ -189,6 +189,29 @@ Focused helpers for **project ↔ team_member** assignment used by project UI (o
 
 ---
 
+## `workspace.ts`
+
+Workspace module actions for My Tasks, Board, Timeline, Workload, time tracking, comments, and assignee changes.
+
+| Export | Purpose |
+|--------|---------|
+| `getWorkspaceBoard(projectId)` | Project board data grouped by status columns with assignee + logged hours |
+| `getWorkspaceTimeline(projectId)` | Timeline dataset (tasks with due dates) |
+| `getWorkspaceMyTasks()` | Grouped personal tasks: today / this_week / later / no_date |
+| `getWorkspaceWorkload()` | 8-week workload matrix per active team member |
+| `updateTaskSortOrder(updates)` | Batch update `sort_order` + status after Kanban drag |
+| `logTime(input)` | Insert `time_logs` row and recalculate `tasks.actual_hours` |
+| `deleteTimeLog(id)` | Delete time entry and recalculate parent task actual hours |
+| `getTimeLogs(taskId)` | List logs for one task (latest first) |
+| `createTaskComment(taskId, body)` | Insert `task_comments` row |
+| `getTaskComments(taskId)` | List comments oldest first |
+| `deleteTaskComment(id)` | Hard delete one comment |
+| `assignTask(taskId, teamMemberId)` | Update `tasks.assignee_id` and revalidate workspace paths |
+
+**DB errors:** `getDbErrorKey` + `isDbConnectionError` pattern.
+
+---
+
 ## Summary: `db-errors` usage
 
 | Pattern | Files |

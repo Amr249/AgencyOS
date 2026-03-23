@@ -17,6 +17,7 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | `team_member_status` | `active`, `inactive` |
 | `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
 | `service_status` | `active`, `inactive` |
+| `workspace_view` | `board`, `list`, `timeline` |
 
 ## TypeScript-only type
 
@@ -88,6 +89,9 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | `priority` | task_priority | NOT NULL, default `medium` |
 | `due_date` | date | optional |
 | `estimated_hours` | numeric(6,2) | optional |
+| `sort_order` | integer | NOT NULL, default 0 |
+| `assignee_id` | UUID | optional → `team_members.id` (**SET NULL**) |
+| `actual_hours` | numeric(6,2) | optional |
 | `created_at` | timestamptz | NOT NULL |
 | `deleted_at` | timestamptz | soft delete |
 
@@ -249,12 +253,38 @@ Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
 | `default_payment_terms` | integer | default 30 |
 | `invoice_color` | char(7) | optional hex |
 
+### `time_logs`
+
+| Column | Type | Notes |
+|--------|------|--------|
+| `id` | UUID | PK |
+| `task_id` | UUID | NOT NULL → `tasks.id` **CASCADE** |
+| `team_member_id` | UUID | optional → `team_members.id` **SET NULL** |
+| `description` | text | optional |
+| `started_at` | timestamptz | optional |
+| `ended_at` | timestamptz | optional |
+| `hours` | numeric(6,2) | NOT NULL |
+| `logged_at` | timestamptz | NOT NULL, default now |
+| `created_at` | timestamptz | NOT NULL, default now |
+
+### `task_comments`
+
+| Column | Type | Notes |
+|--------|------|--------|
+| `id` | UUID | PK |
+| `task_id` | UUID | NOT NULL → `tasks.id` **CASCADE** |
+| `author_name` | text | NOT NULL, default `Admin` |
+| `body` | text | NOT NULL |
+| `created_at` | timestamptz | NOT NULL, default now |
+| `updated_at` | timestamptz | NOT NULL, default now |
+
 ## Relationships (summary)
 
 - **clients** → many **projects**, **invoices**, **files**, **proposals**, **client_services**
 - **projects** → many **phases**, **tasks**, **invoices**, **files**, **project_members**, **project_services**, **project_user_members**, **proposals**
 - **phases** → many **tasks**
 - **tasks** → self-referential subtasks; many **files**; many **task_assignments** (users)
+- **tasks** → optional **team_members** assignee; many **time_logs**; many **task_comments**
 - **invoices** → many **invoice_items**
 - **team_members** → **project_members**, **expenses**
 - **services** ↔ **projects** / **clients** via junction tables

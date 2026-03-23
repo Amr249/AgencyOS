@@ -10,6 +10,7 @@ import {
   IconFolder,
   IconReceipt,
   IconListDetails,
+  IconLayoutKanban,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,7 @@ export function MobileBottomNav() {
   const navItems = [
     { href: "/dashboard", label: t("dashboard"), icon: IconLayoutDashboard },
     { href: "/dashboard/clients", label: t("clients"), icon: IconUsers },
-    { href: "/dashboard/proposals", label: t("proposals"), icon: IconFileText },
+    { href: "/dashboard/workspace", label: "الفضاء", icon: IconLayoutKanban },
     { href: "/dashboard/projects", label: t("projects"), icon: IconFolder },
     { href: "/dashboard/invoices", label: t("invoices"), icon: IconReceipt },
     { href: "/dashboard/tasks", label: t("allTasks"), icon: IconListDetails },

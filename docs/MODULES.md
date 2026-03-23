@@ -270,6 +270,34 @@ One section per module: what it does, pages, Server Actions, and main components
 
 ---
 
+## Workspace
+
+**Purpose:** Professional project workspace (separate from `/dashboard/tasks`) with My Tasks, Project Board, Timeline, and Team Workload views.
+
+**Pages:**
+
+| Route | File | Description |
+|-------|------|-------------|
+| My Tasks | `app/dashboard/workspace/page.tsx` | Server page; fetches `getWorkspaceMyTasks()`, team members, and projects; renders `WorkspaceMyTasksView` with grouped tasks. |
+| Board | `app/dashboard/workspace/board/page.tsx` | Server page; resolves `?project=`, fetches board data via `getWorkspaceBoard(projectId)` and renders `WorkspaceBoardView` (drag/reorder + task panel). |
+| Timeline | `app/dashboard/workspace/timeline/page.tsx` | Server page; resolves `?project=`, fetches `getWorkspaceTimeline(projectId)` and renders `WorkspaceTimelineView` (week/month axis, bars). |
+| Workload | `app/dashboard/workspace/workload/page.tsx` | Server page; fetches `getWorkspaceWorkload()` and renders `WorkspaceWorkloadView` (8-week capacity table). |
+
+**Server Actions** (`actions/workspace.ts`): board/timeline/my-tasks/workload getters, `updateTaskSortOrder`, `logTime`, `deleteTimeLog`, `getTimeLogs`, `createTaskComment`, `getTaskComments`, `deleteTaskComment`, `assignTask`.
+
+**Components:**
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| WorkspaceNav | `components/modules/workspace/workspace-nav.tsx` | Workspace tab bar + project selector for board/timeline routes |
+| WorkspaceMyTasksView | `components/modules/workspace/workspace-my-tasks-view.tsx` | Grouped personal tasks with collapsible sections and quick completion |
+| WorkspaceBoardView | `components/modules/workspace/workspace-board-view.tsx` | Kanban board columns with drag-to-reorder and optimistic local state |
+| WorkspaceTimelineView | `components/modules/workspace/workspace-timeline-view.tsx` | Gantt-like timeline with LTR axis and mobile fallback cards |
+| WorkspaceWorkloadView | `components/modules/workspace/workspace-workload-view.tsx` | Weekly team load grid with click-to-inspect task list |
+| TaskDetailPanel | `components/modules/workspace/task-detail-panel.tsx` | Sheet panel for task editing, assignment, time logs, subtasks, and comments |
+
+---
+
 ## Expenses
 
 **Purpose:** Track agency expenses by category (software, hosting, marketing, salaries, equipment, office, other). Used in Financial Reports for profit (collected − expenses). Receipt upload via ImageKit (folder `agencyos/expenses/receipts`).
