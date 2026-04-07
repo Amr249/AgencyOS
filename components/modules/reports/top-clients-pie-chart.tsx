@@ -10,6 +10,8 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { useReportsCurrency } from "@/components/reports/reports-currency-context";
+import { ReportsMoney } from "@/components/reports/reports-money";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 const COLORS = [
   "var(--chart-1)",
@@ -21,10 +23,13 @@ const COLORS = [
 
 export function TopClientsPieChart({
   data,
+  className,
 }: {
   data: { clientName: string; total: number; invoiceCount: number }[];
+  className?: string;
 }) {
-  const { formatAmount, convertedRate } = useReportsCurrency();
+  const { convertedRate } = useReportsCurrency();
+  const showPieLabels = useMediaQuery("(min-width: 480px)");
   const total = data.reduce((sum, d) => sum + d.total, 0);
 
   const chartData = useMemo(
@@ -49,26 +54,26 @@ export function TopClientsPieChart({
 
   if (data.length === 0) {
     return (
-      <Card className="flex flex-col" dir="rtl">
-        <CardHeader className="items-end pb-0">
-          <CardTitle>أفضل العملاء إيراداً</CardTitle>
+      <Card className={`flex min-h-[380px] flex-col ${className ?? ""}`} dir="ltr">
+        <CardHeader className="items-start pb-0">
+          <CardTitle>Top clients by revenue</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground text-center text-sm">لا توجد بيانات بعد.</p>
+          <p className="text-muted-foreground text-center text-sm">No data yet.</p>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card className="flex flex-col" dir="rtl">
-      <CardHeader className="items-end pb-0">
-        <CardTitle>أفضل العملاء إيراداً</CardTitle>
+    <Card className={`flex min-h-[380px] flex-col ${className ?? ""}`} dir="ltr">
+      <CardHeader className="items-start pb-0">
+        <CardTitle>Top clients by revenue</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 pb-0">
+      <CardContent className="flex min-h-0 flex-1 flex-col pb-0">
         <ChartContainer
           config={chartConfig}
-          className="mx-auto aspect-square max-h-[280px] pb-0 [&_.recharts-pie-label-text]:fill-foreground"
+          className="mx-auto aspect-square h-[min(75vw,240px)] w-full max-w-[min(100%,280px)] shrink-0 pb-0 sm:h-[min(55vw,280px)] sm:max-w-[320px] md:max-w-none [&_.recharts-pie-label-text]:fill-foreground"
         >
           <PieChart>
             <ChartTooltip
@@ -76,9 +81,9 @@ export function TopClientsPieChart({
                 <ChartTooltipContent
                   hideLabel
                   formatter={(value, name, props: { payload?: { revenueRaw?: number } }) => (
-                    <div className="flex flex-col gap-1 text-right">
+                    <div className="flex flex-col gap-1 text-left">
                       <span className="font-medium">{name}</span>
-                      <span>{formatAmount(props.payload?.revenueRaw ?? Number(value))}</span>
+                      <ReportsMoney amount={props.payload?.revenueRaw ?? Number(value)} iconClassName="h-3 w-3" />
                     </div>
                   )}
                 />
@@ -88,17 +93,24 @@ export function TopClientsPieChart({
               data={chartData}
               dataKey="revenue"
               nameKey="client"
-              label={({ percentage }) => `${percentage}%`}
-              labelLine={true}
+              cx="50%"
+              cy="50%"
+              innerRadius="46%"
+              outerRadius="78%"
+              label={showPieLabels ? ({ percentage }) => `${percentage}%` : false}
+              labelLine={showPieLabels}
             />
           </PieChart>
         </ChartContainer>
 
         {/* Legend below chart */}
-        <div className="mt-4 space-y-2 px-4 pb-4">
+        <div className="mt-2 max-h-[120px] min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 pb-3">
           {chartData.map((d) => (
             <div key={d.client} className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{d.invoiceCount} فاتورة · {formatAmount(d.revenueRaw)}</span>
+              <span className="text-muted-foreground">
+                {d.invoiceCount} {d.invoiceCount === 1 ? "invoice" : "invoices"} ·{" "}
+                <ReportsMoney amount={d.revenueRaw} iconClassName="h-3 w-3" />
+              </span>
               <div className="flex items-center gap-2">
                 <span className="font-medium">{d.client}</span>
                 <span

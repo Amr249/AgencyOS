@@ -42,7 +42,7 @@
 | Component | Description |
 |-----------|-------------|
 | [`ui/date-picker-ar`](../components/ui/date-picker-ar.tsx) | Date picker with Arabic calendar locale **by default** (`arSA`). Optional props: **`direction`** (`"rtl"` \| `"ltr"`), **`locale`** (e.g. `enUS` from `date-fns/locale`), **`popoverAlign`** — used on **Expenses** (LTR + English) for filters and modal. |
-| [`ui/sar-currency-icon`](../components/ui/sar-currency-icon.tsx) | Saudi Riyal: **Next/Image** of [`/public/Saudi_Riyal_Symbol.png`](../public/Saudi_Riyal_Symbol.png) (accessible `title="Saudi Riyal"`). Used next to **`formatAmount`** on Expenses list/summary and alongside project budgets. |
+| [`ui/sar-currency-icon`](../components/ui/sar-currency-icon.tsx) | **`SarCurrencyIcon`** — Saudi Riyal display using **Next/Image** of [`/public/Saudi_Riyal_Symbol.png`](../public/Saudi_Riyal_Symbol.png) (`title="Saudi Riyal"`). Used **globally** wherever SAR amounts are shown instead of literal “ر.س” or “SAR” text: invoices (**`AmountWithSarIcon`** in list view), expenses, dashboards, etc. Accepts optional **`className`** on the wrapper span for theming (e.g. white icon on dark cards). |
 | [`ui/kbd`](../components/ui/kbd.tsx) | Keyboard hint styling (used with search shortcuts). |
 
 ## Feature modules (`components/modules/*`)
@@ -52,7 +52,7 @@
 | **clients** | `client-form-sheet`, `client-overview`, `client-*-tab`, `clients-page-fab`, `edit-client-button`, `data-table` (via app) |
 | **projects** | `projects-list-view`, `new-project-dialog`, `edit-project-dialog`, `project-*-tab`, `project-cover-banner`, `project-tasks-tab` (Kanban wiring) |
 | **tasks** | `tasks-list-view`, `tasks-kanban`, `tasks-page-content`, `new-task-modal`, `task-detail-modal` |
-| **invoices** | `invoices-list-view` (EN **Total invoiced** / **Collected** / **Outstanding** stat cards; Outstanding = `#ededed` + black text/SAR icon; local **`AmountWithSarIcon`**), `new-invoice-dialog`, `edit-invoice-form`, `invoice-*-header/actions`, `invoice-pdf-document`, `mark-as-paid-dialog` |
+| **invoices** | `invoices-list-view`, `new-invoice-dialog` (multi-project checkboxes), `edit-invoice-form`, `invoice-detail-header`, `invoice-detail-actions`, **`payment-history`**, **`add-payment-modal`**, **`invoice-attachments`**, `invoice-pdf-document`, `mark-as-paid-dialog` |
 | **expenses** | `expenses-list-view` (LTR, `SortableDataTable` `uiVariant="clients"`, bulk delete, `SarCurrencyIcon` + `formatAmount`), `new-expense-dialog` (English/LTR), `expense-category-badge` (English labels) |
 | **proposals** | `proposals-list-view`, `new-proposal-dialog`, `edit-proposal-dialog`, `convert-to-client-dialog`, `proposal-status-badge` |
 | **team** | `team-list-view`, `new-member-modal`, `team-member-detail-tabs`, `edit-team-member-button` |
@@ -64,6 +64,10 @@
 | Component | Description |
 |-----------|-------------|
 | [`reports/*`](../components/reports/) | Revenue charts, productivity tab helpers, outstanding invoices table. |
+| [`reports/aging-report-section`](../components/reports/aging-report-section.tsx) | **AR aging** — buckets (current, 1–30, 31–60, 61–90, 90+ days) on Financial reports. |
+| [`modules/invoices/payment-history`](../components/modules/invoices/payment-history.tsx) | Invoice detail: payment list, progress bar, “Record payment”. |
+| [`modules/invoices/add-payment-modal`](../components/modules/invoices/add-payment-modal.tsx) | Modal to record a partial or full payment (amount, date, method, reference, notes). |
+| [`modules/invoices/invoice-attachments`](../components/modules/invoices/invoice-attachments.tsx) | Invoice detail: upload/list/download/delete files (ImageKit + `createFile` with `invoiceId`). |
 | [`modules/reports/top-clients-pie-chart`](../components/modules/reports/top-clients-pie-chart.tsx) | Pie chart widget. |
 
 ## Other
@@ -80,3 +84,14 @@
 
 - **`globals.css`** — Sidebar tokens set to **black `#000000`** and zinc accents so the rail stays dark regardless of light/dark theme toggle.
 - **Sidebar** — `AppSidebar` receives `side={sidebarSide}` from dashboard layout (`ar` → `right`).
+
+## Current state addendum
+
+<!-- ADDED 2026-03-23 -->
+
+- `DatePickerAr` now auto-detects locale/direction via `next-intl` `useLocale()` when props are not provided (English/LTR in `en`, Arabic/RTL in `ar`).  
+  <!-- OUTDATED: earlier note said Arabic locale by default -->
+- Workspace module now includes `workspace-calendar-view.tsx` and calendar route integration.
+- `components/modules/tasks/new-task-modal.tsx` now supports:
+  - start date + end date
+  - assignee selection at creation time (when team members are provided)

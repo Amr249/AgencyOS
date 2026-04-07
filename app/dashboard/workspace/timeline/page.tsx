@@ -13,13 +13,15 @@ export default async function WorkspaceTimelinePage({
   const projects = projectsRes.ok ? projectsRes.data : [];
   const projectId = params.project ?? projects[0]?.id;
   if (!projectId && projects.length) redirect(`/dashboard/workspace/timeline?project=${projects[0].id}`);
-  if (!projectId) return <p className="text-sm text-muted-foreground">لا توجد مشاريع متاحة.</p>;
+  if (!projectId) return <p className="text-sm text-muted-foreground">No projects available.</p>;
 
   const timelineRes = await getWorkspaceTimeline(projectId);
   return (
-    <WorkspaceTimelineView
-      tasks={timelineRes.ok ? timelineRes.data : []}
-      projects={projects.map((p) => ({ id: p.id, name: p.name }))}
-    />
+    <div dir="ltr" lang="en" className="h-full">
+      <WorkspaceTimelineView
+        tasks={timelineRes.ok ? timelineRes.data : []}
+        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+      />
+    </div>
   );
 }

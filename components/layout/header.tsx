@@ -25,7 +25,7 @@ export default function Header() {
   const pathname = usePathname();
 
   useEffect(() => {
-    setOpen(false);
+    queueMicrotask(() => setOpen(false));
   }, [pathname]);
 
   return (

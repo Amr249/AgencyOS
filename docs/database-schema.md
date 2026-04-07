@@ -12,7 +12,7 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | `phase_status` | `pending`, `active`, `completed` |
 | `task_status` | `todo`, `in_progress`, `in_review`, `done`, `blocked` |
 | `task_priority` | `low`, `medium`, `high`, `urgent` |
-| `invoice_status` | `pending`, `paid` |
+| `invoice_status` | `pending`, `partial`, `paid` |
 | `expense_category` | `software`, `hosting`, `marketing`, `salaries`, `equipment`, `office`, `other` |
 | `team_member_status` | `active`, `inactive` |
 | `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
@@ -97,21 +97,50 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 
 Indexes: `tasks_project_id_idx`, `tasks_status_idx`, `tasks_parent_task_id_idx`.
 
+<!-- ADDED 2026-03-23 -->
+<!-- OUTDATED: tasks table listing below omitted start_date in earlier revision -->
+- `tasks` also includes `start_date` (`date`, nullable) in current schema.
+
 ### `invoices`
 
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
-| `invoice_number` | text | NOT NULL, UNIQUE |
+| `invoice_number` | text | NOT NULL, UNIQUE — sequential format e.g. **`INV-001`** from `settings.invoice_prefix` + counter |
 | `client_id` | UUID | NOT NULL → `clients.id` **CASCADE** |
-| `project_id` | UUID | → `projects.id` **SET NULL** |
-| `status` | invoice_status | NOT NULL, default `pending` |
+| `project_id` | UUID | → `projects.id` **SET NULL** (primary linked project; see `invoice_projects` for many) |
+| `status` | invoice_status | NOT NULL, default `pending` — includes **`partial`** |
 | `issue_date` | date | NOT NULL |
+| `due_date` | date | **nullable** |
 | `subtotal`, `tax_amount`, `total` | numeric(12,2) | tax default 0 |
 | `currency` | char(3) | NOT NULL, default `SAR` |
 | `notes`, `payment_method` | text | optional |
 | `paid_at` | timestamptz | optional |
 | `created_at` | timestamptz | NOT NULL |
+
+### `payments`
+
+| Column | Type | Notes |
+|--------|------|--------|
+| `id` | UUID | PK |
+| `invoice_id` | UUID | NOT NULL → `invoices.id` **CASCADE** |
+| `amount` | numeric(12,2) | NOT NULL |
+| `payment_date` | date | NOT NULL |
+| `payment_method` | text | optional (`bank_transfer`, `cash`, `credit_card`, `cheque`, `other`) |
+| `reference` | text | optional |
+| `notes` | text | optional |
+| `created_at` | timestamptz | NOT NULL, default now |
+
+Indexes: `payments_invoice_id_idx`, `payments_date_idx`.
+
+### `invoice_projects`
+
+| Column | Type | Notes |
+|--------|------|--------|
+| `invoice_id` | UUID | PK (composite) → `invoices.id` **CASCADE** |
+| `project_id` | UUID | PK (composite) → `projects.id` **CASCADE** |
+
+Index: `invoice_projects_project_id_idx` on `project_id`.
 
 ### `invoice_items`
 
@@ -134,6 +163,7 @@ Indexes: `tasks_project_id_idx`, `tasks_status_idx`, `tasks_parent_task_id_idx`.
 | `mime_type` | text | optional |
 | `size_bytes` | bigint | optional |
 | `client_id`, `project_id`, `task_id` | UUID | optional FKs with **CASCADE** |
+| `invoice_id` | UUID | optional → `invoices.id` **CASCADE** (invoice attachments) |
 | `created_at` | timestamptz | NOT NULL |
 | `deleted_at` | timestamptz | optional |
 
@@ -281,12 +311,17 @@ Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
 ## Relationships (summary)
 
 - **clients** → many **projects**, **invoices**, **files**, **proposals**, **client_services**
-- **projects** → many **phases**, **tasks**, **invoices**, **files**, **project_members**, **project_services**, **project_user_members**, **proposals**
+- **projects** → many **phases**, **tasks**, **invoices** (and **invoice_projects**), **files**, **project_members**, **project_services**, **project_user_members**, **proposals**
 - **phases** → many **tasks**
 - **tasks** → self-referential subtasks; many **files**; many **task_assignments** (users)
 - **tasks** → optional **team_members** assignee; many **time_logs**; many **task_comments**
-- **invoices** → many **invoice_items**
+- **invoices** → many **invoice_items**, many **payments**, many **files**; many **projects** via **invoice_projects**
 - **team_members** → **project_members**, **expenses**
 - **services** ↔ **projects** / **clients** via junction tables
 
 Drizzle `relations()` definitions at the bottom of `schema.ts` mirror the above for query API.
+
+## Migrations status
+
+- Additional SQL migrations exist beyond the initial set (e.g. invoice **`due_date`**, **`payments`**, **`files.invoice_id`**, **`invoice_projects`**). See `/drizzle/*.sql` and align your database with [`lib/db/schema.ts`](../lib/db/schema.ts).
+- `drizzle/meta/_journal.json` may not enumerate every file; verify applied state in your environment.

@@ -23,31 +23,82 @@ Every `app/api/*` route: method, purpose, request shape, response shape. **Updat
 
 **File:** `app/api/upload/route.ts`
 
-**Purpose:** Server-side file upload to ImageKit. Private key never exposed to client. Used for client logos and (later) file manager.
+**Purpose:** Server-side upload to **ImageKit**. Private key stays on the server.
 
 **Request:** `multipart/form-data`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| file | File | Yes | Image file (e.g. for client logo). |
-| scope | string | No | `client-logo` (default) → uploads to `agencyos/clients/logos/`. Other scopes → `agencyos/uploads/`. |
+| `file` | File | Yes | Any allowed file (images, PDFs, etc.). |
+| `folder` | string | No | If set, used as ImageKit folder path (normalized, no leading slash). Takes precedence over `scope` routing. |
+| `scope` | string | No | Default `client-logo`. Determines folder when **`folder` is omitted**: `agency-logo`, `client-logo`, `project-cover` (optional `projectId`), `team-avatar`, **`invoice-attachment`** (requires valid **`invoiceId`** → `agencyos/invoices/{invoiceId}`), or fallback `agencyos/uploads`. |
+| `invoiceId` | string (UUID) | When using `invoice-attachment` without `folder` | Required for `invoice-attachment` scope to resolve folder. |
+| `projectId` | string | For `project-cover` | Used to build project cover path when applicable. |
 
-**Response (200):** `{ url: string, fileId?: string }` — ImageKit CDN URL (and file id if returned by SDK).
+**Response (200):** `{ url, fileId?, name, size, mimeType, filePath }`.
 
 **Errors:** 400 (missing/invalid file), 503 (ImageKit not configured), 500 (upload failed).
 
 ---
 
-## Invoices PDF (planned)
+## Invoices PDF
 
 ### `GET /api/invoices/[id]/pdf`
 
-**Status:** Not implemented.
+**File:** `app/api/invoices/[id]/pdf/route.ts`
 
-**Purpose:** Generate and stream invoice PDF (e.g. for download). Uses agency branding from `settings` table.
+**Purpose:** Stream a branded invoice PDF (English).
 
-**Planned request:** GET with invoice `id` in path. Auth: require session.
+**Implementation:** Uses **`getInvoiceWithPayments`** (invoice, client, items, **payments**, **linkedProjects**, totals) and **`getSettings`**. Renders `InvoicePdfDocument` via `@react-pdf/renderer`.
 
-**Planned response:** PDF stream (e.g. `Content-Type: application/pdf`). Status 404 if invoice not found.
+**Response:** `200` — `Content-Type: application/pdf`; attachment filename `invoice-{number}.pdf` (UTF-8 filename*). **`404`** if invoice missing.
 
-**Update API.md when this route is added.**
+---
+
+## Current API snapshot
+
+<!-- ADDED 2026-03-23 -->
+
+### Auth
+
+- `GET|POST /api/auth/[...nextauth]`
+- File: `app/api/auth/[...nextauth]/route.ts`
+- Uses `NextAuth(authOptions)` with exports `{ handler as GET, handler as POST }`.
+- Backed by `next-auth` v4 in `package.json`.
+
+### Upload
+
+- `POST /api/upload` — see [Upload](#upload) above for **`invoice-attachment`** + **`invoiceId`**, and explicit **`folder`** (e.g. invoice attachments from the client often send `folder=agencyos/invoices/{uuid}` plus `scope`/`invoiceId` for consistency).
+
+### Search
+
+- `GET /api/search?q=...`
+- File: `app/api/search/route.ts`
+- Returns grouped quick results:
+  - `clients[]`
+  - `projects[]`
+  - `invoices[]`
+  - `tasks[]`
+- Requires query length >= 2; otherwise returns empty arrays.
+
+### Locale
+
+- `POST /api/set-locale`
+- File: `app/api/set-locale/route.ts`
+- Body: `{ "locale": "ar" | "en" }`
+- Sets `locale` cookie for one year.
+
+### Scraping helper
+
+- `GET /api/scrape-mostaql?url=...`
+- File: `app/api/scrape-mostaql/route.ts`
+- Scrapes and returns proposal seed data:
+  - `title`
+  - `budgetMin`
+  - `budgetMax`
+  - `category`
+  - `description`
+
+### Invoice PDF
+
+- `GET /api/invoices/[id]/pdf` — see [Invoices PDF](#invoices-pdf) above (`getInvoiceWithPayments`, not `getInvoiceById`).

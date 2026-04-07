@@ -18,16 +18,10 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { formatBudgetSAR } from "@/lib/utils";
+import { SarMoney } from "@/components/ui/sar-money";
 import { Cross2Icon } from "@radix-ui/react-icons";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 
@@ -40,7 +34,7 @@ const lineItemSchema = z.object({
 
 const formSchema = z.object({
   clientId: z.string().uuid(),
-  projectId: z.string().optional().nullable(),
+  projectIds: z.array(z.string().uuid()).optional(),
   invoiceNumber: z.string().min(1),
   issueDate: z.string().min(1),
   currency: z.string(),
@@ -54,7 +48,8 @@ type InvoiceData = {
   id: string;
   clientId: string;
   clientName?: string | null;
-  projectId: string | null;
+  /** Linked projects (from invoice_projects or legacy project_id) */
+  linkedProjectIds?: string[];
   invoiceNumber: string;
   issueDate: string;
   currency: string;
@@ -86,7 +81,7 @@ export function EditInvoiceForm({
     resolver: zodResolver(formSchema),
     defaultValues: {
       clientId: invoice.clientId,
-      projectId: invoice.projectId ?? null,
+      projectIds: invoice.linkedProjectIds ?? [],
       invoiceNumber: invoice.invoiceNumber,
       issueDate: invoice.issueDate,
       currency: invoice.currency,
@@ -121,11 +116,10 @@ export function EditInvoiceForm({
   }, [lineItems]);
 
   async function onSubmit(values: FormValues) {
-    const projectId = values.projectId === "__none__" || !values.projectId ? undefined : values.projectId;
     const result = await updateInvoice({
       id: invoice.id,
       clientId: values.clientId,
-      projectId: projectId ?? null,
+      projectIds: values.projectIds ?? [],
       invoiceNumber: values.invoiceNumber,
       issueDate: values.issueDate,
       currency: values.currency,
@@ -148,7 +142,7 @@ export function EditInvoiceForm({
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-4">
               <FormItem>
                 <FormLabel>Client</FormLabel>
                 <FormControl>
@@ -157,26 +151,43 @@ export function EditInvoiceForm({
               </FormItem>
               <FormField
                 control={form.control}
-                name="projectId"
-                render={({ field }) => (
+                name="projectIds"
+                render={() => (
                   <FormItem>
-                    <FormLabel>Project</FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
-                      value={field.value ?? "__none__"}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="None" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="__none__">—</SelectItem>
+                    <FormLabel>Projects (optional)</FormLabel>
+                    <p className="text-muted-foreground mb-2 text-xs">
+                      Select one or more projects, or leave empty.
+                    </p>
+                    {projects.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">No projects for this client.</p>
+                    ) : (
+                      <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
                         {projects.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                          <FormField
+                            key={p.id}
+                            control={form.control}
+                            name="projectIds"
+                            render={({ field }) => {
+                              const checked = field.value?.includes(p.id) ?? false;
+                              return (
+                                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(c) => {
+                                      const next = new Set(field.value ?? []);
+                                      if (c === true) next.add(p.id);
+                                      else next.delete(p.id);
+                                      field.onChange([...next]);
+                                    }}
+                                  />
+                                  <span>{p.name}</span>
+                                </label>
+                              );
+                            }}
+                          />
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </div>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -204,7 +215,7 @@ export function EditInvoiceForm({
                       <DatePickerAr
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder="اختر تاريخًا"
+                        placeholder="Pick a date"
                       />
                     </FormControl>
                     <FormMessage />
@@ -228,7 +239,7 @@ export function EditInvoiceForm({
                 <div className="grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground">
                   <div className="col-span-4">Description</div>
                   <div className="col-span-2">Qty</div>
-                  <div className="col-span-2">Unit Price (SAR)</div>
+                  <div className="col-span-2">Unit Price</div>
                   <div className="col-span-2">Tax %</div>
                   <div className="col-span-1">Total</div>
                   <div className="col-span-1"></div>
@@ -273,11 +284,12 @@ export function EditInvoiceForm({
                       )}
                     />
                     <div className="col-span-1 text-sm">
-                      {formatBudgetSAR(
-                        String(
+                      <SarMoney
+                        value={String(
                           (lineItems[i]?.quantity ?? 0) * (lineItems[i]?.unitPrice ?? 0) * (1 + (lineItems[i]?.taxRate ?? 0) / 100)
-                        )
-                      )}
+                        )}
+                        iconClassName="h-3 w-3"
+                      />
                     </div>
                     <Button
                       type="button"
@@ -294,15 +306,15 @@ export function EditInvoiceForm({
                 <div className="mt-3 flex flex-col gap-1 border-t pt-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal</span>
-                    <span>{formatBudgetSAR(String(subtotal.toFixed(2)))}</span>
+                    <SarMoney value={String(subtotal.toFixed(2))} iconClassName="h-3.5 w-3.5" />
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Tax</span>
-                    <span>{formatBudgetSAR(String(taxTotal.toFixed(2)))}</span>
+                    <SarMoney value={String(taxTotal.toFixed(2))} iconClassName="h-3.5 w-3.5" />
                   </div>
                   <div className="flex justify-between font-semibold">
                     <span>Grand Total</span>
-                    <span>{formatBudgetSAR(String(grandTotal.toFixed(2)))}</span>
+                    <SarMoney value={String(grandTotal.toFixed(2))} iconClassName="h-3.5 w-3.5" />
                   </div>
                 </div>
               </div>

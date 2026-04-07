@@ -14,10 +14,11 @@ import {
 type ProjectOption = { id: string; name: string };
 
 const tabs = [
-  { href: "/dashboard/workspace", label: "مهامي" },
-  { href: "/dashboard/workspace/board", label: "لوحة" },
-  { href: "/dashboard/workspace/timeline", label: "الجدول الزمني" },
-  { href: "/dashboard/workspace/workload", label: "عبء العمل" },
+  { href: "/dashboard/workspace", label: "My Tasks" },
+  { href: "/dashboard/workspace/board", label: "Board" },
+  { href: "/dashboard/workspace/calendar", label: "Calendar" },
+  { href: "/dashboard/workspace/timeline", label: "Timeline" },
+  { href: "/dashboard/workspace/workload", label: "Workload" },
 ];
 
 export function WorkspaceNav({ projects = [] }: { projects?: ProjectOption[] }) {
@@ -34,7 +35,7 @@ export function WorkspaceNav({ projects = [] }: { projects?: ProjectOption[] }) 
   }
 
   return (
-    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between" dir="rtl">
+    <div dir="ltr" className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="inline-flex w-fit items-center gap-1 rounded-full bg-muted/60 p-1">
         {tabs.map((tab) => {
           const active = pathname === tab.href;
@@ -56,7 +57,7 @@ export function WorkspaceNav({ projects = [] }: { projects?: ProjectOption[] }) 
       {shouldShowProject && (
         <Select value={selectedProject || projects[0]?.id} onValueChange={onProjectChange}>
           <SelectTrigger className="w-full md:w-[260px]">
-            <SelectValue placeholder="اختر المشروع" />
+            <SelectValue placeholder="Select project" />
           </SelectTrigger>
           <SelectContent>
             {projects.map((project) => (

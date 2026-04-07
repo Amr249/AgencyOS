@@ -61,11 +61,25 @@ Task assignment to **app users** (`users` + `task_assignments`), distinct from `
 
 | Export | Purpose |
 |--------|---------|
-| `getFiles` | `{ clientId?, projectId? }` |
-| `createFile` | Record after ImageKit upload |
-| `deleteFile` | ImageKit + DB |
+| `getFiles` | `{ clientId?, projectId?, invoiceId? }` — at least one scope id required |
+| `createFile` | Record after ImageKit upload; optional **`invoiceId`** for invoice attachments |
+| `deleteFile` | ImageKit + DB row |
 
 **DB errors:** `getDbErrorKey` pattern.
+
+---
+
+## `payments.ts` (`actions/payments.ts`)
+
+| Export | Purpose |
+|--------|---------|
+| `createPayment(input)` | Insert payment row; **recalculates** parent invoice `status` (`pending` / `partial` / `paid`) and `paid_at` |
+| `updatePayment(input)` | Update payment by id; **recalculates** invoice status |
+| `deletePayment(id)` | Remove payment; **recalculates** invoice status |
+| `getPaymentsByInvoiceId(invoiceId)` | List payments for an invoice (newest first) |
+| `getInvoicePaymentSummary(invoiceId)` | Returns **`totalPaid`**, **`amountDue`**, **`invoiceTotal`**, **`paymentProgress`** (uses `invoiceCollectedAmount` for legacy paid rows) |
+
+**DB errors:** `getDbErrorKey` on connection failures; Zod errors on validation.
 
 ---
 
@@ -73,9 +87,11 @@ Task assignment to **app users** (`users` + `task_assignments`), distinct from `
 
 | Export | Purpose |
 |--------|---------|
-| `getInvoices`, `getInvoicesByProjectId`, `getInvoicesByClientId`, `getInvoiceStats`, `getInvoiceById`, `getNextInvoiceNumber` | Reads |
-| `createInvoice`, `updateInvoice` | CRUD with line items |
-| `updateInvoiceStatus`, `markAsPaid`, `duplicateInvoice`, `deleteInvoice` | Workflow |
+| `getInvoices`, `getInvoicesWithPayments`, `getInvoicesByProjectId`, `getInvoicesByClientId`, `getInvoiceStats`, **`getInvoiceStatsWithPayments`**, `getInvoiceById`, **`getInvoiceWithPayments`**, `getNextInvoiceNumber` | Reads — **`getInvoiceStatsWithPayments`** used by list page for accurate collected/outstanding (payments + legacy paid-without-rows) |
+| `createInvoice`, `updateInvoice` | CRUD with line items; supports **`projectIds`** for **`invoice_projects`** junction + primary `project_id` |
+| `getOverdueInvoices` | Invoices past due (or issue) with **amount due** computed |
+| `updateInvoiceStatus`, `markAsPaid`, `duplicateInvoice`, `deleteInvoice`, `deleteInvoices` | Workflow |
+| **`markAsPaid`** | Inserts a **`payments`** row for the **remaining balance**, then sets invoice **`paid`** (only when balance &gt; 0) |
 | `migrateInvoicesToNewFormat` | Maintenance / one-off migration helper |
 
 **DB errors:** `getDbErrorKey` pattern throughout.
@@ -158,6 +174,10 @@ Many read-only exports for dashboards: `getProjectsSummary`, `getProjectsByStatu
 
 **DB errors:** `getDbErrorKey` pattern.
 
+<!-- ADDED 2026-03-23 -->
+- `createTask(input)` currently also accepts `startDate` and `assigneeId` in addition to `dueDate`.
+- `updateTask(input)` currently supports `startDate` updates.
+
 ---
 
 ## `team.ts`
@@ -197,6 +217,7 @@ Workspace module actions for My Tasks, Board, Timeline, Workload, time tracking,
 |--------|---------|
 | `getWorkspaceBoard(projectId)` | Project board data grouped by status columns with assignee + logged hours |
 | `getWorkspaceTimeline(projectId)` | Timeline dataset (tasks with due dates) |
+| `getWorkspaceCalendar(month)` | Calendar dataset scoped to `YYYY-MM` month |
 | `getWorkspaceMyTasks()` | Grouped personal tasks: today / this_week / later / no_date |
 | `getWorkspaceWorkload()` | 8-week workload matrix per active team member |
 | `updateTaskSortOrder(updates)` | Batch update `sort_order` + status after Kanban drag |
@@ -217,5 +238,6 @@ Workspace module actions for My Tasks, Board, Timeline, Workload, time tracking,
 | Pattern | Files |
 |---------|--------|
 | **`isDbConnectionError` + `getDbErrorKey`** | `clients`, `expenses`, `files`, `invoices`, `project-services`, `projects`, `proposals`, `services`, `settings`, `tasks`, `team`, `team-members` |
+| **`isDbConnectionError` + `getDbErrorKey`** | `workspace` |
 | **`isDbConnectionError` only (Arabic strings)** | `assignments` |
 | **Not used** | `dashboard`, `reports` |

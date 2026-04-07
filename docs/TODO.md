@@ -64,24 +64,26 @@ What is built, in progress, and not started, by module. **Update at the start an
 
 ## Invoices
 
-- [x] Drizzle schema (invoices, invoice_items, payment_method)
-- [x] Placeholder page
-- [x] getInvoicesByProjectId (for project detail Invoices tab)
-- [x] Server Actions: getInvoices, getInvoiceStats, getInvoiceById, createInvoice, updateInvoice, markAsSent, markAsPaid, cancelInvoice, duplicateInvoice, autoMarkOverdue, getNextInvoiceNumber
-- [x] List page with summary bar (Total Invoiced, Collected, Outstanding, Overdue), filters, table
-- [x] New Invoice dialog (client, project, line items, Save as Draft / Create & Send)
-- [x] Invoice detail page (preview, Download PDF, Mark Sent/Paid, Duplicate, Cancel, Edit)
-- [x] Edit invoice page (draft only)
-- [x] GET /api/invoices/[id]/pdf (PDF via @react-pdf/renderer)
+- [x] Drizzle schema: `invoices`, `invoice_items`, `payments`, `invoice_projects`, `invoice_status` (`pending` \| `partial` \| `paid`)
+- [x] Server Actions: `getInvoices`, `getInvoicesWithPayments`, **`getInvoiceStatsWithPayments`**, `getInvoiceById` (with **`linkedProjectIds`**), **`getInvoiceWithPayments`**, `getOverdueInvoices`, `createInvoice` / `updateInvoice` (incl. **`projectIds`**), `markAsPaid` (creates **`payments`** row for balance), **`actions/payments.ts`** CRUD, `duplicateInvoice`, `getNextInvoiceNumber`, etc.
+- [x] **Partial payments** — payment history, status recalculation, add/delete payments
+- [x] **Payment history** UI + progress bar (`payment-history.tsx`, `add-payment-modal.tsx`)
+- [x] **Invoice file attachments** (`invoice-attachments.tsx`, `getFiles` / `createFile` with **`invoiceId`**)
+- [x] **Aging report** (`aging-report-section.tsx` on Financial reports)
+- [x] **Invoice number format** — sequential `INV-001` from settings
+- [x] **English UI** — list, detail, edit, dialogs
+- [x] **PDF** — English (`GET /api/invoices/[id]/pdf`, `InvoicePdfDocument`)
+- [x] List page: summary cards, filters, table; detail: preview, PDF, mark paid, attachments, payments
 
 ---
 
 ## Files
 
-- [x] Drizzle schema (files)
-- [x] POST /api/upload (ImageKit server-side; accepts file + folder; returns url, fileId, name, size, mimeType, filePath)
-- [x] Server Actions: getFiles({ clientId?, projectId? }), createFile(data), deleteFile(id) — ImageKit delete then DB
-- [x] FileManager component (Client detail Files tab, Project detail Files tab)
+- [x] Drizzle schema (`files`, incl. **`invoice_id`** FK → invoices)
+- [x] POST /api/upload (ImageKit; **`scope`** incl. **`invoice-attachment`** + **`invoiceId`**, or explicit **`folder`** e.g. `agencyos/invoices/{id}`)
+- [x] Server Actions: **`getFiles({ clientId?, projectId?, invoiceId? })`**, **`createFile`** (optional **`invoiceId`**), `deleteFile`
+- [x] FileManager component (Client / Project detail Files tabs)
+- [x] **Invoice attachments** (`invoice-attachments.tsx` on invoice detail)
 - [x] Upload UI (drag & drop, file picker, parallel uploads, progress)
 - [ ] Optional: renameFile (not in Phase 3)
 
@@ -102,6 +104,7 @@ What is built, in progress, and not started, by module. **Update at the start an
 
 - [x] Placeholder page
 - [x] Financial tab: KPI cards, revenue chart (invoiced by created_at, collected by paid_at, expenses bar), profit KPI (صافي الربح = collected − expenses), summary below chart
+- [x] **AR aging** section (`aging-report-section.tsx`) — buckets by days overdue
 - [ ] Revenue report (CSV export)
 - [ ] Project profitability view
 - [x] Outstanding invoices table with "تحديد كمدفوعة"
@@ -151,3 +154,18 @@ What is built, in progress, and not started, by module. **Update at the start an
 - [x] docs/DECISIONS.md
 - [x] docs/changelog.md (living) + docs/CHANGELOG-archive.md (detailed history)
 - [x] docs/TODO.md
+
+## Current state addendum
+
+<!-- ADDED 2026-03-23 -->
+
+- [x] Workspace Calendar route and UI (`/dashboard/workspace/calendar`, `WorkspaceCalendarView`)
+- [x] Workspace pages currently enforce English/LTR wrappers
+- [x] Workspace My Tasks redesigned to Notion-style database table UI
+- [x] Task schema now includes `tasks.start_date`
+- [x] New Task modal supports Start date + End date
+- [x] New Task modal supports assigning task to team member at create time (`assigneeId`)
+- [x] Workspace Task Detail Panel now includes delete-task confirmation/action
+- [ ] Reconcile migration metadata journal with SQL files (`drizzle/meta/_journal.json` currently lags 0002/0003)
+
+<!-- OUTDATED: several legacy checklist lines above still describe older Arabic-only UI labels and earlier workspace scope -->

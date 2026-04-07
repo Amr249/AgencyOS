@@ -54,7 +54,7 @@ export function ProposalsStatusDonut({ data }: { data: StatusPoint[] }) {
   return (
     <ChartContainer
       config={chartConfig}
-      className="mx-auto aspect-square max-h-[220px] w-full"
+      className="mx-auto aspect-square h-[min(72vw,240px)] w-full max-w-[280px] sm:h-[min(50vw,260px)] sm:max-w-none"
       dir="rtl"
     >
       <PieChart>
@@ -71,8 +71,8 @@ export function ProposalsStatusDonut({ data }: { data: StatusPoint[] }) {
           nameKey="name"
           cx="50%"
           cy="50%"
-          innerRadius={50}
-          outerRadius={80}
+          innerRadius="48%"
+          outerRadius="82%"
           paddingAngle={2}
           label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
         />

@@ -17,9 +17,9 @@ type WorkloadRow = {
 
 function getCellClass(taskCount: number, hours: number) {
   if (taskCount === 0) return "bg-transparent";
-  if (taskCount <= 2 || hours < 4) return "bg-green-50";
-  if (taskCount <= 5 || hours < 8) return "bg-amber-50";
-  return "bg-red-50";
+  if (taskCount <= 2 || hours < 4) return "bg-green-50 dark:bg-green-950/30";
+  if (taskCount <= 5 || hours < 8) return "bg-amber-50 dark:bg-amber-950/30";
+  return "bg-red-50 dark:bg-red-950/30";
 }
 
 export function WorkspaceWorkloadView({ rows }: { rows: WorkloadRow[] }) {
@@ -27,9 +27,9 @@ export function WorkspaceWorkloadView({ rows }: { rows: WorkloadRow[] }) {
 
   if (!rows.length) {
     return (
-      <div className="space-y-4" dir="rtl">
+      <div dir="ltr" className="space-y-4">
         <WorkspaceNav />
-        <p className="text-sm text-muted-foreground">أضف أعضاء للفريق أولاً</p>
+        <p className="text-sm text-muted-foreground">Add team members first.</p>
       </div>
     );
   }
@@ -37,20 +37,20 @@ export function WorkspaceWorkloadView({ rows }: { rows: WorkloadRow[] }) {
   const weeks = rows[0]?.weeks ?? [];
 
   return (
-    <div className="space-y-4" dir="rtl">
+    <div dir="ltr" className="space-y-4">
       <WorkspaceNav />
       <div>
-        <h1 className="text-2xl font-semibold">عبء العمل</h1>
-        <p className="text-sm text-muted-foreground">توزيع مهام الفريق للأسابيع الـ 8 القادمة</p>
+        <h1 className="text-xl font-semibold text-foreground">Workload</h1>
+        <p className="text-sm text-muted-foreground">Team task distribution for the next 8 weeks</p>
       </div>
 
       <div className="overflow-x-auto rounded-xl border">
         <table className="min-w-[980px] w-full text-sm">
           <thead className="bg-muted/40">
             <tr>
-              <th className="w-[220px] p-3 text-right">عضو الفريق</th>
+              <th className="w-[220px] p-3 text-left">Team Member</th>
               {weeks.map((week, index) => (
-                <th key={week.weekStart} className="p-3 text-right">أسبوع {index + 1}</th>
+                <th key={week.weekStart} className="p-3 text-left">Week {index + 1}</th>
               ))}
             </tr>
           </thead>
@@ -74,7 +74,7 @@ export function WorkspaceWorkloadView({ rows }: { rows: WorkloadRow[] }) {
                       })
                     }
                   >
-                    <div className="text-xs">{week.taskCount} مهام</div>
+                    <div className="text-xs">{week.taskCount} tasks</div>
                     <div className="text-xs text-muted-foreground">{week.loggedHours}h</div>
                   </td>
                 ))}
@@ -86,7 +86,7 @@ export function WorkspaceWorkloadView({ rows }: { rows: WorkloadRow[] }) {
 
       {selected && (
         <div className="rounded-xl border p-3">
-          <p className="mb-2 font-medium">مهام {selected.member} — {selected.week}</p>
+          <p className="mb-2 font-medium">{selected.member} tasks — {selected.week}</p>
           {selected.tasks.length ? (
             <ul className="space-y-1 text-sm">
               {selected.tasks.map((task) => (
@@ -94,7 +94,7 @@ export function WorkspaceWorkloadView({ rows }: { rows: WorkloadRow[] }) {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">لا توجد مهام في هذا الأسبوع.</p>
+            <p className="text-sm text-muted-foreground">No tasks this week.</p>
           )}
         </div>
       )}

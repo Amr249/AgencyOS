@@ -13,13 +13,13 @@ Neon (PostgreSQL) via Drizzle ORM. All tables use UUID primary keys unless noted
 | `phase_status` | `pending`, `active`, `completed` |
 | `task_status` | `todo`, `in_progress`, `in_review`, `done`, `blocked` |
 | `task_priority` | `low`, `medium`, `high`, `urgent` |
-| `invoice_status` | `pending`, `paid` |
+| `invoice_status` | `pending`, `partial`, `paid` |
 | `expense_category` | `software`, `hosting`, `marketing`, `salaries`, `equipment`, `office`, `other` |
 | `team_member_status` | `active`, `inactive` |
 | `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
 | `workspace_view` | `board`, `list`, `timeline` |
 
-**Migrating `invoice_status` from old values:** If the DB currently has `draft`/`sent`/`overdue`/`cancelled`, run a data migration before changing the enum: map all non-`paid` to `pending` (e.g. `UPDATE invoices SET status = 'pending' WHERE status IN ('draft','sent','overdue','cancelled')`). Then recreate the enum: create new type `invoice_status_new` with values `('pending','paid')`, alter column to use it with a `USING` expression, drop old type, rename new type. Alternatively use `drizzle-kit generate` and adapt the generated migration.
+**Migrating `invoice_status`:** Older databases may have had only `pending` / `paid`. Current schema uses `pending` | `partial` | `paid` (`partial` = some payments received, balance remaining). Use Drizzle migrations or manual `ALTER TYPE` / data backfill as needed when upgrading.
 
 **Note:** If migrating from an older schema where `client_status` was `lead` | `active` | `inactive`, generate and run a Drizzle migration to alter the enum (add `on_hold`, `completed`, `closed`; migrate existing `inactive` rows to e.g. `closed` if desired; then remove `inactive` from the enum).
 
@@ -188,23 +188,54 @@ type AddressJson = {
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
-| invoice_number | text | NOT NULL, UNIQUE (e.g. فاتورة-001) |
+| invoice_number | text | NOT NULL, UNIQUE — sequential human-readable format from settings, e.g. **`INV-001`** (prefix + zero-padded number from `settings.invoice_prefix` / `invoice_next_number`) |
 | client_id | uuid | NOT NULL, FK → clients.id, ON DELETE CASCADE |
-| project_id | uuid | FK → projects.id, ON DELETE SET NULL |
-| status | invoice_status | NOT NULL, default `pending` |
+| project_id | uuid | FK → projects.id, ON DELETE SET NULL — **primary** linked project (first selected); see **`invoice_projects`** for many-to-many |
+| status | invoice_status | NOT NULL, default `pending` — `partial` when partially paid via `payments` |
 | issue_date | date | NOT NULL |
-| due_date | date | NOT NULL |
+| due_date | date | **Nullable** — overdue logic may fall back to issue date when null |
 | subtotal | numeric(12,2) | NOT NULL |
 | tax_amount | numeric(12,2) | NOT NULL, default 0 |
 | total | numeric(12,2) | NOT NULL |
 | currency | char(3) | NOT NULL, default `SAR` (ISO 4217) |
 | notes | text | Payment instructions / footer |
-| paid_at | timestamptz | Set when marked paid |
+| paid_at | timestamptz | Set when fully paid |
 | payment_method | text | e.g. bank_transfer, cash, other |
 | created_at | timestamptz | NOT NULL, default now() |
 
-**Relations:** Many-to-one `client`, `project`; one-to-many `invoice_items`.  
+**Relations:** Many-to-one `client`, optional `project`; one-to-many `invoice_items`, **`payments`**, **`files`** (via `files.invoice_id`); many-to-many **`projects`** via **`invoice_projects`**.  
 **Indexes:** Unique on `invoice_number`.
+
+---
+
+### payments
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default random |
+| invoice_id | uuid | NOT NULL, FK → **invoices.id**, **ON DELETE CASCADE** |
+| amount | numeric(12,2) | NOT NULL |
+| payment_date | date | NOT NULL |
+| payment_method | text | Optional — `bank_transfer`, `cash`, `credit_card`, `cheque`, `other` |
+| reference | text | Optional (bank ref, cheque #, etc.) |
+| notes | text | Optional |
+| created_at | timestamptz | NOT NULL, default now() |
+
+**Indexes:** `payments_invoice_id_idx`, `payments_date_idx`.  
+**Relations:** Many-to-one `invoice`. Invoice **`status`** is recalculated from payment totals (`pending` / `partial` / `paid`).
+
+---
+
+### invoice_projects
+
+Junction table: an invoice may be linked to **multiple** client projects.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| invoice_id | uuid | PK (composite), FK → invoices **CASCADE** |
+| project_id | uuid | PK (composite), FK → projects **CASCADE** |
+
+**Index:** `invoice_projects_project_id_idx` on `project_id`.
 
 ---
 
@@ -292,11 +323,12 @@ type AddressJson = {
 | client_id | uuid | FK → clients.id, ON DELETE CASCADE |
 | project_id | uuid | FK → projects.id, ON DELETE CASCADE |
 | task_id | uuid | FK → tasks.id, ON DELETE CASCADE |
+| invoice_id | uuid | FK → **invoices.id**, ON DELETE CASCADE, **nullable** — invoice attachments |
 | created_at | timestamptz | NOT NULL, default now() |
 | deleted_at | timestamptz | Soft delete |
 
-At least one of `client_id`, `project_id`, `task_id` is set (scoped to client/project/task).  
-**Relations:** Many-to-one `client`, `project`, `task`.
+Scoped to client, project, task, and/or **invoice** (invoice detail attachments under e.g. `agencyos/invoices/{invoiceId}/`).  
+**Relations:** Many-to-one `client`, `project`, `task`, **`invoice`**.
 
 ---
 
@@ -312,7 +344,7 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 | agency_website | text | |
 | agency_address | jsonb | AddressJson |
 | agency_email | text | |
-| invoice_prefix | text | default `فاتورة` |
+| invoice_prefix | text | default `INV` (configurable; combined with `invoice_next_number` for `INV-001`-style numbers) |
 | invoice_next_number | int | default 1, auto-increment source |
 | default_currency | char(3) | default `SAR` |
 | default_payment_terms | int | default 30 (days) |
@@ -327,13 +359,42 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 ## Relationships summary
 
 - **clients** → projects, invoices, files  
-- **projects** → client, phases, tasks, invoices, files  
+- **projects** → client, phases, tasks, invoices (via `invoices.project_id` and **`invoice_projects`**), files  
 - **phases** → project, tasks  
 - **tasks** → project, phase, parentTask, subtasks, files  
 - **tasks** → optional assignee (`team_members`) + many `time_logs` + many `task_comments`
-- **invoices** → client, project, invoice_items  
+- **invoices** → client, optional primary `project`, many **`payments`**, many **`invoice_items`**, many **`files`**, many **`projects`** via **`invoice_projects`**
 - **invoice_items** → invoice  
+- **payments** → invoice  
 - **expenses** → team_member (optional, for salary)
 - **projects** → project_members → team_members  
-- **files** → client, project, task  
+- **files** → client, project, task, **invoice**  
 - **settings** — standalone
+
+## Current state addendum
+
+<!-- ADDED 2026-03-23 -->
+
+### Additional enums currently in schema
+
+- `user_role`
+- `service_status`
+
+### Additional tables currently in schema
+
+- `users`
+- `services`
+- `project_services`
+- `client_services`
+- `project_user_members`
+- `task_assignments`
+
+### Tasks table update
+
+- `tasks.start_date` exists (`date`, nullable).  
+  <!-- OUTDATED: earlier tasks field list omitted start_date -->
+
+### Migration note
+
+- SQL migration files in `/drizzle` include later additions (e.g. invoice `due_date`, **`files.invoice_id`**, **`invoice_projects`**, **`payments`**). Apply migrations to match `lib/db/schema.ts`.
+- `drizzle/meta/_journal.json` may not list every SQL file; rely on schema + applied migrations in your environment.

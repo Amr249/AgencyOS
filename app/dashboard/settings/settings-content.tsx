@@ -11,6 +11,7 @@ import {
   updateBranding,
   changePassword,
 } from "@/actions/settings";
+import { migrateLegacyPaidInvoicePayments } from "@/actions/invoices";
 import {
   agencyProfileSchema,
   invoiceDefaultsSchema,
@@ -56,9 +57,10 @@ const PAYMENT_TERMS = [
 type SettingsContentProps = {
   initial: SettingsRow | null;
   adminEmail: string;
+  isAdmin?: boolean;
 };
 
-export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
+export function SettingsContent({ initial, adminEmail, isAdmin = false }: SettingsContentProps) {
   const s = initial;
 
   // Section 1 — Agency Profile
@@ -79,6 +81,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
     },
   });
   const [logoUploading, setLogoUploading] = React.useState(false);
+  const [migratingPayments, setMigratingPayments] = React.useState(false);
 
   async function onLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -115,21 +118,21 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
   const invoiceForm = useForm<InvoiceDefaultsValues>({
     resolver: zodResolver(invoiceDefaultsSchema),
     defaultValues: {
-      invoicePrefix: s?.invoicePrefix ?? "فاتورة",
+      invoicePrefix: s?.invoicePrefix ?? "INV",
       invoiceNextNumber: s?.invoiceNextNumber ?? 1,
       defaultCurrency: (s?.defaultCurrency ?? "USD") as (typeof CURRENCIES)[number],
       defaultPaymentTerms: String(s?.defaultPaymentTerms ?? 30) as "0" | "15" | "30" | "60",
       invoiceFooter: s?.invoiceFooter ?? "",
     },
   });
-  const prefix = invoiceForm.watch("invoicePrefix") || "فاتورة";
+  const prefix = invoiceForm.watch("invoicePrefix") || "INV";
   const nextNum = invoiceForm.watch("invoiceNextNumber") ?? 1;
   const invoicePreview = `${prefix}-${String(nextNum).padStart(3, "0")}`;
 
   async function onInvoiceSubmit(values: InvoiceDefaultsValues) {
     const result = await updateInvoiceDefaults(values);
     if (result.ok) {
-      toast.success("تم حفظ إعدادات الفاتورة");
+      toast.success("Invoice settings saved");
     } else {
       const err = result.error as { _form?: string[] } | Record<string, string[]>;
       const msg = err?._form?.[0] ?? Object.values(err ?? {}).flat().join(", ");
@@ -349,11 +352,11 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
 
       {/* Section 2 — Invoice Defaults */}
       <section>
-        <h3 className="text-lg font-semibold mb-2">إعدادات الفاتورة</h3>
+        <h3 className="text-lg font-semibold mb-2">Invoice settings</h3>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">الإعدادات الافتراضية للفواتير الجديدة</CardTitle>
-            <CardDescription>البادئة، الرقم، العملة وشروط الدفع.</CardDescription>
+            <CardTitle className="text-base">Defaults for new invoices</CardTitle>
+            <CardDescription>Prefix, next number, currency, and payment terms.</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...invoiceForm}>
@@ -364,9 +367,9 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
                     name="invoicePrefix"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>بادئة رقم الفاتورة</FormLabel>
+                        <FormLabel>Invoice number prefix</FormLabel>
                         <FormControl>
-                          <Input placeholder="فاتورة" {...field} />
+                          <Input placeholder="INV" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -377,7 +380,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
                     name="invoiceNextNumber"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>رقم الفاتورة التالية</FormLabel>
+                        <FormLabel>Next invoice number</FormLabel>
                         <FormControl>
                           <Input
                             type="number"
@@ -400,7 +403,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
                     name="defaultCurrency"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>العملة الافتراضية</FormLabel>
+                        <FormLabel>Default currency</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
@@ -424,7 +427,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
                     name="defaultPaymentTerms"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>شروط الدفع الافتراضية</FormLabel>
+                        <FormLabel>Default payment terms</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
@@ -462,7 +465,7 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
                   )}
                 />
                 <Button type="submit" disabled={invoiceForm.formState.isSubmitting}>
-                  {invoiceForm.formState.isSubmitting ? "جاري الحفظ…" : "حفظ"}
+                  {invoiceForm.formState.isSubmitting ? "Saving…" : "Save"}
                 </Button>
               </form>
             </Form>
@@ -521,6 +524,54 @@ export function SettingsContent({ initial, adminEmail }: SettingsContentProps) {
           </CardContent>
         </Card>
       </section>
+
+      {/* Admin — legacy payments backfill */}
+      {isAdmin ? (
+        <section>
+          <h3 className="text-lg font-semibold mb-2">Admin tools</h3>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Legacy paid invoices → payments</CardTitle>
+              <CardDescription>
+                Creates one payment row per invoice that is <strong>paid</strong> but has no rows in{" "}
+                <code className="rounded bg-muted px-1 text-xs">payments</code> (e.g. marked paid before
+                payments existed). Uses <code className="rounded bg-muted px-1 text-xs">paid_at</code> for
+                the payment date when set, otherwise issue date. Safe to run more than once.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-muted-foreground text-sm">
+                CLI equivalent:{" "}
+                <code className="rounded bg-muted px-1.5 py-0.5 text-xs">npm run db:migrate-paid-invoices</code>
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={migratingPayments}
+                onClick={async () => {
+                  setMigratingPayments(true);
+                  try {
+                    const res = await migrateLegacyPaidInvoicePayments();
+                    if (res.ok) {
+                      toast.success(
+                        `Inserted ${res.migratedCount} payment(s); ${res.candidateCount} candidate invoice(s) had no payments.`
+                      );
+                    } else {
+                      toast.error(typeof res.error === "string" ? res.error : "Migration failed");
+                    }
+                  } catch {
+                    toast.error("Migration failed");
+                  } finally {
+                    setMigratingPayments(false);
+                  }
+                }}
+              >
+                {migratingPayments ? "Running…" : "Backfill payment rows"}
+              </Button>
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       {/* Section 4 — Account */}
       <section>

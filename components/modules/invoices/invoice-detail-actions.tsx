@@ -11,11 +11,12 @@ type Invoice = {
   id: string;
   invoiceNumber: string;
   status: string;
+  amountDue?: number;
 };
 
 type InvoiceDetailActionsProps = {
   invoice: Invoice;
-  /** When provided (e.g. on detail page), the "تحديد كمدفوعة" button calls this instead of opening an internal dialog. */
+  /** When provided (e.g. on detail page), "Mark as Paid" calls this instead of opening an internal dialog. */
   onOpenMarkAsPaidDialog?: () => void;
 };
 
@@ -32,12 +33,12 @@ export function InvoiceDetailActions({ invoice, onOpenMarkAsPaidDialog }: Invoic
   const handleDuplicate = async () => {
     const res = await duplicateInvoice(invoice.id);
     if (res.ok) {
-      toast.success("تم نسخ الفاتورة");
+      toast.success("Invoice duplicated");
       router.push(`/dashboard/invoices/${res.data?.id}`);
       router.refresh();
     } else {
       const err = (res as { error?: unknown }).error;
-      const msg = typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? "فشل";
+      const msg = typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? "Failed";
       toast.error(msg);
     }
   };
@@ -46,15 +47,15 @@ export function InvoiceDetailActions({ invoice, onOpenMarkAsPaidDialog }: Invoic
     <>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
-          تحميل PDF
+          Download PDF
         </Button>
-        {invoice.status === "pending" && (
+        {(invoice.status === "pending" || invoice.status === "partial") && (
           <Button variant="outline" size="sm" onClick={openPayDialog}>
-            تحديد كمدفوعة
+            Mark as Paid
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={handleDuplicate}>
-          نسخ
+          Duplicate
         </Button>
       </div>
 
@@ -62,6 +63,9 @@ export function InvoiceDetailActions({ invoice, onOpenMarkAsPaidDialog }: Invoic
         <MarkAsPaidDialog
           invoiceId={invoice.id}
           invoiceNumber={invoice.invoiceNumber}
+          remainingAmountSar={
+            invoice.status === "pending" || invoice.status === "partial" ? invoice.amountDue : undefined
+          }
           open={paidOpen}
           onOpenChange={setPaidOpen}
           onSuccess={() => router.refresh()}

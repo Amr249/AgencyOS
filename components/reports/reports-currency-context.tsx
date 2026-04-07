@@ -8,6 +8,9 @@ type ContextValue = {
   currency: ReportsCurrency;
   setCurrency: (c: ReportsCurrency) => void;
   rate: number;
+  /** Numeric string only (no SAR/EGP suffix). Use ReportsMoney for display. */
+  formatNumber: (amount: number) => string;
+  /** @deprecated Prefer formatNumber + ReportsMoney */
   formatAmount: (amount: number) => string;
   convertedRate: number;
 };
@@ -23,18 +26,22 @@ export function ReportsCurrencyProvider({
 }) {
   const [currency, setCurrency] = React.useState<ReportsCurrency>("SAR");
   const convertedRate = currency === "EGP" ? rate : 1;
-  const formatAmount = React.useCallback(
+  const formatNumber = React.useCallback(
     (amount: number) => {
       const converted = amount * convertedRate;
-      const symbol = currency === "EGP" ? "ج.م" : "ر.س";
-      return `${converted.toLocaleString("ar-SA", { maximumFractionDigits: 0 })} ${symbol}`;
+      return converted.toLocaleString("en-US", { maximumFractionDigits: 0 });
     },
-    [currency, convertedRate]
+    [convertedRate]
+  );
+  const formatAmount = React.useCallback(
+    (amount: number) => formatNumber(amount),
+    [formatNumber]
   );
   const value: ContextValue = {
     currency,
     setCurrency,
     rate,
+    formatNumber,
     formatAmount,
     convertedRate,
   };

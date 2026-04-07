@@ -222,51 +222,66 @@ One section per module: what it does, pages, Server Actions, and main components
 
 ## Invoices
 
-**Purpose:** Create invoices, line items, track status (pending | paid only), PDF export. Uses settings (invoice_prefix, default_currency SAR, default_payment_terms, invoice_footer) and clients/projects for auto-fill.
+**Purpose:** Create invoices with line items, optional **multiple projects** per invoice (`invoice_projects`), **partial payments** via the `payments` table, **payment history** and progress on detail, **file attachments**, and **English** UI + PDF. Invoice numbers use sequential **`INV-001`**-style formatting from settings (`invoice_prefix`, `invoice_next_number`). Uses `default_currency` SAR, `default_payment_terms`, `invoice_footer`, branding (`invoice_color`, logo).
+
+**New features (Phase 1 complete):**
+
+- **Partial payments** — Invoices can be partially paid; status becomes **`partial`** until fully settled.
+- **Payment history** — All payments listed on invoice detail with add/delete (via `actions/payments.ts`).
+- **Payment progress bar** — Visual progress + amount due on detail (`PaymentHistory`).
+- **Invoice file attachments** — Upload/download/delete on detail (`InvoiceAttachments`, ImageKit path `agencyos/invoices/{invoiceId}/`, `files.invoice_id`).
+- **AR aging** — Financial reports include **`AgingReportSection`** (buckets: current, 1–30, 31–60, 61–90, 90+ days).
+- **Invoice number format** — Configurable prefix + sequential number (e.g. `INV-001`), not UUIDs.
 
 **Pages:**
 
 | Route | File | Description |
 |-------|------|-------------|
-| List | `app/dashboard/invoices/page.tsx` | Server: fetches `getInvoices(filters)`, `getInvoiceStats()`, `getClientsList()`, `getSettings()`, `getNextInvoiceNumber()`. Renders `InvoicesListView`: three **English** summary cards — **Total invoiced** (lime accent `bg-[rgba(164,254,25,1)]`), **Collected** (default card), **Outstanding** (light gray `#ededed`, black title/amount/`AmountWithSarIcon`); filters (search, status: الكل \| بانتظار الدفع \| تم الدفع, date range); table. **حذف** allowed for pending and paid; confirmation dialog. |
-| Detail | `app/dashboard/invoices/[id]/page.tsx` | Server: `getInvoiceById(id)`, `getSettings()`. `InvoiceDetailActions`: تحميل PDF, تحديد كمدفوعة (opens payment date dialog if pending), نسخ. When status is paid, preview card shows تاريخ الدفع (DD/MM/YYYY) and طريقة الدفع (تحويل بنكي / نقداً / بطاقة ائتمان / أخرى). |
-| Edit | `app/dashboard/invoices/[id]/edit/page.tsx` | Pending only. Server: `getInvoiceById`, `getSettings()`; 404 if not pending. `EditInvoiceForm`: Save calls `updateInvoice`. |
+| List | `app/dashboard/invoices/page.tsx` | Server: `getInvoices(filters)`, **`getInvoiceStatsWithPayments()`** (collected = sum of payments + legacy paid invoices without payment rows), `getClientsList()`, `getSettings()`, `getNextInvoiceNumber()`. `InvoicesListView`: **English** summary cards — **Total invoiced**, **Collected**, **Outstanding** (styled cards; SAR via `AmountWithSarIcon`); filters; table. |
+| Detail | `app/dashboard/invoices/[id]/page.tsx` | **`getInvoiceWithPayments`**, `getSettings()`, **`getFiles({ invoiceId })`**. Preview card, **`PaymentHistory`**, **`InvoiceAttachments`**. English copy. |
+| Edit | `app/dashboard/invoices/[id]/edit/page.tsx` | **Pending only** (404 if partial/paid). Server: `getInvoiceById` with **`linkedProjectIds`**; `EditInvoiceForm` with multi-project checkboxes. |
 
 **API:**
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/invoices/[id]/pdf` | GET | Returns PDF using `@react-pdf/renderer`. Fetches invoice + settings; renders `InvoicePdfDocument` (agency logo, name, address, invoice #/dates, Bill To, line items, totals, notes). Uses `settings.invoice_color` for header/accent. Filename: `invoice-AGY-0001.pdf`. |
+| `/api/invoices/[id]/pdf` | GET | PDF via `@react-pdf/renderer` + **`getInvoiceWithPayments`** + settings. English labels; payment history + amount due when applicable; **`relatedProjectsLabel`** when multiple projects. |
 
-**Server Actions** (`actions/invoices.ts`):
+**Server Actions** (`actions/invoices.ts` + `actions/payments.ts`):
 
 | Action | Purpose |
 |--------|---------|
-| `getInvoices(filters?)` | status, dateRange (this_month/last_month/this_year/all), search (invoice # or client name). Joins clients, projects. Returns list with clientName, projectName. |
-| `getInvoiceStats()` | Returns totalInvoiced, collected (paid total), outstanding (pending total). |
-| `getInvoiceById(id)` | Invoice with clientName, clientAddress, projectName, items (ordered). |
-| `createInvoice(data)` | New invoices created with status `pending`. Inserts invoice + invoice_items. |
-| `updateInvoice(id, data)` | Only if status is pending. Partial update; lineItems recalculates totals. |
-| `markAsPaid({ id, paidAt, paymentMethod? })` | Sets status paid, **paid_at = user-entered date** (not server time), payment_method (optional). Revalidates invoices + reports. |
-| `deleteInvoice(id)` | Allowed for both pending and paid; confirmation dialog. Revalidates list. |
-| `duplicateInvoice(id)` | Clones invoice + items as new pending; uses next invoice number. |
-| `getNextInvoiceNumber()` | Returns prefix + padded next number (e.g. INV-001). |
-| `getInvoicesByProjectId(projectId)` | For project detail Invoices tab. |
-| `getInvoicesByClientId(clientId)` | Invoices for one client, order by created_at DESC. Used by client detail Invoices tab. |
+| `getInvoices` / `getInvoicesWithPayments` | List + enriched totals; project filter matches **primary** or **`invoice_projects`** |
+| **`getInvoiceStatsWithPayments`** | Dashboard stats: **collected** includes `payments` + **legacy** `paid` rows with no payment rows |
+| `getInvoiceById` | Invoice + **`linkedProjectIds`**, combined project names, items |
+| **`getInvoiceWithPayments`** | Invoice + client, project, **`invoiceProjects`**, items, payments, **`totalPaid`**, **`amountDue`**, **`linkedProjects`** |
+| `getOverdueInvoices` | Past due with amount due |
+| `createInvoice` / `updateInvoice` | Line items; **`projectIds`** syncs **`invoice_projects`** |
+| **`markAsPaid`** | Inserts **`payments`** row for **remaining balance**, sets paid |
+| `createPayment`, `updatePayment`, `deletePayment` | See **`actions/payments.ts`** — recalculate invoice status |
 
 **Components:**
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| InvoicesListView | `components/modules/invoices/invoices-list-view.tsx` | **Summary row:** `AmountWithSarIcon` (optional `className` / `iconClassName`) for stats; **Total invoiced** / **Collected** / **Outstanding** cards as above. Filters, `SortableDataTable`, New Invoice button + modal. |
-| NewInvoiceDialog | `components/modules/invoices/new-invoice-dialog.tsx` | Single button: "إنشاء وتحميل" — creates invoice as pending and triggers PDF download. |
-| InvoiceDetailHeader | `components/modules/invoices/invoice-detail-header.tsx` | Client wrapper for detail page: renders InvoiceDetailActions, InvoiceStatusBadge, and one MarkAsPaidDialog so both the button and the badge open the same payment dialog. |
-| InvoiceDetailActions | `components/modules/invoices/invoice-detail-actions.tsx` | تحميل PDF, تحديد كمدفوعة (opens MarkAsPaidDialog or parent callback), نسخ. |
-| MarkAsPaidDialog | `components/modules/invoices/mark-as-paid-dialog.tsx` | Dialog "تأكيد استلام الدفعة": تاريخ الدفع (date, default today), طريقة الدفع (تحويل بنكي \| نقداً \| بطاقة ائتمان \| أخرى, optional). On confirm calls markAsPaid with user date; toast "تم تسجيل الدفعة بنجاح". Used on invoice list (… menu + status badge), invoice detail, reports outstanding table, client invoices tab. |
-| EditInvoiceForm | `components/modules/invoices/edit-invoice-form.tsx` | Form for pending invoice edit; Save calls updateInvoice. |
-| InvoicePdfDocument | `components/modules/invoices/invoice-pdf-document.tsx` | @react-pdf/renderer Document/Page: agency logo/name/address, invoice #/dates, Bill To, table, totals, notes. Used by PDF API. |
+| InvoicesListView | `components/modules/invoices/invoices-list-view.tsx` | Stats, filters, table, `NewInvoiceDialog` |
+| NewInvoiceDialog | `components/modules/invoices/new-invoice-dialog.tsx` | Client, **multi-select projects**, line items, create + PDF download (**English**) |
+| **`payment-history.tsx`** | `components/modules/invoices/payment-history.tsx` | Payments table, progress bar, record/delete payment |
+| **`add-payment-modal.tsx`** | `components/modules/invoices/add-payment-modal.tsx` | Record payment (amount, date, method, reference, notes) |
+| **`invoice-attachments.tsx`** | `components/modules/invoices/invoice-attachments.tsx` | Upload/list/download/delete attachments |
+| InvoiceDetailHeader / InvoiceDetailActions | `invoice-detail-header.tsx`, `invoice-detail-actions.tsx` | Actions + status |
+| MarkAsPaidDialog | `mark-as-paid-dialog.tsx` | Full remaining balance — **English** |
+| EditInvoiceForm | `edit-invoice-form.tsx` | Pending edit; multi-project |
+| InvoicePdfDocument | `invoice-pdf-document.tsx` | English PDF; branding, payments, amount due |
+| **`aging-report-section.tsx`** | `components/reports/aging-report-section.tsx` | AR aging buckets in Financial reports |
 
-**Status:** pending (بانتظار الدفع, amber), paid (تم الدفع, green) — `types/index.ts` `INVOICE_STATUS_LABELS`, `INVOICE_STATUS_BADGE_CLASS`.
+**Status workflow** (`invoice_status`):
+
+- **`pending`** — No payments (or not fully covered).
+- **`partial`** — Some payments recorded; balance remaining.
+- **`paid`** — Fully paid (payments sum ≥ invoice total, or legacy mark-paid).
+
+Labels: `types/index.ts` — `INVOICE_STATUS_LABELS` / `INVOICE_STATUS_BADGE_CLASS` (includes **Partial**).
 
 ---
 
@@ -393,7 +408,7 @@ One section per module: what it does, pages, Server Actions, and main components
 
 | Route | File | Description |
 |-------|------|-------------|
-| Reports | `app/dashboard/reports/page.tsx` | Two tabs: **التقارير المالية** (Financial) and **تقارير المشاريع والإنتاجية** (Productivity). Date range filter (Financial only): هذا الشهر \| الشهر الماضي \| هذا الربع \| هذه السنة \| كل الوقت (default هذه السنة). **Financial tab:** KPI cards (إيرادات هذا الشهر with delta vs last month, إجمالي المحصّل, المستحق حالياً, إجمالي الفواتير هذا العام, **صافي الربح** — collected − expenses for selected period, green if positive / red if negative), revenue bar chart (الإيرادات شهر بشهر — Recharts, 3 bars per month: الفواتير المُصدرة gray, المحصّل indigo, المصروفات red/rose; tooltip shows all three; summary below: إجمالي المحصّل \| إجمالي المصروفات \| صافي الربح), two columns (أفضل العملاء إيراداً — top 5 by paid, آخر الفواتير — last 8), outstanding table (الفواتير المستحقة — pending only, مع "تحديد كمدفوعة" inline). **Productivity tab:** (1) KPI cards: المشاريع النشطة (status=active), مشاريع مكتملة هذا العام, المهام المتأخرة (red), معدل إنجاز المهام (percentage + mini progress bar); (2) two charts: توزيع المشاريع حسب الحالة (donut — نشط/متوقف/مراجعة/مكتمل/ملغي/عميل محتمل with colors), المهام المنجزة أسبوعياً (bar, last 8 weeks, indigo); (3) table "حالة المشاريع الحالية" (non-cancelled, non-completed): المشروع (link), العميل (avatar+name), الحالة, الموعد النهائي (red if passed), الميزانية, تقدم المهام (bar + fraction), الأيام المتبقية (red/amber/green); (4) "المهام المتأخرة" list with "تحديد كمكتملة" button (marks task done, revalidates); empty state "🎉 لا توجد مهام متأخرة!"; (5) "العملاء الجدد هذا العام": big count, 12-month bar chart, last 5 clients with name, status, date. |
+| Reports | `app/dashboard/reports/page.tsx` | Two tabs: **التقارير المالية** (Financial) and **تقارير المشاريع والإنتاجية** (Productivity). Date range filter (Financial only): هذا الشهر \| الشهر الماضي \| هذا الربع \| هذه السنة \| كل الوقت (default هذه السنة). **Financial tab:** KPI cards (إيرادات هذا الشهر with delta vs last month, إجمالي المحصّل, المستحق حالياً, إجمالي الفواتير هذا العام, **صافي الربح** — collected − expenses for selected period, green if positive / red if negative), revenue bar chart (الإيرادات شهر بشهر — Recharts, 3 bars per month: الفواتير المُصدرة gray, المحصّل indigo, المصروفات red/rose; tooltip shows all three; summary below: إجمالي المحصّل \| إجمالي المصروفات \| صافي الربح), **AR aging** (`AgingReportSection` — buckets current, 1–30, 31–60, 61–90, 90+ days), two columns (أفضل العملاء إيراداً — top 5 by paid, آخر الفواتير — last 8), outstanding table (الفواتير المستحقة — pending only, مع "تحديد كمدفوعة" inline). **Productivity tab:** (1) KPI cards: المشاريع النشطة (status=active), مشاريع مكتملة هذا العام, المهام المتأخرة (red), معدل إنجاز المهام (percentage + mini progress bar); (2) two charts: توزيع المشاريع حسب الحالة (donut — نشط/متوقف/مراجعة/مكتمل/ملغي/عميل محتمل with colors), المهام المنجزة أسبوعياً (bar, last 8 weeks, indigo); (3) table "حالة المشاريع الحالية" (non-cancelled, non-completed): المشروع (link), العميل (avatar+name), الحالة, الموعد النهائي (red if passed), الميزانية, تقدم المهام (bar + fraction), الأيام المتبقية (red/amber/green); (4) "المهام المتأخرة" list with "تحديد كمكتملة" button (marks task done, revalidates); empty state "🎉 لا توجد مهام متأخرة!"; (5) "العملاء الجدد هذا العام": big count, 12-month bar chart, last 5 clients with name, status, date. |
 
 **Server Actions** (`actions/reports.ts`):
 
@@ -446,3 +461,62 @@ One section per module: what it does, pages, Server Actions, and main components
 | `changePassword(input)` | Validate only (Zod); no backend update — toast instructs to update ADMIN_PASSWORD_HASH. |
 
 **Section 1 — Agency Profile:** Agency name, email, website, VAT, logo (upload via `/api/upload` scope `agency-logo`), address (street, city, country, postal). **Section 2 — Invoice Defaults:** Prefix, next number, currency (USD/EUR/GBP/SAR/AED/EGP), payment terms (Due on receipt, Net 15/30/60), footer. **Section 3 — Branding:** Primary color (color picker + hex), preview swatch. **Section 4 — Account:** Read-only admin email (env), change password form (current, new, confirm) — success toast only.
+
+---
+
+## Verification snapshot
+
+<!-- ADDED 2026-03-23 -->
+
+### Route verification (module pages)
+
+- Clients: `/dashboard/clients`, `/dashboard/clients/[id]`
+- Projects: `/dashboard/projects`, `/dashboard/projects/[id]`
+- Tasks: `/dashboard/tasks`, `/dashboard/my-tasks`
+- Invoices: `/dashboard/invoices`, `/dashboard/invoices/[id]`, `/dashboard/invoices/[id]/edit`
+- Expenses: `/dashboard/expenses`
+- Proposals: `/dashboard/proposals`
+- Team: `/dashboard/team`, `/dashboard/team/[id]`
+- Services: `/dashboard/services`
+- Files: embedded in clients/projects detail tabs (no standalone page)
+- Reports: `/dashboard/reports`
+- Settings: `/dashboard/settings`
+- Workspace: `/dashboard/workspace`, `/dashboard/workspace/board`, `/dashboard/workspace/calendar`, `/dashboard/workspace/timeline`, `/dashboard/workspace/workload`
+
+### Workspace module (current)
+
+- Actions in `actions/workspace.ts` now include:
+  - `getWorkspaceBoard`
+  - `getWorkspaceTimeline`
+  - `getWorkspaceCalendar`
+  - `getWorkspaceMyTasks`
+  - `getWorkspaceWorkload`
+  - `updateTaskSortOrder`
+  - `logTime`
+  - `deleteTimeLog`
+  - `getTimeLogs`
+  - `createTaskComment`
+  - `getTaskComments`
+  - `deleteTaskComment`
+  - `assignTask`
+- Components in `components/modules/workspace/`:
+  - `workspace-nav`
+  - `workspace-my-tasks-view`
+  - `workspace-board-view`
+  - `workspace-calendar-view`
+  - `workspace-timeline-view`
+  - `workspace-workload-view`
+  - `task-detail-panel`
+- Current UI state:
+  - Workspace pages are currently rendered English + LTR.
+  - My Tasks uses a Notion-style database table layout.
+
+### Tasks module (current)
+
+- `actions/tasks.ts` `createTask` now supports `startDate` and `assigneeId`.
+- `NewTaskModal` supports:
+  - start date + end date
+  - assignee selector at create time (when team members are passed)
+- Task delete is soft delete via `deleteTask(id)` and is now exposed from Workspace task detail panel.
+
+<!-- OUTDATED: some narrative sections above still describe earlier Arabic-only labels and pre-calendar workspace scope -->

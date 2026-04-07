@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlusCircledIcon } from "@radix-ui/react-icons";
 import { INVOICE_STATUS_LABELS, INVOICE_STATUS_BADGE_CLASS } from "@/types";
+import { SarMoney } from "@/components/ui/sar-money";
 
 type InvoiceRow = {
   id: string;
@@ -20,14 +21,14 @@ type ProjectInvoicesTabProps = {
   defaultCurrency: string;
 };
 
-function formatCurrency(value: string, currency: string) {
+function AmountCell({ value, currency, defaultCurrency }: { value: string; currency: string; defaultCurrency: string }) {
+  const c = currency || defaultCurrency;
+  if (c === "SAR" || c === "ر.س") {
+    return <SarMoney value={value} iconClassName="h-3 w-3" />;
+  }
   const n = Number(value);
   if (Number.isNaN(n)) return value;
-  if (currency === "SAR" || currency === "ر.س") {
-    const formatted = n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-    return `${formatted} ر.س`;
-  }
-  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n);
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: c }).format(n);
 }
 
 export function ProjectInvoicesTab({
@@ -38,25 +39,25 @@ export function ProjectInvoicesTab({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>الفواتير</CardTitle>
+        <CardTitle>Invoices</CardTitle>
         <Button asChild variant="secondary" size="sm">
           <Link href={`/dashboard/invoices?projectId=${projectId}`}>
             <PlusCircledIcon className="me-2 h-4 w-4" />
-            فاتورة جديدة
+            New invoice
           </Link>
         </Button>
       </CardHeader>
       <CardContent>
         {invoices.length === 0 ? (
-          <p className="text-muted-foreground text-sm">لا توجد فواتير لهذا المشروع بعد.</p>
+          <p className="text-muted-foreground text-sm">No invoices for this project yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-right text-muted-foreground">
-                  <th className="pb-2 pe-4 font-medium">رقم الفاتورة</th>
-                  <th className="pb-2 pe-4 font-medium">المبلغ</th>
-                  <th className="pb-2 pe-4 font-medium">الحالة</th>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 pe-4 font-medium">Invoice #</th>
+                  <th className="pb-2 pe-4 font-medium">Amount</th>
+                  <th className="pb-2 pe-4 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -71,7 +72,7 @@ export function ProjectInvoicesTab({
                       </Link>
                     </td>
                     <td className="py-2 pe-4">
-                      {formatCurrency(inv.total, inv.currency || defaultCurrency)}
+                      <AmountCell value={inv.total} currency={inv.currency} defaultCurrency={defaultCurrency} />
                     </td>
                     <td className="py-2 pe-4">
                       <span

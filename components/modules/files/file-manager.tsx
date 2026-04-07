@@ -153,6 +153,8 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
           sizeBytes: row.sizeBytes != null ? Number(row.sizeBytes) : null,
           clientId: row.clientId,
           projectId: row.projectId,
+          invoiceId: row.invoiceId,
+          expenseId: row.expenseId,
           createdAt: row.createdAt,
         };
         toast.success("File uploaded successfully.");

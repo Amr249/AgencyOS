@@ -109,14 +109,14 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
     el.indeterminate = selectedInView > 0 && !allVisibleSelected;
   }, [selectedInView, allVisibleSelected, members.length]);
 
-  const toggleSelectAll = () => {
+  const toggleSelectAll = React.useCallback(() => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (allVisibleSelected) members.forEach((m) => next.delete(m.id));
       else members.forEach((m) => next.add(m.id));
       return next;
     });
-  };
+  }, [allVisibleSelected, members]);
 
   const toggleRow = (id: string) => {
     setSelectedIds((prev) => {
@@ -254,7 +254,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         },
       },
     ],
-    [allVisibleSelected, selectedIds]
+    [allVisibleSelected, selectedIds, toggleSelectAll, projects.length]
   );
 
   return (

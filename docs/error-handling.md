@@ -56,3 +56,11 @@ Uses **`isDbConnectionError`** only and returns **hard-coded Arabic** strings fo
 
 - **Toasts** — Sonner via [`components/ui/sonner`](../components/ui/sonner.tsx); many call sites pass translated strings.
 - **Forms** — `error._form` arrays for non-field server errors.
+
+## Current state addendum
+
+<!-- ADDED 2026-03-23 -->
+
+- `actions/workspace.ts` uses `isDbConnectionError` + `getDbErrorKey` consistently for DB/network errors.
+- `actions/assignments.ts` still returns inline Arabic messages for several failure cases and is not fully normalized to `DbErrorKey`.
+- `actions/dashboard.ts` and `actions/reports.ts` continue to throw on failure rather than returning `{ ok: false, error }`.

@@ -143,7 +143,9 @@ function ChartTooltipContent({
 
     if (labelFormatter) {
       return (
-        <div className={cn("font-medium", labelClassName)}>
+        <div
+          className={cn("text-popover-foreground font-medium", labelClassName)}
+        >
           {labelFormatter(value, payload)}
         </div>
       )
@@ -153,7 +155,11 @@ function ChartTooltipContent({
       return null
     }
 
-    return <div className={cn("font-medium", labelClassName)}>{value}</div>
+    return (
+      <div className={cn("text-popover-foreground font-medium", labelClassName)}>
+        {value}
+      </div>
+    )
   }, [
     label,
     labelFormatter,
@@ -173,7 +179,7 @@ function ChartTooltipContent({
   return (
     <div
       className={cn(
-        "border-border/50 bg-background grid min-w-[8rem] items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl",
+        "border-border/50 bg-popover text-popover-foreground grid min-w-[8rem] items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl",
         className
       )}
     >
@@ -194,8 +200,16 @@ function ChartTooltipContent({
                   indicator === "dot" && "items-center"
                 )}
               >
-                {formatter && item?.value !== undefined && item.name ? (
-                  formatter(item.value, item.name, item, index, item.payload)
+                {formatter &&
+                item?.value !== undefined &&
+                ((item.name != null && item.name !== "") || item.dataKey) ? (
+                  formatter(
+                    item.value,
+                    item.name ?? String(item.dataKey ?? ""),
+                    item,
+                    index,
+                    item.payload
+                  )
                 ) : (
                   <>
                     {itemConfig?.icon ? (
@@ -234,9 +248,9 @@ function ChartTooltipContent({
                           {itemConfig?.label || item.name}
                         </span>
                       </div>
-                      {item.value && (
-                        <span className="text-foreground font-mono font-medium tabular-nums">
-                          {item.value.toLocaleString()}
+                      {item.value !== undefined && item.value !== null && (
+                        <span className="text-popover-foreground font-mono font-medium tabular-nums">
+                          {Number(item.value).toLocaleString()}
                         </span>
                       )}
                     </div>

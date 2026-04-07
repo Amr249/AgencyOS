@@ -37,6 +37,7 @@ import { format } from "date-fns";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 
 const projectStatusOptions = [
   { value: "lead", label: "Lead" },
@@ -454,7 +455,10 @@ export function NewProjectDialog({
             name="budget"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Budget (SAR)</FormLabel>
+                <FormLabel className="inline-flex items-center gap-1">
+                  Budget
+                  <SarCurrencyIcon className="h-3.5 w-3.5 shrink-0" />
+                </FormLabel>
                 <FormControl>
                   <Input type="number" min={0} step="0.01" placeholder="0" {...field} />
                 </FormControl>

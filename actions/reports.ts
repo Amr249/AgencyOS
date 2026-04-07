@@ -1,8 +1,21 @@
 "use server";
 
-import { eq, isNull, and, sql, inArray, lt, ne, gte, lte, desc } from "drizzle-orm";
+import { eq, isNull, and, sql, inArray, lt, ne, gte, lte, desc, sum, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { projects, tasks, clients, invoices, expenses, services, projectServices, clientServices } from "@/lib/db";
+import {
+  projects,
+  tasks,
+  clients,
+  invoices,
+  expenses,
+  services,
+  projectServices,
+  clientServices,
+  payments,
+  recurringExpenses,
+  settings,
+} from "@/lib/db";
+import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import {
   startOfWeek,
   endOfWeek,
@@ -10,17 +23,32 @@ import {
   format,
   parseISO,
   startOfDay,
+  endOfDay,
   getYear,
+  getMonth,
   startOfMonth,
   endOfMonth,
   subMonths,
   addMonths,
+  addDays,
+  addWeeks,
+  addYears,
   isBefore,
   isAfter,
   startOfYear,
+  endOfYear,
   differenceInDays,
+  startOfQuarter,
+  endOfQuarter,
+  subQuarters,
+  subYears,
+  differenceInCalendarDays,
 } from "date-fns";
-import { ar } from "date-fns/locale";
+import { ar, enUS } from "date-fns/locale";
+import {
+  PROFIT_LOSS_PERIODS,
+  type ProfitLossPeriodKey,
+} from "@/lib/reports-constants";
 
 // --- Types ---
 
@@ -392,18 +420,65 @@ export async function getNewClientsPerMonth(year: number): Promise<{
 
 // --- Financial Reports ---
 
-const ARABIC_MONTHS = [
-  "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-  "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر",
-];
-
 export type DateRangeKey = "this_month" | "last_month" | "this_quarter" | "this_year" | "all";
 
+export type ProfitLossStatementPeriod = {
+  label: string;
+  startDate: string;
+  endDate: string;
+};
+
+export type ProfitLossExpensesByCategory = {
+  software: number;
+  hosting: number;
+  marketing: number;
+  salaries: number;
+  equipment: number;
+  office: number;
+  other: number;
+};
+
+export type ProfitLossStatement = {
+  period: ProfitLossStatementPeriod;
+  revenue: {
+    /** Sum of `invoices.total` with `issue_date` in range. */
+    invoiced: number;
+    /** Sum of `payments.amount` with `payment_date` in range. */
+    collected: number;
+    /** Unpaid balance on invoices issued in the period (payments with `payment_date` ≤ period end). */
+    outstanding: number;
+  };
+  expenses: {
+    byCategory: ProfitLossExpensesByCategory;
+    total: number;
+  };
+  profit: {
+    /** Cash collected in period (same as `revenue.collected`). */
+    gross: number;
+    /** `collected - expenses.total`. */
+    net: number;
+    /** `(net / collected) * 100` when collected &gt; 0. */
+    margin: number | null;
+  };
+  comparison: {
+    previousPeriod: ProfitLossStatementPeriod;
+    previousNet: number;
+    previousCollected: number;
+    delta: number;
+    percentChange: number | null;
+    collectedPercentChange: number | null;
+    compareLabel: string;
+  } | null;
+};
+
 export type FinancialSummary = {
-  revenueThisMonth: number; // SUM(total) WHERE status='paid' AND paid_at in current month
+  /** Sum of payments with `payment_date` in the current calendar month. */
+  revenueThisMonth: number;
   revenueLastMonth: number;
   totalCollectedAllTime: number;
-  totalCollectedThisYear: number; // SUM(total) WHERE status='paid' AND EXTRACT(YEAR FROM paid_at) = current year
+  /** Sum of payments with `payment_date` in the current calendar year. */
+  totalCollectedThisYear: number;
+  /** Sum of remaining balance across all invoices (total − payments) where &gt; 0. */
   outstandingTotal: number;
   invoicedThisYear: number; // by issue_date
 };
@@ -411,8 +486,11 @@ export type FinancialSummary = {
 export type MonthlyRevenuePoint = {
   monthKey: string;
   monthLabel: string;
+  /** Cash collected in the month (sum of `payments` by `payment_date`). */
   profits: number;
   expenses: number;
+  /** Total invoiced in the month (sum of `invoices.total` by `created_at`). */
+  invoiced: number;
 };
 
 export type TopClientRow = {
@@ -440,6 +518,8 @@ export type OutstandingInvoiceRow = {
   clientLogoUrl: string | null;
   projectName: string | null;
   total: string;
+  /** Remaining balance (invoice total − sum of payments). */
+  amountDue: string;
   issueDate: string;
   daysSinceIssue: number;
 };
@@ -461,7 +541,83 @@ export type ServiceProfitabilityRow = {
   clientCount: number;
 };
 
-/** KPI summary for financial reports. إيرادات هذا الشهر and إجمالي الأرباح هذه السنة use paid_at. */
+/** Per-project cash collected (payments) vs expenses; revenue split evenly when an invoice links to multiple projects. */
+export type ProjectProfitabilityRow = {
+  projectId: string;
+  projectName: string;
+  clientId: string;
+  clientName: string;
+  clientLogoUrl: string | null;
+  status: string;
+  budget: string | null;
+  totalRevenue: number;
+  totalExpenses: number;
+  profit: number;
+  /** Null when revenue is 0; otherwise profit / revenue × 100. */
+  profitMargin: number | null;
+  /** Revenue minus budget when budget is set; null otherwise. */
+  budgetVariance: number | null;
+  invoiceCount: number;
+  expenseCount: number;
+};
+
+/** Per-client: revenue = payments on their invoices; expenses = direct `client_id` or project-linked (no double count per client). */
+export type ClientProfitabilityRow = {
+  clientId: string;
+  companyName: string | null;
+  logoUrl: string | null;
+  status: string;
+  totalRevenue: number;
+  totalExpenses: number;
+  profit: number;
+  /** (profit / revenue) × 100; 0 when revenue is 0. */
+  profitMargin: number;
+  projectCount: number;
+  invoiceCount: number;
+  expenseCount: number;
+};
+
+export type ClientProfitabilitySummary = {
+  clientCount: number;
+  totalRevenue: number;
+  totalExpenses: number;
+  netProfit: number;
+};
+
+/** Optional `yyyy-MM-dd` bounds; omit both for all-time (legacy collected rules for projects). */
+export type ProfitabilityDateRange = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+/** Service-level profitability: project revenue/expense in range split evenly across services on each project. */
+export type ServiceProfitabilityAnalyticsRow = {
+  serviceId: string;
+  serviceName: string;
+  totalRevenue: number;
+  totalExpenses: number;
+  profit: number;
+  profitMargin: number;
+  projectCount: number;
+};
+
+function sqlPaymentDateFilterPayments(dateFrom?: string, dateTo?: string): SQL {
+  if (!dateFrom && !dateTo) return sql``;
+  const parts: SQL[] = [];
+  if (dateFrom) parts.push(sql`payment_date >= ${dateFrom}::date`);
+  if (dateTo) parts.push(sql`payment_date <= ${dateTo}::date`);
+  return sql` AND ${sql.join(parts, sql` AND `)}`;
+}
+
+function sqlExpenseDateFilterAliasE(dateFrom?: string, dateTo?: string): SQL {
+  if (!dateFrom && !dateTo) return sql``;
+  const parts: SQL[] = [];
+  if (dateFrom) parts.push(sql`e.date >= ${dateFrom}::date`);
+  if (dateTo) parts.push(sql`e.date <= ${dateTo}::date`);
+  return sql` AND ${sql.join(parts, sql` AND `)}`;
+}
+
+/** KPI summary: collected metrics use `payments.payment_date`; invoiced-this-year uses `issue_date`. */
 export async function getFinancialSummary(): Promise<FinancialSummary> {
   const now = new Date();
   const thisMonthStart = startOfMonth(now);
@@ -471,39 +627,54 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
   const thisYearStart = startOfYear(now);
   const currentYear = getYear(now);
 
-  const rows = await db
-    .select({
-      total: invoices.total,
-      status: invoices.status,
-      paidAt: invoices.paidAt,
-      issueDate: invoices.issueDate,
-    })
-    .from(invoices);
+  const allPayments = await db
+    .select({ amount: payments.amount, paymentDate: payments.paymentDate })
+    .from(payments);
 
-  let revenueThisMonth = 0; // SUM where paid_at in current month
+  let revenueThisMonth = 0;
   let revenueLastMonth = 0;
   let totalCollectedAllTime = 0;
-  let totalCollectedThisYear = 0; // SUM where status=paid AND year(paid_at)=currentYear
+  let totalCollectedThisYear = 0;
+
+  for (const p of allPayments) {
+    const amt = Number(p.amount);
+    const pd = String(p.paymentDate);
+    totalCollectedAllTime += amt;
+    const pdDate = parseISO(pd.length === 10 ? `${pd}T12:00:00` : pd);
+    if (getYear(pdDate) === currentYear) {
+      totalCollectedThisYear += amt;
+    }
+    if (!isBefore(pdDate, thisMonthStart) && !isAfter(pdDate, thisMonthEnd)) {
+      revenueThisMonth += amt;
+    }
+    if (!isBefore(pdDate, lastMonthStart) && !isAfter(pdDate, lastMonthEnd)) {
+      revenueLastMonth += amt;
+    }
+  }
+
+  const invoiceTotals = await db
+    .select({ id: invoices.id, total: invoices.total, issueDate: invoices.issueDate })
+    .from(invoices);
+
+  const paidByInvoice = await db
+    .select({
+      invoiceId: payments.invoiceId,
+      paid: sum(payments.amount),
+    })
+    .from(payments)
+    .groupBy(payments.invoiceId);
+
+  const paidMap = new Map(paidByInvoice.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
+
   let outstandingTotal = 0;
   let invoicedThisYear = 0;
 
-  for (const inv of rows) {
+  for (const inv of invoiceTotals) {
     const totalNum = Number(inv.total);
-    if (inv.status === "paid" && inv.paidAt) {
-      const paidAt = new Date(inv.paidAt);
-      totalCollectedAllTime += totalNum;
-      if (getYear(paidAt) === currentYear) {
-        totalCollectedThisYear += totalNum;
-      }
-      if (!isBefore(paidAt, thisMonthStart) && !isAfter(paidAt, thisMonthEnd)) {
-        revenueThisMonth += totalNum;
-      }
-      if (!isBefore(paidAt, lastMonthStart) && !isAfter(paidAt, lastMonthEnd)) {
-        revenueLastMonth += totalNum;
-      }
-    }
-    if (inv.status === "pending") {
-      outstandingTotal += totalNum;
+    const paid = paidMap.get(inv.id) ?? 0;
+    const due = totalNum - paid;
+    if (due > 0.0001) {
+      outstandingTotal += due;
     }
     const issueDate = inv.issueDate ? parseISO(String(inv.issueDate)) : null;
     if (issueDate && !isBefore(issueDate, thisYearStart)) {
@@ -521,13 +692,333 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
   };
 }
 
-/** Last 12 months with Arabic labels. Collected by paid_at (cast to timestamptz), expenses by date. */
+const PL_ALL_TIME_START = "1970-01-01";
+
+const PL_COMPARE_LABELS: Record<Exclude<ProfitLossPeriodKey, "all_time">, string> = {
+  this_month: "same period last month",
+  last_month: "prior month",
+  this_quarter: "same period last quarter",
+  this_year: "same period last year",
+};
+
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+type PlWindow = { startStr: string; endStr: string; label: string };
+
+/** Current window (month/quarter/year-to-date where applicable) and an aligned prior window for comparison. */
+function resolveProfitLossWindow(period: ProfitLossPeriodKey, now: Date): {
+  current: PlWindow;
+  prev: PlWindow | null;
+  compareLabel: string;
+} {
+  const today = startOfDay(now);
+  const todayStr = format(today, "yyyy-MM-dd");
+
+  switch (period) {
+    case "this_month": {
+      const start = startOfMonth(today);
+      const daySpan = differenceInCalendarDays(today, start);
+      const prevMonthStart = startOfMonth(subMonths(start, 1));
+      const prevMonthEndCap = endOfMonth(prevMonthStart);
+      const compareEnd = addDays(prevMonthStart, daySpan);
+      const prevEnd = compareEnd > prevMonthEndCap ? prevMonthEndCap : compareEnd;
+      return {
+        current: {
+          startStr: format(start, "yyyy-MM-dd"),
+          endStr: todayStr,
+          label: format(today, "MMMM yyyy", { locale: enUS }),
+        },
+        prev: {
+          startStr: format(prevMonthStart, "yyyy-MM-dd"),
+          endStr: format(prevEnd, "yyyy-MM-dd"),
+          label: format(prevMonthStart, "MMMM yyyy", { locale: enUS }),
+        },
+        compareLabel: PL_COMPARE_LABELS.this_month,
+      };
+    }
+    case "last_month": {
+      const start = startOfMonth(subMonths(today, 1));
+      const end = endOfMonth(subMonths(today, 1));
+      const prevStart = startOfMonth(subMonths(today, 2));
+      const prevEnd = endOfMonth(subMonths(today, 2));
+      return {
+        current: {
+          startStr: format(start, "yyyy-MM-dd"),
+          endStr: format(end, "yyyy-MM-dd"),
+          label: format(start, "MMMM yyyy", { locale: enUS }),
+        },
+        prev: {
+          startStr: format(prevStart, "yyyy-MM-dd"),
+          endStr: format(prevEnd, "yyyy-MM-dd"),
+          label: format(prevStart, "MMMM yyyy", { locale: enUS }),
+        },
+        compareLabel: PL_COMPARE_LABELS.last_month,
+      };
+    }
+    case "this_quarter": {
+      const qStart = startOfQuarter(today);
+      const daySpan = differenceInCalendarDays(today, qStart);
+      const prevQStart = startOfQuarter(subQuarters(today, 1));
+      const prevQEndCap = endOfQuarter(subQuarters(today, 1));
+      const compareEnd = addDays(prevQStart, daySpan);
+      const prevEnd = compareEnd > prevQEndCap ? prevQEndCap : compareEnd;
+      const q = Math.floor(today.getMonth() / 3) + 1;
+      const pq = Math.floor(prevQStart.getMonth() / 3) + 1;
+      return {
+        current: {
+          startStr: format(qStart, "yyyy-MM-dd"),
+          endStr: todayStr,
+          label: `Q${q} ${getYear(today)}`,
+        },
+        prev: {
+          startStr: format(prevQStart, "yyyy-MM-dd"),
+          endStr: format(prevEnd, "yyyy-MM-dd"),
+          label: `Q${pq} ${getYear(prevQStart)}`,
+        },
+        compareLabel: PL_COMPARE_LABELS.this_quarter,
+      };
+    }
+    case "this_year": {
+      const yStart = startOfYear(today);
+      const daySpan = differenceInCalendarDays(today, yStart);
+      const prevYStart = startOfYear(subYears(today, 1));
+      const prevYEndCap = endOfYear(subYears(today, 1));
+      const compareEnd = addDays(prevYStart, daySpan);
+      const prevEnd = compareEnd > prevYEndCap ? prevYEndCap : compareEnd;
+      return {
+        current: {
+          startStr: format(yStart, "yyyy-MM-dd"),
+          endStr: todayStr,
+          label: String(getYear(today)),
+        },
+        prev: {
+          startStr: format(prevYStart, "yyyy-MM-dd"),
+          endStr: format(prevEnd, "yyyy-MM-dd"),
+          label: String(getYear(prevYStart)),
+        },
+        compareLabel: PL_COMPARE_LABELS.this_year,
+      };
+    }
+    case "all_time":
+      return {
+        current: {
+          startStr: PL_ALL_TIME_START,
+          endStr: todayStr,
+          label: "All time",
+        },
+        prev: null,
+        compareLabel: "",
+      };
+    default: {
+      const _exhaustive: never = period;
+      return _exhaustive;
+    }
+  }
+}
+
+async function aggregateProfitLossForRange(startStr: string, endStr: string): Promise<{
+  invoiced: number;
+  collected: number;
+  outstanding: number;
+  byCategory: ProfitLossExpensesByCategory;
+  expenseTotal: number;
+  gross: number;
+  net: number;
+  margin: number | null;
+}> {
+  const [invRow] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${invoices.total}::numeric), 0)::text`,
+    })
+    .from(invoices)
+    .where(and(gte(invoices.issueDate, startStr), lte(invoices.issueDate, endStr)));
+
+  const [payRow] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)::text`,
+    })
+    .from(payments)
+    .where(and(gte(payments.paymentDate, startStr), lte(payments.paymentDate, endStr)));
+
+  const categoryRows = await db
+    .select({
+      category: expenses.category,
+      total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)::text`,
+    })
+    .from(expenses)
+    .where(and(gte(expenses.date, startStr), lte(expenses.date, endStr)))
+    .groupBy(expenses.category);
+
+  const byCategory: ProfitLossExpensesByCategory = {
+    software: 0,
+    hosting: 0,
+    marketing: 0,
+    salaries: 0,
+    equipment: 0,
+    office: 0,
+    other: 0,
+  };
+
+  for (const row of categoryRows) {
+    const key = row.category as keyof ProfitLossExpensesByCategory;
+    if (key in byCategory) {
+      byCategory[key] = roundMoney(Number(row.total));
+    }
+  }
+
+  const expenseTotal = roundMoney(
+    Object.values(byCategory).reduce((sum, v) => sum + v, 0)
+  );
+
+  const invoiced = roundMoney(Number(invRow?.total ?? 0));
+  const collected = roundMoney(Number(payRow?.total ?? 0));
+
+  const periodInvoices = await db
+    .select({ id: invoices.id, total: invoices.total })
+    .from(invoices)
+    .where(and(gte(invoices.issueDate, startStr), lte(invoices.issueDate, endStr)));
+
+  let outstanding = 0;
+  const invoiceIds = periodInvoices.map((i) => i.id);
+  if (invoiceIds.length > 0) {
+    const paidRows = await db
+      .select({
+        invoiceId: payments.invoiceId,
+        paid: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)::text`,
+      })
+      .from(payments)
+      .where(and(inArray(payments.invoiceId, invoiceIds), lte(payments.paymentDate, endStr)))
+      .groupBy(payments.invoiceId);
+
+    const paidMap = new Map<string, number>();
+    for (const r of paidRows) {
+      paidMap.set(r.invoiceId, Number(r.paid));
+    }
+    for (const inv of periodInvoices) {
+      const totalNum = Number(inv.total);
+      const paid = paidMap.get(inv.id) ?? 0;
+      outstanding += Math.max(0, roundMoney(totalNum - paid));
+    }
+    outstanding = roundMoney(outstanding);
+  }
+
+  const gross = collected;
+  const net = roundMoney(collected - expenseTotal);
+  const margin =
+    collected > 0.0001 ? Math.round((net / collected) * 10000) / 100 : null;
+
+  return {
+    invoiced,
+    collected,
+    outstanding,
+    byCategory,
+    expenseTotal,
+    gross,
+    net,
+    margin,
+  };
+}
+
+/**
+ * Profit &amp; Loss: invoiced by `issue_date`, collected by `payment_date`, expenses by `date`.
+ * This month / quarter / year run through today; comparison uses an aligned prior window (omitted for `all_time`).
+ */
+export async function getProfitLossStatement(
+  period: string
+): Promise<
+  | { ok: true; data: ProfitLossStatement }
+  | { ok: false; error: ReturnType<typeof getDbErrorKey> | "invalid_period" }
+> {
+  if (!PROFIT_LOSS_PERIODS.includes(period as ProfitLossPeriodKey)) {
+    return { ok: false, error: "invalid_period" };
+  }
+
+  const key = period as ProfitLossPeriodKey;
+
+  try {
+    const now = new Date();
+    const resolved = resolveProfitLossWindow(key, now);
+    const current = await aggregateProfitLossForRange(
+      resolved.current.startStr,
+      resolved.current.endStr
+    );
+
+    let comparison: ProfitLossStatement["comparison"] = null;
+    if (resolved.prev) {
+      const prev = await aggregateProfitLossForRange(resolved.prev.startStr, resolved.prev.endStr);
+      const delta = roundMoney(current.net - prev.net);
+      let percentChange: number | null = null;
+      if (Math.abs(prev.net) > 0.0001) {
+        percentChange = Math.round((delta / prev.net) * 10000) / 100;
+      } else if (Math.abs(delta) < 0.0001) {
+        percentChange = 0;
+      } else if (Math.abs(current.net) > 0.0001) {
+        percentChange = null;
+      }
+
+      const collDelta = roundMoney(current.collected - prev.collected);
+      let collectedPercentChange: number | null = null;
+      if (Math.abs(prev.collected) > 0.0001) {
+        collectedPercentChange = Math.round((collDelta / prev.collected) * 10000) / 100;
+      } else if (Math.abs(collDelta) < 0.0001) {
+        collectedPercentChange = 0;
+      } else if (Math.abs(current.collected) > 0.0001) {
+        collectedPercentChange = null;
+      }
+
+      comparison = {
+        previousPeriod: {
+          label: resolved.prev.label,
+          startDate: resolved.prev.startStr,
+          endDate: resolved.prev.endStr,
+        },
+        previousNet: prev.net,
+        previousCollected: prev.collected,
+        delta,
+        percentChange,
+        collectedPercentChange,
+        compareLabel: resolved.compareLabel,
+      };
+    }
+
+    const data: ProfitLossStatement = {
+      period: {
+        label: resolved.current.label,
+        startDate: resolved.current.startStr,
+        endDate: resolved.current.endStr,
+      },
+      revenue: {
+        invoiced: current.invoiced,
+        collected: current.collected,
+        outstanding: current.outstanding,
+      },
+      expenses: {
+        byCategory: current.byCategory,
+        total: current.expenseTotal,
+      },
+      profit: {
+        gross: current.gross,
+        net: current.net,
+        margin: current.margin,
+      },
+      comparison,
+    };
+
+    return { ok: true, data };
+  } catch (e) {
+    console.error("getProfitLossStatement", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: getDbErrorKey(e) };
+    }
+    return { ok: false, error: getDbErrorKey(e) };
+  }
+}
+
+/** Last 12 months with English month labels. Collected = sum of `payments` by `payment_date`; invoiced = sum of `invoices.total` by `created_at`. */
 export async function getMonthlyRevenue(dateRange: DateRangeKey): Promise<MonthlyRevenuePoint[]> {
   const now = new Date();
-
-  // Debug: log paid_at values to verify storage type
-  const debug = await db.select({ paidAt: invoices.paidAt, status: invoices.status }).from(invoices);
-  console.log("Invoice paid_at values:", debug);
 
   let monthKeys: string[];
   if (dateRange === "this_year") {
@@ -546,25 +1037,44 @@ export async function getMonthlyRevenue(dateRange: DateRangeKey): Promise<Monthl
   const firstMonth = monthKeys[0]!;
   const lastMonth = monthKeys[monthKeys.length - 1]!;
   const rangeStart = parseISO(`${firstMonth}-01`);
-  const rangeEnd = startOfMonth(addMonths(parseISO(`${lastMonth}-01`), 1));
+  const rangeEndExclusive = startOfMonth(addMonths(parseISO(`${lastMonth}-01`), 1));
+  const rangeStartStr = format(rangeStart, "yyyy-MM-dd");
+  const rangeEndExclusiveStr = format(rangeEndExclusive, "yyyy-MM-dd");
 
-  // الأرباح — grouped by paid_at (cast to timestamptz so string/timestamp both work)
   const collectedRaw = await db.execute(sql`
-    SELECT to_char(paid_at::timestamptz, 'YYYY-MM') as month_key, sum(total)::numeric as total
-    FROM invoices
-    WHERE status = 'paid' AND paid_at IS NOT NULL
-      AND paid_at::timestamptz >= ${rangeStart}
-      AND paid_at::timestamptz < ${rangeEnd}
-    GROUP BY to_char(paid_at::timestamptz, 'YYYY-MM')
+    SELECT to_char(${payments.paymentDate}, 'YYYY-MM') AS month_key,
+           sum(${payments.amount})::numeric AS total
+    FROM ${payments}
+    WHERE ${payments.paymentDate} >= ${rangeStartStr}::date
+      AND ${payments.paymentDate} < ${rangeEndExclusiveStr}::date
+    GROUP BY to_char(${payments.paymentDate}, 'YYYY-MM')
   `);
-  const collectedRows = Array.isArray(collectedRaw) ? collectedRaw : (collectedRaw as unknown as { rows?: { month_key: string; total: string }[] }).rows ?? [];
+  const collectedRows = Array.isArray(collectedRaw)
+    ? collectedRaw
+    : (collectedRaw as unknown as { rows?: { month_key: string; total: string }[] }).rows ?? [];
   const collectedMap = new Map<string, number>();
   for (const row of collectedRows) {
     const r = row as { month_key: string; total: string };
     collectedMap.set(r.month_key, Number(r.total));
   }
 
-  // Monthly expenses (by expense date)
+  const invoicedRaw = await db.execute(sql`
+    SELECT to_char(${invoices.createdAt}, 'YYYY-MM') AS month_key,
+           sum(${invoices.total})::numeric AS total
+    FROM ${invoices}
+    WHERE ${invoices.createdAt} >= ${rangeStart}
+      AND ${invoices.createdAt} < ${rangeEndExclusive}
+    GROUP BY to_char(${invoices.createdAt}, 'YYYY-MM')
+  `);
+  const invoicedRows = Array.isArray(invoicedRaw)
+    ? invoicedRaw
+    : (invoicedRaw as unknown as { rows?: { month_key: string; total: string }[] }).rows ?? [];
+  const invoicedMap = new Map<string, number>();
+  for (const row of invoicedRows) {
+    const r = row as { month_key: string; total: string };
+    invoicedMap.set(r.month_key, Number(r.total));
+  }
+
   const expenseRangeEnd = format(endOfMonth(parseISO(`${lastMonth}-01`)), "yyyy-MM-dd");
   const expenseRows = await db
     .select({ date: expenses.date, amount: expenses.amount })
@@ -578,14 +1088,86 @@ export async function getMonthlyRevenue(dateRange: DateRangeKey): Promise<Monthl
   }
 
   return monthKeys.map((monthKey) => {
-    const [, mStr] = monthKey.split("-");
-    const m = parseInt(mStr, 10);
-    const monthLabel = ARABIC_MONTHS[m - 1] ?? monthKey;
+    const monthLabel = format(parseISO(`${monthKey}-01`), "MMMM", { locale: enUS });
     return {
       monthKey,
       monthLabel,
       profits: Math.round((collectedMap.get(monthKey) ?? 0) * 100) / 100,
       expenses: Math.round((expensesMap.get(monthKey) ?? 0) * 100) / 100,
+      invoiced: Math.round((invoicedMap.get(monthKey) ?? 0) * 100) / 100,
+    };
+  });
+}
+
+/** Last six calendar months: collected payments, expenses, and profit per month (English short month labels). */
+export type MonthlyComparisonPoint = {
+  monthKey: string;
+  /** Short English month name (Jan, Feb, …). */
+  month: string;
+  year: number;
+  /** Sum of `payments.amount` with `payment_date` in this calendar month. */
+  revenue: number;
+  /** Sum of `expenses.amount` with `date` in this calendar month. */
+  expenses: number;
+  /** `revenue - expenses`. */
+  profit: number;
+};
+
+export async function getMonthlyComparison(): Promise<MonthlyComparisonPoint[]> {
+  const now = new Date();
+  const monthKeys: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    monthKeys.push(format(subMonths(now, i), "yyyy-MM"));
+  }
+
+  const firstMonth = monthKeys[0]!;
+  const lastMonth = monthKeys[monthKeys.length - 1]!;
+  const rangeStart = parseISO(`${firstMonth}-01`);
+  const rangeEndExclusive = startOfMonth(addMonths(parseISO(`${lastMonth}-01`), 1));
+  const rangeStartStr = format(rangeStart, "yyyy-MM-dd");
+  const rangeEndExclusiveStr = format(rangeEndExclusive, "yyyy-MM-dd");
+
+  const collectedRaw = await db.execute(sql`
+    SELECT to_char(${payments.paymentDate}, 'YYYY-MM') AS month_key,
+           sum(${payments.amount})::numeric AS total
+    FROM ${payments}
+    WHERE ${payments.paymentDate} >= ${rangeStartStr}::date
+      AND ${payments.paymentDate} < ${rangeEndExclusiveStr}::date
+    GROUP BY to_char(${payments.paymentDate}, 'YYYY-MM')
+  `);
+  const collectedRows = Array.isArray(collectedRaw)
+    ? collectedRaw
+    : (collectedRaw as unknown as { rows?: { month_key: string; total: string }[] }).rows ?? [];
+  const collectedMap = new Map<string, number>();
+  for (const row of collectedRows) {
+    const r = row as { month_key: string; total: string };
+    collectedMap.set(r.month_key, Number(r.total));
+  }
+
+  const expenseRangeEnd = format(endOfMonth(parseISO(`${lastMonth}-01`)), "yyyy-MM-dd");
+  const expenseRows = await db
+    .select({ date: expenses.date, amount: expenses.amount })
+    .from(expenses)
+    .where(and(gte(expenses.date, `${firstMonth}-01`), lte(expenses.date, expenseRangeEnd)));
+  const expensesMap = new Map<string, number>();
+  for (const ex of expenseRows) {
+    const key = format(parseISO(String(ex.date)), "yyyy-MM");
+    const prev = expensesMap.get(key) ?? 0;
+    expensesMap.set(key, prev + Number(ex.amount));
+  }
+
+  return monthKeys.map((monthKey) => {
+    const d = parseISO(`${monthKey}-01`);
+    const revenue = Math.round((collectedMap.get(monthKey) ?? 0) * 100) / 100;
+    const expensesAmt = Math.round((expensesMap.get(monthKey) ?? 0) * 100) / 100;
+    const profit = Math.round((revenue - expensesAmt) * 100) / 100;
+    return {
+      monthKey,
+      month: format(d, "MMM", { locale: enUS }),
+      year: getYear(d),
+      revenue,
+      expenses: expensesAmt,
+      profit,
     };
   });
 }
@@ -598,6 +1180,38 @@ export type MonthlyAreaPoint = {
   profits: number;
   expenses: number;
 };
+
+/**
+ * Default date range for the revenue area chart: earliest payment or expense month through today.
+ * Falls back to start of current year when there is no data.
+ */
+export async function getMonthlyAreaDefaultBounds(): Promise<{
+  start: string;
+  end: string;
+}> {
+  const end = format(endOfDay(new Date()), "yyyy-MM-dd");
+
+  const [pRow] = await db
+    .select({ min: sql<string | null>`min(${payments.paymentDate})` })
+    .from(payments);
+  const [eRow] = await db
+    .select({ min: sql<string | null>`min(${expenses.date})` })
+    .from(expenses);
+
+  let earliest: Date | null = null;
+  for (const raw of [pRow?.min, eRow?.min]) {
+    if (raw == null) continue;
+    const d = parseISO(String(raw));
+    if (Number.isNaN(d.getTime())) continue;
+    if (!earliest || d < earliest) earliest = d;
+  }
+
+  const start = earliest
+    ? format(startOfMonth(earliest), "yyyy-MM-dd")
+    : format(startOfYear(new Date()), "yyyy-MM-dd");
+
+  return { start, end };
+}
 
 /** Returns monthly profits and expenses between startDate and endDate. Sorted by year ASC, month ASC. */
 export async function getMonthlyAreaData(
@@ -618,16 +1232,20 @@ export async function getMonthlyAreaData(
   const lastMonth = monthKeys[monthKeys.length - 1]!;
   const rangeStartSql = parseISO(`${firstMonth}-01`);
   const rangeEndSql = startOfMonth(addMonths(parseISO(`${lastMonth}-01`), 1));
+  const rangeStartStrArea = format(rangeStartSql, "yyyy-MM-dd");
+  const rangeEndExclusiveStrArea = format(rangeEndSql, "yyyy-MM-dd");
 
   const collectedRaw = await db.execute(sql`
-    SELECT to_char(paid_at::timestamptz, 'YYYY-MM') as month_key, sum(total)::numeric as total
-    FROM invoices
-    WHERE status = 'paid' AND paid_at IS NOT NULL
-      AND paid_at::timestamptz >= ${rangeStartSql}
-      AND paid_at::timestamptz < ${rangeEndSql}
-    GROUP BY to_char(paid_at::timestamptz, 'YYYY-MM')
+    SELECT to_char(${payments.paymentDate}, 'YYYY-MM') AS month_key,
+           sum(${payments.amount})::numeric AS total
+    FROM ${payments}
+    WHERE ${payments.paymentDate} >= ${rangeStartStrArea}::date
+      AND ${payments.paymentDate} < ${rangeEndExclusiveStrArea}::date
+    GROUP BY to_char(${payments.paymentDate}, 'YYYY-MM')
   `);
-  const collectedRows = Array.isArray(collectedRaw) ? collectedRaw : (collectedRaw as unknown as { rows?: { month_key: string; total: string }[] }).rows ?? [];
+  const collectedRows = Array.isArray(collectedRaw)
+    ? collectedRaw
+    : (collectedRaw as unknown as { rows?: { month_key: string; total: string }[] }).rows ?? [];
   const collectedMap = new Map<string, number>();
   for (const row of collectedRows) {
     const r = row as { month_key: string; total: string };
@@ -650,7 +1268,7 @@ export async function getMonthlyAreaData(
     const [yStr, mStr] = monthKey.split("-");
     const year = parseInt(yStr!, 10);
     const month = parseInt(mStr!, 10);
-    const monthLabel = `${ARABIC_MONTHS[month - 1] ?? monthKey} ${year}`;
+    const monthLabel = format(parseISO(`${monthKey}-01`), "MMMM yyyy", { locale: enUS });
     return {
       month,
       year,
@@ -732,8 +1350,18 @@ export async function getRecentInvoices(limit: number): Promise<RecentInvoiceRow
   }));
 }
 
-/** All pending invoices with client/project and days since issue. */
+/** Invoices with remaining balance (total − payments &gt; 0), with client/project and days since issue. */
 export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]> {
+  const paidSums = await db
+    .select({
+      invoiceId: payments.invoiceId,
+      paid: sum(payments.amount),
+    })
+    .from(payments)
+    .groupBy(payments.invoiceId);
+
+  const paidMap = new Map(paidSums.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
+
   const rows = await db
     .select({
       id: invoices.id,
@@ -748,15 +1376,20 @@ export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]>
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
     .leftJoin(projects, eq(invoices.projectId, projects.id))
-    .where(eq(invoices.status, "pending"))
     .orderBy(desc(invoices.issueDate));
 
   const today = new Date();
-  return rows.map((r) => {
+  const result: OutstandingInvoiceRow[] = [];
+  for (const r of rows) {
+    const totalNum = Number(r.total);
+    const paid = paidMap.get(r.id) ?? 0;
+    const amountDue = Math.round((totalNum - paid) * 100) / 100;
+    if (amountDue <= 0.0001) continue;
+
     const issueDate = String(r.issueDate);
     const issue = parseISO(issueDate);
     const daysSinceIssue = differenceInDays(today, issue);
-    return {
+    result.push({
       id: r.id,
       invoiceNumber: r.invoiceNumber,
       clientId: r.clientId,
@@ -764,10 +1397,12 @@ export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]>
       clientLogoUrl: r.clientLogoUrl,
       projectName: r.projectName,
       total: String(r.total),
+      amountDue: amountDue.toFixed(2),
       issueDate,
       daysSinceIssue,
-    };
-  });
+    });
+  }
+  return result;
 }
 
 export async function getClientSpendByService(): Promise<ClientServiceSpendRow[]> {
@@ -854,4 +1489,789 @@ export async function getServicesProfitability(): Promise<ServiceProfitabilityRo
       clientCount: row.clients.size,
     }))
     .sort((a, b) => b.totalRevenue - a.totalRevenue);
+}
+
+/**
+ * Revenue = sum of payments on that client's invoices.
+ * Expenses = direct `expenses.client_id` OR `expenses.project_id` → non-deleted project for that client (each expense once per client).
+ */
+export async function getClientProfitability(
+  range?: ProfitabilityDateRange
+): Promise<
+  { ok: true; data: ClientProfitabilityRow[] } | { ok: false; error: ReturnType<typeof getDbErrorKey> }
+> {
+  try {
+    const dateFrom = range?.dateFrom;
+    const dateTo = range?.dateTo;
+
+    const clientRows = await db
+      .select({
+        id: clients.id,
+        companyName: clients.companyName,
+        logoUrl: clients.logoUrl,
+        status: clients.status,
+      })
+      .from(clients)
+      .where(isNull(clients.deletedAt));
+
+    const payConds: SQL[] = [];
+    if (dateFrom) payConds.push(gte(payments.paymentDate, dateFrom));
+    if (dateTo) payConds.push(lte(payments.paymentDate, dateTo));
+
+    let revenueQ = db
+      .select({
+        clientId: invoices.clientId,
+        totalRevenue: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)`,
+      })
+      .from(payments)
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id));
+    if (payConds.length) {
+      revenueQ = revenueQ.where(and(...payConds)) as typeof revenueQ;
+    }
+    const revenueRows = await revenueQ.groupBy(invoices.clientId);
+
+    const revenueMap = new Map<string, number>();
+    for (const r of revenueRows) {
+      revenueMap.set(r.clientId, Number(r.totalRevenue));
+    }
+
+    const expenseDateSql =
+      dateFrom || dateTo
+        ? sql` AND ${dateFrom ? sql`${expenses.date} >= ${dateFrom}::date` : sql`TRUE`} AND ${dateTo ? sql`${expenses.date} <= ${dateTo}::date` : sql`TRUE`}`
+        : sql``;
+
+    const expenseRaw = await db.execute(sql`
+      SELECT ${clients.id}::text AS client_id,
+        COALESCE(SUM(${expenses.amount}::numeric), 0)::text AS total_expenses,
+        COUNT(DISTINCT ${expenses.id})::int AS expense_count
+      FROM ${clients}
+      LEFT JOIN ${expenses} ON (
+        (
+          ${expenses.clientId} = ${clients.id}
+          OR EXISTS (
+            SELECT 1 FROM ${projects}
+            WHERE ${projects.id} = ${expenses.projectId}
+              AND ${projects.clientId} = ${clients.id}
+              AND ${projects.deletedAt} IS NULL
+          )
+        )
+        ${expenseDateSql}
+      )
+      WHERE ${clients.deletedAt} IS NULL
+      GROUP BY ${clients.id}
+    `);
+
+    const expenseRowsParsed = Array.isArray(expenseRaw)
+      ? expenseRaw
+      : (expenseRaw as unknown as { rows?: { client_id: string; total_expenses: string; expense_count: number }[] })
+          .rows ?? [];
+
+    const expenseTotalMap = new Map<string, number>();
+    const expenseCountMap = new Map<string, number>();
+    for (const row of expenseRowsParsed) {
+      const r = row as { client_id: string; total_expenses: string; expense_count: number };
+      expenseTotalMap.set(r.client_id, Number(r.total_expenses));
+      expenseCountMap.set(r.client_id, Number(r.expense_count ?? 0));
+    }
+
+    const projectCountRows = await db
+      .select({
+        clientId: projects.clientId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(projects)
+      .where(isNull(projects.deletedAt))
+      .groupBy(projects.clientId);
+
+    const projectCountMap = new Map<string, number>();
+    for (const r of projectCountRows) {
+      projectCountMap.set(r.clientId, r.count);
+    }
+
+    const invoiceCountRows = await db
+      .select({
+        clientId: invoices.clientId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(invoices)
+      .groupBy(invoices.clientId);
+
+    const invoiceCountMap = new Map<string, number>();
+    for (const r of invoiceCountRows) {
+      invoiceCountMap.set(r.clientId, r.count);
+    }
+
+    const data: ClientProfitabilityRow[] = clientRows.map((c) => {
+      const totalRevenue = Math.round((revenueMap.get(c.id) ?? 0) * 100) / 100;
+      const totalExpenses = Math.round((expenseTotalMap.get(c.id) ?? 0) * 100) / 100;
+      const profit = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+      const profitMargin =
+        totalRevenue > 0 ? Math.round((profit / totalRevenue) * 10000) / 100 : 0;
+
+      return {
+        clientId: c.id,
+        companyName: c.companyName,
+        logoUrl: c.logoUrl,
+        status: c.status,
+        totalRevenue,
+        totalExpenses,
+        profit,
+        profitMargin,
+        projectCount: projectCountMap.get(c.id) ?? 0,
+        invoiceCount: invoiceCountMap.get(c.id) ?? 0,
+        expenseCount: expenseCountMap.get(c.id) ?? 0,
+      };
+    });
+
+    data.sort((a, b) => b.profit - a.profit);
+
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("getClientProfitability", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: getDbErrorKey(e) };
+  }
+}
+
+export type CashFlowCurrentPosition = {
+  collected: number;
+  expenses: number;
+  net: number;
+};
+
+export type CashFlowForecastMonth = {
+  month: number;
+  year: number;
+  monthLabel: string;
+  expectedIncome: number;
+  expectedExpenses: number;
+  projectedNet: number;
+  runningBalance: number;
+};
+
+export type CashFlowForecastTotals = {
+  totalExpectedIncome: number;
+  totalExpectedExpenses: number;
+};
+
+export type CashFlowForecastData = {
+  currentPosition: CashFlowCurrentPosition;
+  forecast: CashFlowForecastMonth[];
+  totals: CashFlowForecastTotals;
+};
+
+function parseDateDayForCashFlow(s: string): Date {
+  const str = String(s);
+  return startOfDay(parseISO(str.length === 10 ? `${str}T12:00:00` : str));
+}
+
+function effectiveInvoiceDueDateForForecast(
+  issueDateStr: string,
+  dueDateStr: string | null | undefined,
+  defaultPaymentTermsDays: number
+): Date {
+  if (dueDateStr) {
+    return parseDateDayForCashFlow(String(dueDateStr));
+  }
+  const issue = parseDateDayForCashFlow(issueDateStr);
+  return startOfDay(addDays(issue, defaultPaymentTermsDays));
+}
+
+function advanceRecurringDueDate(d: Date, frequency: string): Date {
+  switch (frequency) {
+    case "weekly":
+      return addWeeks(d, 1);
+    case "monthly":
+      return addMonths(d, 1);
+    case "quarterly":
+      return addMonths(d, 3);
+    case "yearly":
+      return addYears(d, 1);
+    default:
+      return addMonths(d, 1);
+  }
+}
+
+/**
+ * Current cash position (all payments collected minus all recorded expenses) and a 3-month outlook:
+ * expected income from outstanding invoice balances by effective due date, expected expenses from recurring schedules
+ * plus average monthly non-recurring spend from the six completed months before the current month.
+ */
+export async function getCashFlowForecast(): Promise<
+  { ok: true; data: CashFlowForecastData } | { ok: false; error: ReturnType<typeof getDbErrorKey> }
+> {
+  try {
+    const now = new Date();
+    const m0 = startOfMonth(now);
+    const monthStarts = [m0, startOfMonth(addMonths(now, 1)), startOfMonth(addMonths(now, 2))] as const;
+    const horizonEnd = endOfMonth(monthStarts[2]);
+    const m0Key = format(monthStarts[0], "yyyy-MM");
+    const m2Key = format(monthStarts[2], "yyyy-MM");
+
+    const [settingsRow] = await db
+      .select({ defaultPaymentTerms: settings.defaultPaymentTerms })
+      .from(settings)
+      .where(eq(settings.id, 1));
+    const defaultTerms = settingsRow?.defaultPaymentTerms ?? 30;
+
+    const [paymentsTotalRow] = await db
+      .select({ total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)` })
+      .from(payments);
+
+    const [expensesTotalRow] = await db
+      .select({ total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)` })
+      .from(expenses);
+
+    const collected = roundMoney(Number(paymentsTotalRow?.total ?? 0));
+    const expensesToDate = roundMoney(Number(expensesTotalRow?.total ?? 0));
+    const currentNet = roundMoney(collected - expensesToDate);
+
+    const histStartStr = format(startOfMonth(subMonths(now, 6)), "yyyy-MM-dd");
+    const histEndExclusiveStr = format(startOfMonth(now), "yyyy-MM-dd");
+
+    const [histNonRecurringRow] = await db
+      .select({ total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)` })
+      .from(expenses)
+      .where(and(gte(expenses.date, histStartStr), lt(expenses.date, histEndExclusiveStr)));
+
+    const avgMonthlyNonRecurring = roundMoney(Number(histNonRecurringRow?.total ?? 0) / 6);
+
+    const paidSums = await db
+      .select({
+        invoiceId: payments.invoiceId,
+        paid: sum(payments.amount),
+      })
+      .from(payments)
+      .groupBy(payments.invoiceId);
+
+    const paidMap = new Map(paidSums.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
+
+    const invoiceRows = await db
+      .select({
+        id: invoices.id,
+        total: invoices.total,
+        issueDate: invoices.issueDate,
+        dueDate: invoices.dueDate,
+      })
+      .from(invoices);
+
+    const incomeByMonth = [0, 0, 0] as [number, number, number];
+
+    for (const inv of invoiceRows) {
+      const totalNum = Number(inv.total);
+      const paid = paidMap.get(inv.id) ?? 0;
+      const amountDue = roundMoney(totalNum - paid);
+      if (amountDue <= 0.0001) continue;
+
+      const eff = effectiveInvoiceDueDateForForecast(String(inv.issueDate), inv.dueDate, defaultTerms);
+      const dKey = format(eff, "yyyy-MM");
+
+      if (dKey < m0Key) {
+        incomeByMonth[0] += amountDue;
+        continue;
+      }
+      if (dKey > m2Key) continue;
+
+      const idx = monthStarts.findIndex((ms) => format(ms, "yyyy-MM") === dKey);
+      if (idx >= 0) {
+        incomeByMonth[idx] += amountDue;
+      }
+    }
+
+    const recurringRows = await db
+      .select({
+        amount: recurringExpenses.amount,
+        frequency: recurringExpenses.frequency,
+        nextDueDate: recurringExpenses.nextDueDate,
+      })
+      .from(recurringExpenses)
+      .where(eq(recurringExpenses.isActive, true));
+
+    const recurringByMonth = [0, 0, 0] as [number, number, number];
+
+    for (const rec of recurringRows) {
+      const amt = roundMoney(Number(rec.amount));
+      let d = parseDateDayForCashFlow(String(rec.nextDueDate));
+
+      let safety = 0;
+      while (safety < 520 && isBefore(d, monthStarts[0])) {
+        d = advanceRecurringDueDate(d, rec.frequency);
+        safety += 1;
+      }
+
+      safety = 0;
+      while (safety < 520 && !isAfter(d, horizonEnd)) {
+        const dKeyR = format(d, "yyyy-MM");
+        if (dKeyR >= m0Key && dKeyR <= m2Key) {
+          const idx = monthStarts.findIndex((ms) => format(ms, "yyyy-MM") === dKeyR);
+          if (idx >= 0) {
+            recurringByMonth[idx] += amt;
+          }
+        }
+        d = advanceRecurringDueDate(d, rec.frequency);
+        safety += 1;
+      }
+    }
+
+    for (let i = 0; i < 3; i++) {
+      incomeByMonth[i] = roundMoney(incomeByMonth[i]!);
+      recurringByMonth[i] = roundMoney(recurringByMonth[i]!);
+    }
+
+    const forecast: CashFlowForecastMonth[] = [];
+    let running = currentNet;
+    let totalExpectedIncome = 0;
+    let totalExpectedExpenses = 0;
+
+    for (let i = 0; i < 3; i++) {
+      const ms = monthStarts[i]!;
+      const expectedIncome = incomeByMonth[i]!;
+      const expectedExpenses = roundMoney(recurringByMonth[i]! + avgMonthlyNonRecurring);
+      const projectedNet = roundMoney(expectedIncome - expectedExpenses);
+      running = roundMoney(running + projectedNet);
+      totalExpectedIncome += expectedIncome;
+      totalExpectedExpenses += expectedExpenses;
+
+      forecast.push({
+        month: getMonth(ms) + 1,
+        year: getYear(ms),
+        monthLabel: format(ms, "MMMM yyyy", { locale: enUS }),
+        expectedIncome,
+        expectedExpenses,
+        projectedNet,
+        runningBalance: running,
+      });
+    }
+
+    const data: CashFlowForecastData = {
+      currentPosition: {
+        collected,
+        expenses: expensesToDate,
+        net: currentNet,
+      },
+      forecast,
+      totals: {
+        totalExpectedIncome: roundMoney(totalExpectedIncome),
+        totalExpectedExpenses: roundMoney(totalExpectedExpenses),
+      },
+    };
+
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("getCashFlowForecast", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: getDbErrorKey(e) };
+  }
+}
+
+/**
+ * Profitability per project: revenue = sum of payments on invoices linked via `invoices.project_id` or `invoice_projects`,
+ * allocated evenly per linked project when an invoice ties to multiple projects. Expenses = sum of `expenses` for that project.
+ * With `dateFrom` / `dateTo`, revenue uses only payments in that range; expenses use `expenses.date` in range.
+ */
+export async function getProjectProfitability(
+  range?: ProfitabilityDateRange
+): Promise<
+  { ok: true; data: ProjectProfitabilityRow[] } | { ok: false; error: ReturnType<typeof getDbErrorKey> }
+> {
+  try {
+    const dateFrom = range?.dateFrom;
+    const dateTo = range?.dateTo;
+    const useRange = Boolean(dateFrom || dateTo);
+    const payF = sqlPaymentDateFilterPayments(dateFrom, dateTo);
+    const expF = sqlExpenseDateFilterAliasE(dateFrom, dateTo);
+
+    const raw = useRange
+      ? await db.execute(sql`
+      WITH invoice_project_links AS (
+        SELECT ip.invoice_id, ip.project_id
+        FROM invoice_projects ip
+        UNION ALL
+        SELECT i.id AS invoice_id, i.project_id
+        FROM invoices i
+        WHERE i.project_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM invoice_projects ip2 WHERE ip2.invoice_id = i.id)
+      ),
+      filtered_payments AS (
+        SELECT invoice_id, SUM(amount)::numeric AS paid_in_range
+        FROM payments
+        WHERE 1 = 1
+          ${payF}
+        GROUP BY invoice_id
+      ),
+      invoice_collected AS (
+        SELECT
+          i.id AS invoice_id,
+          COALESCE(fp.paid_in_range, 0)::numeric AS collected
+        FROM invoices i
+        LEFT JOIN filtered_payments fp ON fp.invoice_id = i.id
+      ),
+      link_counts AS (
+        SELECT invoice_id, COUNT(*)::numeric AS cnt
+        FROM invoice_project_links
+        GROUP BY invoice_id
+      ),
+      project_revenue AS (
+        SELECT
+          pl.project_id,
+          SUM(ic.collected / NULLIF(lc.cnt, 0))::numeric AS total_revenue,
+          COUNT(DISTINCT pl.invoice_id)::int AS invoice_count
+        FROM invoice_project_links pl
+        INNER JOIN invoice_collected ic ON ic.invoice_id = pl.invoice_id
+        INNER JOIN link_counts lc ON lc.invoice_id = pl.invoice_id
+        WHERE ic.collected > 0
+        GROUP BY pl.project_id
+      ),
+      project_expenses AS (
+        SELECT
+          e.project_id,
+          COALESCE(SUM(e.amount), 0)::numeric AS total_expenses,
+          COUNT(*)::int AS expense_count
+        FROM expenses e
+        WHERE e.project_id IS NOT NULL
+          ${expF}
+        GROUP BY e.project_id
+      )
+      SELECT
+        p.id AS project_id,
+        p.name AS project_name,
+        p.client_id AS client_id,
+        c.company_name AS client_name,
+        c.logo_url AS client_logo_url,
+        p.status AS status,
+        p.budget AS budget,
+        COALESCE(pr.total_revenue, 0)::numeric AS total_revenue,
+        COALESCE(pe.total_expenses, 0)::numeric AS total_expenses,
+        COALESCE(pr.invoice_count, 0)::int AS invoice_count,
+        COALESCE(pe.expense_count, 0)::int AS expense_count
+      FROM projects p
+      INNER JOIN clients c ON c.id = p.client_id
+      LEFT JOIN project_revenue pr ON pr.project_id = p.id
+      LEFT JOIN project_expenses pe ON pe.project_id = p.id
+      WHERE p.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      ORDER BY (COALESCE(pr.total_revenue, 0) - COALESCE(pe.total_expenses, 0)) DESC
+    `)
+      : await db.execute(sql`
+      WITH invoice_project_links AS (
+        SELECT ip.invoice_id, ip.project_id
+        FROM invoice_projects ip
+        UNION ALL
+        SELECT i.id AS invoice_id, i.project_id
+        FROM invoices i
+        WHERE i.project_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM invoice_projects ip2 WHERE ip2.invoice_id = i.id)
+      ),
+      invoice_collected AS (
+        SELECT
+          i.id AS invoice_id,
+          CASE
+            WHEN COALESCE(pt.paid_total, 0) > 0 THEN pt.paid_total
+            WHEN i.status = 'paid' THEN i.total::numeric
+            ELSE 0::numeric
+          END AS collected
+        FROM invoices i
+        LEFT JOIN (
+          SELECT invoice_id, SUM(amount)::numeric AS paid_total
+          FROM payments
+          GROUP BY invoice_id
+        ) pt ON pt.invoice_id = i.id
+      ),
+      link_counts AS (
+        SELECT invoice_id, COUNT(*)::numeric AS cnt
+        FROM invoice_project_links
+        GROUP BY invoice_id
+      ),
+      project_revenue AS (
+        SELECT
+          pl.project_id,
+          SUM(ic.collected / NULLIF(lc.cnt, 0))::numeric AS total_revenue,
+          COUNT(DISTINCT pl.invoice_id)::int AS invoice_count
+        FROM invoice_project_links pl
+        INNER JOIN invoice_collected ic ON ic.invoice_id = pl.invoice_id
+        INNER JOIN link_counts lc ON lc.invoice_id = pl.invoice_id
+        WHERE ic.collected > 0
+        GROUP BY pl.project_id
+      ),
+      project_expenses AS (
+        SELECT
+          project_id,
+          COALESCE(SUM(amount), 0)::numeric AS total_expenses,
+          COUNT(*)::int AS expense_count
+        FROM expenses
+        WHERE project_id IS NOT NULL
+        GROUP BY project_id
+      )
+      SELECT
+        p.id AS project_id,
+        p.name AS project_name,
+        p.client_id AS client_id,
+        c.company_name AS client_name,
+        c.logo_url AS client_logo_url,
+        p.status AS status,
+        p.budget AS budget,
+        COALESCE(pr.total_revenue, 0)::numeric AS total_revenue,
+        COALESCE(pe.total_expenses, 0)::numeric AS total_expenses,
+        COALESCE(pr.invoice_count, 0)::int AS invoice_count,
+        COALESCE(pe.expense_count, 0)::int AS expense_count
+      FROM projects p
+      INNER JOIN clients c ON c.id = p.client_id
+      LEFT JOIN project_revenue pr ON pr.project_id = p.id
+      LEFT JOIN project_expenses pe ON pe.project_id = p.id
+      WHERE p.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      ORDER BY (COALESCE(pr.total_revenue, 0) - COALESCE(pe.total_expenses, 0)) DESC
+    `);
+
+    const rows = Array.isArray(raw)
+      ? raw
+      : (raw as unknown as { rows?: Record<string, unknown>[] }).rows ?? [];
+
+    const data: ProjectProfitabilityRow[] = rows.map((row) => {
+      const totalRevenue = Number(row.total_revenue ?? 0) || 0;
+      const totalExpenses = Number(row.total_expenses ?? 0) || 0;
+      const profit = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+      const profitMargin =
+        totalRevenue > 0 ? Math.round((profit / totalRevenue) * 10000) / 100 : null;
+      const budgetNum = row.budget != null ? Number(row.budget) : null;
+      const budgetVariance =
+        budgetNum != null && !Number.isNaN(budgetNum)
+          ? Math.round((totalRevenue - budgetNum) * 100) / 100
+          : null;
+
+      return {
+        projectId: String(row.project_id),
+        projectName: String(row.project_name ?? ""),
+        clientId: String(row.client_id),
+        clientName: String(row.client_name ?? "—"),
+        clientLogoUrl: row.client_logo_url != null ? String(row.client_logo_url) : null,
+        status: String(row.status ?? ""),
+        budget: row.budget != null ? String(row.budget) : null,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        totalExpenses: Math.round(totalExpenses * 100) / 100,
+        profit,
+        profitMargin,
+        budgetVariance,
+        invoiceCount: Number(row.invoice_count ?? 0) || 0,
+        expenseCount: Number(row.expense_count ?? 0) || 0,
+      };
+    });
+
+    return { ok: true, data };
+  } catch (e) {
+    console.error("getProjectProfitability", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: getDbErrorKey(e) };
+    }
+    return { ok: false, error: getDbErrorKey(e) };
+  }
+}
+
+/**
+ * Allocates each project's revenue and expenses (same rules as {@link getProjectProfitability}) evenly across
+ * services linked via `project_services`. Projects with no services are omitted.
+ */
+export async function getServiceProfitability(
+  range?: ProfitabilityDateRange
+): Promise<
+  | { ok: true; data: ServiceProfitabilityAnalyticsRow[] }
+  | { ok: false; error: ReturnType<typeof getDbErrorKey> }
+> {
+  try {
+    const projRes = await getProjectProfitability(range);
+    if (!projRes.ok) return projRes;
+
+    const linkRows = await db
+      .select({
+        projectId: projectServices.projectId,
+        serviceId: services.id,
+        serviceName: services.name,
+      })
+      .from(projectServices)
+      .innerJoin(services, eq(projectServices.serviceId, services.id))
+      .innerJoin(projects, eq(projectServices.projectId, projects.id))
+      .where(isNull(projects.deletedAt));
+
+    const servicesByProject = new Map<string, { id: string; name: string }[]>();
+    for (const row of linkRows) {
+      const list = servicesByProject.get(row.projectId) ?? [];
+      if (!list.some((s) => s.id === row.serviceId)) {
+        list.push({ id: row.serviceId, name: row.serviceName });
+      }
+      servicesByProject.set(row.projectId, list);
+    }
+
+    const byService = new Map<
+      string,
+      { name: string; rev: number; exp: number; projects: Set<string> }
+    >();
+
+    for (const p of projRes.data) {
+      const svcs = servicesByProject.get(p.projectId) ?? [];
+      const n = svcs.length;
+      if (n === 0) continue;
+      const revShare = p.totalRevenue / n;
+      const expShare = p.totalExpenses / n;
+      for (const s of svcs) {
+        const cur = byService.get(s.id) ?? {
+          name: s.name,
+          rev: 0,
+          exp: 0,
+          projects: new Set<string>(),
+        };
+        cur.rev += revShare;
+        cur.exp += expShare;
+        cur.projects.add(p.projectId);
+        byService.set(s.id, cur);
+      }
+    }
+
+    const data: ServiceProfitabilityAnalyticsRow[] = Array.from(byService.entries()).map(
+      ([serviceId, v]) => {
+        const totalRevenue = Math.round(v.rev * 100) / 100;
+        const totalExpenses = Math.round(v.exp * 100) / 100;
+        const profit = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+        const profitMargin =
+          totalRevenue > 0 ? Math.round((profit / totalRevenue) * 10000) / 100 : 0;
+        return {
+          serviceId,
+          serviceName: v.name,
+          totalRevenue,
+          totalExpenses,
+          profit,
+          profitMargin,
+          projectCount: v.projects.size,
+        };
+      }
+    );
+    data.sort((a, b) => b.profit - a.profit);
+
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("getServiceProfitability", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: getDbErrorKey(e) };
+  }
+}
+
+// --- Aging (AR) report ---
+
+export type AgingBucketTotals = { count: number; total: number };
+
+export type AgingReportInvoiceRow = {
+  invoice: typeof invoices.$inferSelect;
+  client: { id: string; companyName: string | null; logoUrl: string | null };
+  dueDate: string;
+  daysOverdue: number;
+  amountDue: number;
+};
+
+export type AgingReportData = {
+  current: AgingBucketTotals;
+  days1to30: AgingBucketTotals;
+  days31to60: AgingBucketTotals;
+  days61to90: AgingBucketTotals;
+  days90plus: AgingBucketTotals;
+  invoices: AgingReportInvoiceRow[];
+};
+
+const emptyAgingBuckets = (): Omit<AgingReportData, "invoices"> => ({
+  current: { count: 0, total: 0 },
+  days1to30: { count: 0, total: 0 },
+  days31to60: { count: 0, total: 0 },
+  days61to90: { count: 0, total: 0 },
+  days90plus: { count: 0, total: 0 },
+});
+
+function bucketForDaysOverdue(days: number): keyof Omit<AgingReportData, "invoices"> {
+  if (days <= 0) return "current";
+  if (days <= 30) return "days1to30";
+  if (days <= 60) return "days31to60";
+  if (days <= 90) return "days61to90";
+  return "days90plus";
+}
+
+/** Outstanding balances by aging bucket; only invoices with amount due &gt; 0. */
+export async function getAgingReport(): Promise<
+  { ok: true; data: AgingReportData } | { ok: false; error: ReturnType<typeof getDbErrorKey> }
+> {
+  try {
+    const today = startOfDay(new Date());
+
+    const paidSums = await db
+      .select({
+        invoiceId: payments.invoiceId,
+        paid: sum(payments.amount),
+      })
+      .from(payments)
+      .groupBy(payments.invoiceId);
+
+    const paidMap = new Map(
+      paidSums.map((r) => [r.invoiceId, Number(r.paid ?? 0)])
+    );
+
+    const rows = await db
+      .select({
+        invoice: invoices,
+        clientId: clients.id,
+        companyName: clients.companyName,
+        logoUrl: clients.logoUrl,
+      })
+      .from(invoices)
+      .innerJoin(clients, eq(invoices.clientId, clients.id));
+
+    const buckets = emptyAgingBuckets();
+    const list: AgingReportInvoiceRow[] = [];
+
+    for (const row of rows) {
+      const inv = row.invoice;
+      const totalNum = Number(inv.total);
+      const paid = paidMap.get(inv.id) ?? 0;
+      const amountDue = Math.round((totalNum - paid) * 100) / 100;
+      if (amountDue <= 0) continue;
+
+      const dueRaw = inv.dueDate ?? inv.issueDate;
+      const dueStr = String(dueRaw);
+      const dueDay = startOfDay(parseISO(dueStr.length === 10 ? `${dueStr}T12:00:00` : dueStr));
+      const daysOverdue = Math.max(0, differenceInDays(today, dueDay));
+
+      const key = bucketForDaysOverdue(daysOverdue);
+      buckets[key].count += 1;
+      buckets[key].total += amountDue;
+
+      list.push({
+        invoice: inv,
+        client: {
+          id: row.clientId,
+          companyName: row.companyName,
+          logoUrl: row.logoUrl,
+        },
+        dueDate: dueStr,
+        daysOverdue,
+        amountDue,
+      });
+    }
+
+    list.sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+    return {
+      ok: true,
+      data: {
+        ...buckets,
+        invoices: list,
+      },
+    };
+  } catch (e) {
+    console.error("getAgingReport", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: getDbErrorKey(e) };
+    }
+    return { ok: false, error: getDbErrorKey(e) };
+  }
 }

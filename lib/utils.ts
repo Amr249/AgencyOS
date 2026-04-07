@@ -2,9 +2,6 @@ import { type ClassValue, clsx } from "clsx";
 import { Metadata } from "next";
 import { twMerge } from "tailwind-merge";
 
-export const SAR_SYMBOL = "ر.س";
-export const SAR_CODE = "SAR";
-
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -16,16 +13,9 @@ export function generateAvatarFallback(string: string) {
   return mapped.join("");
 }
 
-/** Format SAR amount. Arabic uses ر.س, English uses SAR. Returns "—" for null/empty/invalid. */
-export function formatBudgetSAR(
-  value: string | null | undefined,
-  language: "ar" | "en" = "ar"
-): string {
-  if (value == null || value === "") return "—";
-  const n = Number(value);
-  if (Number.isNaN(n)) return "—";
-  const formatted = n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-  return `${formatted} ${language === "en" ? SAR_CODE : SAR_SYMBOL}`;
+/** Formatted number only (no currency suffix). Use with SarMoney for SAR display. */
+export function formatBudgetSAR(value: string | null | undefined): string {
+  return formatAmount(value);
 }
 
 /** Format numeric amount without currency suffix. Returns "—" for null/empty/invalid. */

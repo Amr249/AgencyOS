@@ -104,7 +104,7 @@ export function SettingsSections({
   };
 
   // Section 2 — Invoice Defaults
-  const [invoicePrefix, setInvoicePrefix] = React.useState(initial?.invoicePrefix ?? "فاتورة");
+  const [invoicePrefix, setInvoicePrefix] = React.useState(initial?.invoicePrefix ?? "INV");
   const [invoiceNextNumber, setInvoiceNextNumber] = React.useState(
     initial?.invoiceNextNumber ?? 1
   );
@@ -300,11 +300,11 @@ export function SettingsSections({
                 id="invoicePrefix"
                 value={invoicePrefix}
                 onChange={(e) => setInvoicePrefix(e.target.value)}
-                placeholder="فاتورة"
+                placeholder="INV"
                 className="max-w-[120px]"
               />
               <span className="text-muted-foreground text-sm">
-                Preview: {invoicePrefix || "فاتورة"}-{String(invoiceNextNumber).padStart(3, "0")}
+                Preview: {invoicePrefix || "INV"}-{String(invoiceNextNumber).padStart(3, "0")}
               </span>
             </div>
           </div>

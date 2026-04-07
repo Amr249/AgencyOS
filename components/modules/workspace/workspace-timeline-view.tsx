@@ -28,20 +28,20 @@ export function WorkspaceTimelineView({
   const withoutDueDate = tasks.filter((task) => !task.dueDate).length;
 
   return (
-    <div className="space-y-4" dir="rtl">
+    <div dir="ltr" className="space-y-4">
       <WorkspaceNav projects={projects} />
       <div className="flex items-center gap-2">
-        <Button variant={mode === "week" ? "secondary" : "outline"} onClick={() => setMode("week")}>أسبوع</Button>
-        <Button variant={mode === "month" ? "secondary" : "outline"} onClick={() => setMode("month")}>شهر</Button>
+        <Button variant={mode === "week" ? "secondary" : "outline"} onClick={() => setMode("week")}>Week</Button>
+        <Button variant={mode === "month" ? "secondary" : "outline"} onClick={() => setMode("month")}>Month</Button>
       </div>
 
       <div className="hidden gap-3 md:flex">
         <div className="w-[220px] space-y-2">
           {tasks.map((task) => (
             <div key={task.id} className="rounded-lg border p-2">
-              <p className="truncate text-sm font-medium">{task.title}</p>
+              <p className="truncate text-sm font-medium" dir="auto">{task.title}</p>
               <div className="mt-1 flex items-center justify-between text-xs">
-                <span>{task.assigneeName ?? "غير معيّن"}</span>
+                <span>{task.assigneeName ?? "Unassigned"}</span>
                 <Badge variant="outline">{task.status}</Badge>
               </div>
             </div>
@@ -90,14 +90,14 @@ export function WorkspaceTimelineView({
       <div className="space-y-2 md:hidden">
         {tasks.map((task) => (
           <div key={task.id} className="rounded-xl border p-3">
-            <p className="font-medium">{task.title}</p>
-            <p className="text-xs text-muted-foreground">{task.dueDate ?? "بدون تاريخ استحقاق"}</p>
+            <p className="font-medium" dir="auto">{task.title}</p>
+            <p className="text-xs text-muted-foreground">{task.dueDate ?? "No due date"}</p>
           </div>
         ))}
       </div>
 
       {withoutDueDate > 0 && (
-        <p className="text-sm text-muted-foreground">{withoutDueDate} مهام بدون تاريخ استحقاق.</p>
+        <p className="text-sm text-muted-foreground">{withoutDueDate} tasks without due date.</p>
       )}
     </div>
   );

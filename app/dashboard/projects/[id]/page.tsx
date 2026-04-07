@@ -8,6 +8,7 @@ import { getTasksByProjectId } from "@/actions/tasks";
 import { getInvoicesByProjectId } from "@/actions/invoices";
 import { getFiles } from "@/actions/files";
 import { getProjectMembers, getTeamMembers } from "@/actions/team-members";
+import { getExpensesByProjectId, getProjectCostSummary } from "@/actions/expenses";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +27,7 @@ import { ProjectTasksTab } from "@/components/modules/projects/project-tasks-tab
 import { ProjectInvoicesTab } from "@/components/modules/projects/project-invoices-tab";
 import { ProjectNotesTab } from "@/components/modules/projects/project-notes-tab";
 import { ProjectTeamTab } from "@/components/modules/projects/project-team-tab";
+import { ProjectExpensesTab } from "@/components/modules/projects/project-expenses-tab";
 import { FileManager } from "@/components/modules/files/file-manager";
 import { cn } from "@/lib/utils";
 
@@ -67,18 +69,30 @@ export default async function ProjectDetailPage({ params }: Props) {
       ? settingsResult.data.defaultCurrency
       : "USD";
 
-  const [tasksResult, invoicesResult, filesResult, projectMembersResult, teamMembersResult] = await Promise.all([
+  const [
+    tasksResult,
+    invoicesResult,
+    filesResult,
+    projectMembersResult,
+    teamMembersResult,
+    expensesResult,
+    costSummaryResult,
+  ] = await Promise.all([
     getTasksByProjectId(id),
     getInvoicesByProjectId(id),
     getFiles({ projectId: id }),
     getProjectMembers(id),
     getTeamMembers(),
+    getExpensesByProjectId(id),
+    getProjectCostSummary(id),
   ]);
   const tasks = tasksResult.ok ? tasksResult.data : [];
   const invoices = invoicesResult.ok ? invoicesResult.data : [];
   const initialFiles = filesResult.ok ? filesResult.data : [];
   const projectMembers = projectMembersResult.ok ? projectMembersResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
+  const projectExpenses = expensesResult.ok ? expensesResult.data : [];
+  const costSummary = costSummaryResult.ok ? costSummaryResult.data : null;
 
   const statusLabel = PROJECT_STATUS_LABELS[project.status] ?? project.status;
 
@@ -138,6 +152,7 @@ export default async function ProjectDetailPage({ params }: Props) {
           <TabsTrigger value="overview">نظرة عامة</TabsTrigger>
           <TabsTrigger value="tasks">المهام</TabsTrigger>
           <TabsTrigger value="team">الفريق</TabsTrigger>
+          <TabsTrigger value="expenses">Expenses</TabsTrigger>
           <TabsTrigger value="invoices">الفواتير</TabsTrigger>
           <TabsTrigger value="files">الملفات</TabsTrigger>
           <TabsTrigger value="notes">ملاحظات</TabsTrigger>
@@ -170,6 +185,17 @@ export default async function ProjectDetailPage({ params }: Props) {
             projectId={id}
             initialMembers={projectMembers}
             allTeamMembers={teamMembers}
+          />
+        </TabsContent>
+        <TabsContent value="expenses" className="mt-4">
+          <ProjectExpensesTab
+            projectId={id}
+            projectName={project.name}
+            clientId={project.clientId}
+            clientCompanyName={project.clientName ?? ""}
+            expenses={projectExpenses}
+            costSummary={costSummary}
+            teamMembers={teamMembers}
           />
         </TabsContent>
         <TabsContent value="invoices" className="mt-4">

@@ -108,16 +108,36 @@ export const TASK_PRIORITY_BORDER = {
   urgent: "border-l-red-500",
 } as const;
 
-// Invoice status (Arabic) — pending | paid only
+// Invoice status — pending | partial | paid
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
-  pending: "بانتظار الدفع",
-  paid: "تم الدفع",
+  pending: "Pending",
+  partial: "Partially Paid",
+  paid: "Paid",
 };
 
 export const INVOICE_STATUS_BADGE_CLASS: Record<string, string> = {
-  pending: "border-transparent bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  paid: "border-transparent bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+  pending: "bg-amber-100 text-amber-800 border-amber-200",
+  partial: "bg-blue-100 text-blue-800 border-blue-200",
+  paid: "bg-green-100 text-green-800 border-green-200",
 };
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bank_transfer: "Bank Transfer",
+  cash: "Cash",
+  credit_card: "Credit Card",
+  cheque: "Cheque",
+  other: "Other",
+};
+
+export const RECURRENCE_FREQUENCY_LABELS: Record<string, string> = {
+  weekly: "Weekly",
+  monthly: "Monthly",
+  quarterly: "Quarterly",
+  yearly: "Yearly",
+};
+
+/** @deprecated Use PAYMENT_METHOD_LABELS (same values). */
+export const PAYMENT_METHOD_LABELS_EN = PAYMENT_METHOD_LABELS;
 
 // Proposal status (Arabic) — applied | viewed | shortlisted | won | lost | cancelled
 export const PROPOSAL_STATUS_LABELS: Record<string, string> = {

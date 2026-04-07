@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import {
-  getInvoices,
-  getInvoiceStats,
+  getInvoicesWithPayments,
+  getInvoiceStatsWithPayments,
   getNextInvoiceNumber,
   migrateInvoicesToNewFormat,
 } from "@/actions/invoices";
@@ -35,8 +35,8 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     search: search ?? undefined,
   };
   const [invoicesResult, statsResult, clientsResult, settingsResult, nextNumResult] = await Promise.all([
-    getInvoices(invoiceFilters),
-    getInvoiceStats(),
+    getInvoicesWithPayments(invoiceFilters),
+    getInvoiceStatsWithPayments(),
     getClientsList(),
     getSettings(),
     getNextInvoiceNumber(),
@@ -55,13 +55,14 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
   const stats = statsResult.ok ? statsResult.data : { totalInvoiced: 0, collected: 0, outstanding: 0 };
   const clients = clientsResult.ok ? clientsResult.data : [];
   const settings = settingsResult.ok ? settingsResult.data : null;
-  let nextInvoiceNumber = nextNumResult.ok ? nextNumResult.data : "فاتورة-001";
+  let nextInvoiceNumber = nextNumResult.ok ? nextNumResult.data : "INV-001";
 
-  const needsMigration = invoices.some((inv) => !/^فاتورة-\d{3}$/.test(inv.invoiceNumber));
+  /** Only auto-run legacy fix when invoice numbers look like MIG-{uuid} (broken migration), not for custom prefixes. */
+  const needsMigration = invoices.some((inv) => !/^INV-\d{3,}$/.test(inv.invoiceNumber));
   if (needsMigration) {
     const migrated = await migrateInvoicesToNewFormat();
     if (migrated.ok) {
-      const [reinv, renext] = await Promise.all([getInvoices(invoiceFilters), getNextInvoiceNumber()]);
+      const [reinv, renext] = await Promise.all([getInvoicesWithPayments(invoiceFilters), getNextInvoiceNumber()]);
       if (reinv.ok) invoices = reinv.data;
       if (renext.ok) nextInvoiceNumber = renext.data;
     }

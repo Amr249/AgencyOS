@@ -42,8 +42,11 @@ export function AssigneePicker({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLocalAssignees(currentAssignees);
-    setError(null);
+    // Sync from server when task or assignees change (eslint: intentional sync, not cascading UI)
+    queueMicrotask(() => {
+      setLocalAssignees(currentAssignees);
+      setError(null);
+    });
   }, [taskId, currentAssignees]);
 
   const isAssigned = (userId: string) =>

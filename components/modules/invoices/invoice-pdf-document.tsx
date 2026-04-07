@@ -1,11 +1,9 @@
 import React from "react";
-import {
-  Page,
-  Text,
-  View,
-  Image,
-  StyleSheet,
-} from "@react-pdf/renderer";
+import path from "path";
+import { Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
+import type { Style } from "@react-pdf/types";
+import { formatDate } from "@/lib/utils";
+import { PAYMENT_METHOD_LABELS } from "@/types";
 
 type AddressJson = { street?: string; city?: string; country?: string; postal?: string };
 
@@ -17,10 +15,15 @@ type InvoiceItem = {
   amount: string;
 };
 
+export type InvoicePdfStatus = "pending" | "partial" | "paid";
+
 type InvoiceData = {
   invoiceNumber: string;
   issueDate: string;
   issueDateFormatted: string;
+  dueDate: string | null;
+  dueDateFormatted: string | null;
+  status: InvoicePdfStatus;
   clientName: string | null;
   clientAddress: AddressJson | null;
   clientPhone: string | null;
@@ -29,6 +32,8 @@ type InvoiceData = {
   total: string;
   currency: string;
   notes: string | null;
+  /** Comma-separated project names when invoice spans multiple projects */
+  relatedProjectsLabel?: string | null;
   items: InvoiceItem[];
 };
 
@@ -38,372 +43,577 @@ type SettingsData = {
   agencyEmail: string | null;
   agencyAddress: AddressJson | null;
   invoiceColor: string | null;
+  invoiceFooter: string | null;
 };
 
-function formatMoney(value: string): string {
-  const n = Number(value);
-  if (Number.isNaN(n)) return value;
-  const formatted = n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-  return `${formatted} ر.س`;
+function formatAddress(addr: AddressJson | null): string {
+  if (!addr) return "—";
+  const parts = [addr.street, addr.city, addr.postal, addr.country].filter(Boolean);
+  return parts.length ? parts.join(", ") : "—";
 }
 
-const DARK = "#1F2937";
+const SAR_PNG_PATH = path.join(process.cwd(), "public", "Saudi_Riyal_Symbol.png");
+
+function PdfMoney({
+  value,
+  currency,
+  textStyle,
+  wrapperStyle,
+}: {
+  value: string;
+  currency: string;
+  textStyle?: Style | Style[];
+  wrapperStyle?: Style | Style[];
+}) {
+  const n = Number(value);
+  const formatted = Number.isNaN(n) ? value : n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  if (currency !== "SAR") {
+    return <Text style={textStyle}>{`${formatted} ${currency}`}</Text>;
+  }
+  const rowStyles: Style[] = [
+    { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 },
+    ...(wrapperStyle == null ? [] : Array.isArray(wrapperStyle) ? wrapperStyle : [wrapperStyle]),
+  ];
+  return (
+    <View style={rowStyles}>
+      <Text style={textStyle}>{formatted}</Text>
+      <Image src={SAR_PNG_PATH} style={{ width: 8, height: 8 }} />
+    </View>
+  );
+}
+
+function paymentMethodLabel(method: string | null | undefined): string {
+  if (method == null || method === "") return "—";
+  if (method in PAYMENT_METHOD_LABELS) {
+    return PAYMENT_METHOD_LABELS[method as keyof typeof PAYMENT_METHOD_LABELS];
+  }
+  return method;
+}
+
+function statusLabel(status: InvoicePdfStatus): string {
+  switch (status) {
+    case "paid":
+      return "Paid";
+    case "partial":
+      return "Partially Paid";
+    default:
+      return "Pending";
+  }
+}
+
+function statusColors(status: InvoicePdfStatus): { bg: string; fg: string } {
+  switch (status) {
+    case "paid":
+      return { bg: "#D1FAE5", fg: "#065F46" };
+    case "partial":
+      return { bg: "#DBEAFE", fg: "#1E40AF" };
+    default:
+      return { bg: "#FEF3C7", fg: "#92400E" };
+  }
+}
+
+const DARK = "#111827";
 const MUTED = "#6B7280";
+const BORDER = "#E5E7EB";
 const DEFAULT_ACCENT = "#4F46E5";
 const ROW_ALT = "#F9FAFB";
 
-// RTL: use flexDirection: 'row-reverse' and textAlign: 'right' — react-pdf does not support direction: 'rtl'
 const styles = StyleSheet.create({
   page: {
-    fontFamily: "Cairo",
+    fontFamily: "Helvetica",
     padding: 40,
-    paddingBottom: 120,
-    fontSize: 10,
+    paddingBottom: 100,
+    fontSize: 9,
+    color: DARK,
     backgroundColor: "#FFFFFF",
   },
-  header: {
-    fontFamily: "Cairo",
-    flexDirection: "row-reverse",
+  topAccent: {
+    height: 4,
+    marginBottom: 20,
+    borderRadius: 2,
+  },
+  headerRow: {
+    flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 16,
+    marginBottom: 20,
+  },
+  headerLeft: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    flexGrow: 1,
   },
   headerRight: {
-    fontFamily: "Cairo",
     flexDirection: "column",
     alignItems: "flex-end",
+    minWidth: 140,
   },
-  titleMain: {
-    fontFamily: "Cairo",
-    fontSize: 48,
+  docTitle: {
+    fontFamily: "Helvetica",
+    fontSize: 28,
     fontWeight: "bold",
-    color: DEFAULT_ACCENT,
-    letterSpacing: 2,
+    letterSpacing: 1,
     marginBottom: 4,
-    textAlign: "right",
   },
-  titleNumber: {
-    fontFamily: "Cairo",
-    fontSize: 18,
+  invoiceNumber: {
+    fontFamily: "Helvetica",
+    fontSize: 14,
     fontWeight: "bold",
-    color: DARK,
-    marginBottom: 4,
-    textAlign: "right",
+    marginBottom: 10,
   },
-  titleDate: {
-    fontFamily: "Cairo",
-    fontSize: 11,
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginTop: 4,
+    alignSelf: "flex-start",
+  },
+  statusBadgeText: {
+    fontFamily: "Helvetica",
+    fontSize: 9,
+    fontWeight: "bold",
+  },
+  metaLabel: {
+    fontFamily: "Helvetica",
+    fontSize: 8,
     color: MUTED,
-    textAlign: "right",
+    marginBottom: 2,
   },
-  logoWrap: {
-    maxHeight: 60,
-    width: "auto",
+  metaValue: {
+    fontFamily: "Helvetica",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  twoCol: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 24,
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  colFrom: {
+    width: "48%",
+  },
+  colTo: {
+    width: "48%",
+  },
+  sectionLabel: {
+    fontFamily: "Helvetica",
+    fontSize: 8,
+    fontWeight: "bold",
+    color: MUTED,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  bodyText: {
+    fontFamily: "Helvetica",
+    fontSize: 9,
+    lineHeight: 1.4,
+    marginBottom: 3,
   },
   logo: {
-    maxHeight: 60,
-    width: "auto",
+    maxHeight: 48,
+    maxWidth: 160,
     objectFit: "contain",
-  },
-  separator: {
-    height: 1,
-    backgroundColor: DEFAULT_ACCENT,
-    marginVertical: 16,
-  },
-  billTo: {
-    fontFamily: "Cairo",
-    marginBottom: 16,
-  },
-  billToRow: {
-    fontFamily: "Cairo",
-    flexDirection: "row-reverse",
-    marginBottom: 4,
-    alignItems: "center",
-  },
-  billToLabel: {
-    fontFamily: "Cairo",
-    fontSize: 10,
-    fontWeight: "bold",
-    color: DARK,
-    marginLeft: 8,
-    minWidth: 100,
-    textAlign: "right",
-  },
-  billToValue: {
-    fontFamily: "Cairo",
-    fontSize: 10,
-    color: DARK,
-    textAlign: "right",
+    marginBottom: 8,
   },
   table: {
-    fontFamily: "Cairo",
-    marginTop: 8,
     marginBottom: 16,
   },
   tableHeader: {
-    fontFamily: "Cairo",
-    flexDirection: "row-reverse",
-    backgroundColor: DARK,
+    flexDirection: "row",
     paddingVertical: 8,
     paddingHorizontal: 8,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
   },
-  tableHeaderCell: {
-    fontFamily: "Cairo",
-    fontSize: 9,
+  th: {
+    fontFamily: "Helvetica",
+    fontSize: 8,
     fontWeight: "bold",
     color: "#FFFFFF",
-    textAlign: "right",
   },
-  tableHeaderCellCenter: {
-    fontFamily: "Cairo",
-    fontSize: 9,
-    fontWeight: "bold",
-    color: "#FFFFFF",
-    textAlign: "center",
-  },
-  tableRow: {
-    fontFamily: "Cairo",
-    flexDirection: "row-reverse",
+  tr: {
+    flexDirection: "row",
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderBottomWidth: 0.5,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: BORDER,
   },
-  tableRowAlt: {
-    backgroundColor: ROW_ALT,
-  },
-  tableCell: {
-    fontFamily: "Cairo",
-    fontSize: 9,
+  td: {
+    fontFamily: "Helvetica",
+    fontSize: 8,
     color: DARK,
-    textAlign: "right",
   },
-  tableCellCenter: {
-    fontFamily: "Cairo",
-    fontSize: 9,
-    color: DARK,
-    textAlign: "center",
-  },
-  colNo: { width: "8%" },
-  colDesc: { width: "42%" },
-  colQty: { width: "15%" },
-  colUnit: { width: "17%" },
-  colTotal: { width: "18%" },
-  totals: {
-    fontFamily: "Cairo",
-    marginTop: 8,
+  tdRight: { textAlign: "right" },
+  tdCenter: { textAlign: "center" },
+  colIdx: { width: "6%" },
+  colDesc: { width: "34%" },
+  colQty: { width: "8%" },
+  colUnit: { width: "16%" },
+  colTax: { width: "10%" },
+  colAmt: { width: "26%" },
+  totalsWrap: {
     alignItems: "flex-end",
-    width: "100%",
+    marginBottom: 16,
   },
-  totalsRow: {
-    fontFamily: "Cairo",
-    flexDirection: "row-reverse",
-    justifyContent: "flex-end",
-    marginBottom: 4,
-    gap: 24,
+  totalsBox: {
+    width: 240,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 4,
+    backgroundColor: "#FAFAFA",
   },
-  totalsLabel: {
-    fontFamily: "Cairo",
-    fontSize: 10,
-    color: DARK,
-    textAlign: "right",
-    minWidth: 100,
+  totalLine: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
   },
-  totalsValue: {
-    fontFamily: "Cairo",
-    fontSize: 10,
-    color: DARK,
-    textAlign: "left",
-  },
-  totalsFinal: {
-    fontFamily: "Cairo",
-    flexDirection: "row-reverse",
-    justifyContent: "flex-end",
+  totalLineFinal: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: DARK,
-    gap: 24,
   },
-  totalsFinalLabel: {
-    fontFamily: "Cairo",
-    fontSize: 12,
+  totalLabel: {
+    fontFamily: "Helvetica",
+    fontSize: 9,
+    color: MUTED,
+  },
+  totalValue: {
+    fontFamily: "Helvetica",
+    fontSize: 9,
     fontWeight: "bold",
-    color: DARK,
-    textAlign: "right",
-    minWidth: 100,
   },
-  totalsFinalValue: {
-    fontFamily: "Cairo",
-    fontSize: 12,
+  totalFinalLabel: {
+    fontFamily: "Helvetica",
+    fontSize: 11,
     fontWeight: "bold",
-    color: DARK,
-    textAlign: "left",
   },
-  thankYou: {
-    fontFamily: "Cairo",
-    marginTop: 24,
-    marginBottom: 24,
+  totalFinalValue: {
+    fontFamily: "Helvetica",
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+  paymentBlock: {
+    marginBottom: 14,
+  },
+  paymentTitle: {
+    fontFamily: "Helvetica",
+    fontSize: 10,
+    fontWeight: "bold",
+    marginBottom: 8,
+  },
+  payHeader: {
+    flexDirection: "row",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  payRow: {
+    flexDirection: "row",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: BORDER,
+  },
+  payColDate: { width: "28%" },
+  payColAmt: { width: "28%" },
+  payColMethod: { width: "44%" },
+  paySummary: {
+    marginTop: 8,
+    alignItems: "flex-end",
+  },
+  paySummaryRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 16,
+    marginBottom: 4,
+  },
+  amountDueBox: {
+    marginTop: 10,
+    marginBottom: 8,
+    padding: 10,
+    borderRadius: 4,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
   },
-  thankYouText: {
-    fontFamily: "Cairo",
-    fontSize: 16,
+  amountDueLabel: {
+    fontFamily: "Helvetica",
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+  amountDueValue: {
+    fontFamily: "Helvetica",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  notesBlock: {
+    marginBottom: 12,
+    padding: 10,
+    backgroundColor: ROW_ALT,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  notesTitle: {
+    fontFamily: "Helvetica",
+    fontSize: 8,
+    fontWeight: "bold",
     color: MUTED,
-    letterSpacing: 3,
-    textAlign: "right",
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  notesBody: {
+    fontFamily: "Helvetica",
+    fontSize: 9,
+    lineHeight: 1.45,
   },
   footer: {
-    fontFamily: "Cairo",
     position: "absolute",
-    bottom: 40,
+    bottom: 32,
     left: 40,
     right: 40,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    flexDirection: "row-reverse",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
+    borderTopColor: BORDER,
   },
-  footerRight: {
-    fontFamily: "Cairo",
-    flexDirection: "column",
-    alignItems: "flex-end",
-    maxWidth: "70%",
-  },
-  footerLabel: {
-    fontFamily: "Cairo",
-    fontSize: 10,
+  footerTitle: {
+    fontFamily: "Helvetica",
+    fontSize: 8,
     fontWeight: "bold",
-    color: DARK,
-    marginBottom: 4,
-    textAlign: "right",
-  },
-  footerNotes: {
-    fontFamily: "Cairo",
-    fontSize: 9,
     color: MUTED,
-    textAlign: "right",
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  footerText: {
+    fontFamily: "Helvetica",
+    fontSize: 8,
+    color: MUTED,
     lineHeight: 1.4,
+    marginBottom: 6,
   },
   footerContact: {
-    fontFamily: "Cairo",
+    fontFamily: "Helvetica",
+    fontSize: 8,
+    color: DARK,
+  },
+  thankYou: {
+    marginTop: 8,
+    textAlign: "center",
+    fontFamily: "Helvetica",
     fontSize: 9,
     color: MUTED,
-    textAlign: "left",
+    fontStyle: "italic",
   },
 });
+
+type PaymentRow = {
+  paymentDate: string;
+  amount: string;
+  paymentMethod: string | null;
+  reference?: string | null;
+};
 
 export function InvoicePdfDocument({
   invoice,
   settings,
   accentColor,
+  payments = [],
+  totalPaid = 0,
+  amountDue = 0,
 }: {
   invoice: InvoiceData;
   settings: SettingsData | null;
   accentColor?: string;
+  payments?: PaymentRow[];
+  totalPaid?: number;
+  amountDue?: number;
 }) {
-  const color = accentColor && /^#[0-9A-Fa-f]{6}$/.test(accentColor) ? accentColor : DEFAULT_ACCENT;
+  const accent = accentColor && /^#[0-9A-Fa-f]{6}$/.test(accentColor) ? accentColor : DEFAULT_ACCENT;
+  const st = statusColors(invoice.status);
+  const currency = invoice.currency || "SAR";
 
-  const pageStyles = StyleSheet.create({
-    separator: { ...styles.separator, backgroundColor: color },
-    titleMain: { ...styles.titleMain, color },
-    tableHeader: { ...styles.tableHeader, backgroundColor: color },
-    footer: { ...styles.footer, borderTopColor: color },
+  const dynamic = StyleSheet.create({
+    accentBar: { ...styles.topAccent, backgroundColor: accent },
+    docTitle: { ...styles.docTitle, color: accent },
+    tableHeader: { ...styles.tableHeader, backgroundColor: accent },
+    payHeader: { ...styles.payHeader, backgroundColor: accent },
+    totalsBorder: { borderColor: accent },
+    amountDueBox: {
+      ...styles.amountDueBox,
+      backgroundColor: "#FFFBEB",
+      borderColor: "#F59E0B",
+    },
+    amountDueValue: { ...styles.amountDueValue, color: "#B45309" },
+    footerTop: { ...styles.footer, borderTopColor: accent },
   });
+
+  const hasPayments = payments.length > 0;
+  const showAmountDue = amountDue > 0.005;
 
   return (
     <Page size="A4" style={styles.page}>
-      {/* Header: logo left, title + number + date right (RTL: first column right, second left) */}
-      <View style={styles.header}>
-        <View style={styles.headerRight}>
-          <Text style={pageStyles.titleMain}>فـــاتـورة</Text>
-          <Text style={styles.titleNumber}># {invoice.invoiceNumber}</Text>
-          <Text style={styles.titleDate}>
-            {invoice.issueDateFormatted.replace(/\//g, " / ")}
-          </Text>
+      <View style={dynamic.accentBar} />
+
+      <View style={styles.headerRow}>
+        <View style={styles.headerLeft}>
+          <Text style={dynamic.docTitle}>INVOICE</Text>
+          <Text style={styles.invoiceNumber}>{invoice.invoiceNumber}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: st.bg }]}>
+            <Text style={[styles.statusBadgeText, { color: st.fg }]}>{statusLabel(invoice.status)}</Text>
+          </View>
         </View>
-        <View style={styles.logoWrap}>
-          {settings?.agencyLogoUrl ? (
-            <Image src={settings.agencyLogoUrl} style={styles.logo} />
+        <View style={styles.headerRight}>
+          <Text style={styles.metaLabel}>Issue Date</Text>
+          <Text style={styles.metaValue}>{invoice.issueDateFormatted}</Text>
+          <Text style={[styles.metaLabel, { marginTop: 8 }]}>Due Date</Text>
+          <Text style={styles.metaValue}>{invoice.dueDateFormatted ?? "—"}</Text>
+        </View>
+      </View>
+
+      <View style={styles.twoCol}>
+        <View style={styles.colFrom}>
+          <Text style={[styles.sectionLabel, { color: accent }]}>From</Text>
+          {settings?.agencyLogoUrl ? <Image src={settings.agencyLogoUrl} style={styles.logo} /> : null}
+          <Text style={styles.bodyText}>{settings?.agencyName ?? "Agency"}</Text>
+          <Text style={styles.bodyText}>{formatAddress(settings?.agencyAddress ?? null)}</Text>
+          {settings?.agencyEmail ? (
+            <Text style={styles.bodyText}>{settings.agencyEmail}</Text>
           ) : null}
         </View>
-      </View>
-
-      <View style={pageStyles.separator} />
-
-      {/* Bill To */}
-      <View style={styles.billTo}>
-        <View style={styles.billToRow}>
-          <Text style={styles.billToValue}>{invoice.clientName ?? "—"}</Text>
-          <Text style={styles.billToLabel}>فـاتورة إلى:</Text>
-        </View>
-        <View style={styles.billToRow}>
-          <Text style={styles.billToValue}>{invoice.clientPhone ?? "—"}</Text>
-          <Text style={styles.billToLabel}>رقم الهاتف:</Text>
+        <View style={styles.colTo}>
+          <Text style={[styles.sectionLabel, { color: accent }]}>Bill To</Text>
+          <Text style={styles.bodyText}>{invoice.clientName ?? "—"}</Text>
+          <Text style={styles.bodyText}>{formatAddress(invoice.clientAddress)}</Text>
+          {invoice.clientPhone ? <Text style={styles.bodyText}>{invoice.clientPhone}</Text> : null}
         </View>
       </View>
 
-      <View style={pageStyles.separator} />
+      {invoice.relatedProjectsLabel ? (
+        <View style={{ marginBottom: 14 }}>
+          <Text style={styles.sectionLabel}>Related projects</Text>
+          <Text style={styles.bodyText}>{invoice.relatedProjectsLabel}</Text>
+        </View>
+      ) : null}
 
-      {/* Line items table — RTL: NO | الخدمة/الوصف | الكمية | سعر الوحدة | الإجمالي */}
       <View style={styles.table}>
-        <View style={pageStyles.tableHeader}>
-          <Text style={[styles.tableHeaderCellCenter, styles.colNo]}>NO</Text>
-          <Text style={[styles.tableHeaderCell, styles.colDesc]}>الخدمة / الوصف</Text>
-          <Text style={[styles.tableHeaderCell, styles.colQty]}>الكمية</Text>
-          <Text style={[styles.tableHeaderCell, styles.colUnit]}>سعر الوحدة (ر.س)</Text>
-          <Text style={[styles.tableHeaderCell, styles.colTotal]}>الإجمالي (ر.س)</Text>
+        <View style={dynamic.tableHeader}>
+          <Text style={[styles.th, styles.colIdx]}>#</Text>
+          <Text style={[styles.th, styles.colDesc]}>Description</Text>
+          <Text style={[styles.th, styles.colQty, styles.tdCenter]}>Qty</Text>
+          <Text style={[styles.th, styles.colUnit, styles.tdRight]}>Unit Price</Text>
+          <Text style={[styles.th, styles.colTax, styles.tdCenter]}>Tax %</Text>
+          <Text style={[styles.th, styles.colAmt, styles.tdRight]}>Amount</Text>
         </View>
         {invoice.items.map((item, i) => (
           <View
             key={i}
-            style={i % 2 === 1 ? [styles.tableRow, styles.tableRowAlt] : [styles.tableRow]}
+            style={[styles.tr, i % 2 === 1 ? { backgroundColor: ROW_ALT } : {}]}
+            wrap={false}
           >
-            <Text style={[styles.tableCellCenter, styles.colNo]}>{i + 1}</Text>
-            <Text style={[styles.tableCell, styles.colDesc]}>{item.description}</Text>
-            <Text style={[styles.tableCell, styles.colQty]}>{Number(item.quantity)}</Text>
-            <Text style={[styles.tableCell, styles.colUnit]}>{formatMoney(item.unitPrice)}</Text>
-            <Text style={[styles.tableCell, styles.colTotal]}>{formatMoney(item.amount)}</Text>
+            <Text style={[styles.td, styles.colIdx]}>{i + 1}</Text>
+            <Text style={[styles.td, styles.colDesc]}>{item.description}</Text>
+            <Text style={[styles.td, styles.colQty, styles.tdCenter]}>{Number(item.quantity)}</Text>
+            <View style={[styles.td, styles.colUnit, styles.tdRight]}>
+              <PdfMoney value={item.unitPrice} currency={currency} textStyle={[styles.td, styles.tdRight]} />
+            </View>
+            <Text style={[styles.td, styles.colTax, styles.tdCenter]}>{Number(item.taxRate)}%</Text>
+            <View style={[styles.td, styles.colAmt, styles.tdRight]}>
+              <PdfMoney value={item.amount} currency={currency} textStyle={[styles.td, styles.tdRight]} />
+            </View>
           </View>
         ))}
       </View>
 
-      {/* Totals — right-aligned */}
-      <View style={styles.totals}>
-        <View style={styles.totalsRow}>
-          <Text style={styles.totalsValue}>{formatMoney(invoice.subtotal)}</Text>
-          <Text style={styles.totalsLabel}>المجموع الفرعي:</Text>
-        </View>
-        <View style={styles.totalsRow}>
-          <Text style={styles.totalsValue}>{formatMoney(invoice.taxAmount)}</Text>
-          <Text style={styles.totalsLabel}>الضريبة:</Text>
-        </View>
-        <View style={styles.totalsFinal}>
-          <Text style={styles.totalsFinalValue}>{formatMoney(invoice.total)}</Text>
-          <Text style={styles.totalsFinalLabel}>الإجمالي الكلي:</Text>
+      <View style={styles.totalsWrap}>
+        <View style={[styles.totalsBox, dynamic.totalsBorder]}>
+          <View style={styles.totalLine}>
+            <Text style={styles.totalLabel}>Subtotal</Text>
+            <PdfMoney value={invoice.subtotal} currency={currency} textStyle={styles.totalValue} />
+          </View>
+          <View style={styles.totalLine}>
+            <Text style={styles.totalLabel}>Tax</Text>
+            <PdfMoney value={invoice.taxAmount} currency={currency} textStyle={styles.totalValue} />
+          </View>
+          <View style={[styles.totalLineFinal, { borderTopColor: accent }]}>
+            <Text style={[styles.totalFinalLabel, { color: accent }]}>Grand Total</Text>
+            <PdfMoney
+              value={invoice.total}
+              currency={currency}
+              textStyle={[styles.totalFinalValue, { color: accent }]}
+            />
+          </View>
         </View>
       </View>
 
-      <View style={pageStyles.separator} />
-
-      {/* Thank you */}
-      <View style={styles.thankYou}>
-        <Text style={styles.thankYouText}>مـــــــع خـــــالص الشـــــكر</Text>
-      </View>
-
-      {/* Footer */}
-      <View style={pageStyles.footer}>
-        <View style={styles.footerRight}>
-          <Text style={styles.footerLabel}>الشـــروط والتعـــليمات</Text>
-          <Text style={styles.footerNotes}>
-            {invoice.notes ?? "—"}
-          </Text>
+      {hasPayments ? (
+        <View style={styles.paymentBlock}>
+          <Text style={[styles.paymentTitle, { color: accent }]}>Payment History</Text>
+          <View style={dynamic.payHeader}>
+            <Text style={[styles.th, styles.payColDate]}>Date</Text>
+            <Text style={[styles.th, styles.payColAmt, styles.tdRight]}>Amount</Text>
+            <Text style={[styles.th, styles.payColMethod]}>Method</Text>
+          </View>
+          {[...payments]
+            .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate))
+            .map((p, i) => (
+              <View
+                key={`${p.paymentDate}-${i}`}
+                style={[styles.payRow, i % 2 === 1 ? { backgroundColor: ROW_ALT } : {}]}
+              >
+                <Text style={[styles.td, styles.payColDate]}>{formatDate(p.paymentDate)}</Text>
+                <View style={[styles.td, styles.payColAmt, styles.tdRight]}>
+                  <PdfMoney value={p.amount} currency={currency} textStyle={[styles.td, styles.tdRight]} />
+                </View>
+                <Text style={[styles.td, styles.payColMethod]}>
+                  {paymentMethodLabel(p.paymentMethod)}
+                  {p.reference ? ` · Ref: ${p.reference}` : ""}
+                </Text>
+              </View>
+            ))}
+          <View style={styles.paySummary}>
+            <View style={styles.paySummaryRow}>
+              <Text style={styles.totalLabel}>Total Paid</Text>
+              <PdfMoney value={String(totalPaid)} currency={currency} textStyle={styles.totalValue} />
+            </View>
+          </View>
         </View>
-        <Text style={styles.footerContact}>
-          {settings?.agencyEmail ? `للتواصل: ${settings.agencyEmail}` : ""}
-        </Text>
+      ) : null}
+
+      {showAmountDue ? (
+        <View style={dynamic.amountDueBox}>
+          <Text style={styles.amountDueLabel}>Amount Due</Text>
+          <PdfMoney value={String(amountDue)} currency={currency} textStyle={dynamic.amountDueValue} />
+        </View>
+      ) : null}
+
+      {invoice.notes ? (
+        <View style={styles.notesBlock}>
+          <Text style={styles.notesTitle}>Notes</Text>
+          <Text style={styles.notesBody}>{invoice.notes}</Text>
+        </View>
+      ) : null}
+
+      <Text style={styles.thankYou}>Thank you for your business.</Text>
+
+      <View style={dynamic.footerTop} wrap={false}>
+        {settings?.invoiceFooter ? (
+          <>
+            <Text style={styles.footerTitle}>Payment instructions</Text>
+            <Text style={styles.footerText}>{settings.invoiceFooter}</Text>
+          </>
+        ) : null}
+        {settings?.agencyEmail ? (
+          <Text style={styles.footerContact}>Contact: {settings.agencyEmail}</Text>
+        ) : null}
       </View>
     </Page>
   );

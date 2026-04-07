@@ -35,12 +35,12 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { enUS } from "date-fns/locale";
 import { formatAmount } from "@/lib/utils";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { Cross2Icon } from "@radix-ui/react-icons";
 import { Lock } from "lucide-react";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
+import { Checkbox } from "@/components/ui/checkbox";
 
 function SarAmount({ value }: { value: string }) {
   const f = formatAmount(value);
@@ -62,7 +62,7 @@ const lineItemSchema = z.object({
 
 const formSchema = z.object({
   clientId: z.string().uuid("Select a client"),
-  projectId: z.string().optional().nullable(),
+  projectIds: z.array(z.string().uuid()).optional(),
   invoiceNumber: z.string().min(1, "Invoice number required"),
   issueDate: z.string().min(1),
   notes: z.string().optional().nullable(),
@@ -123,7 +123,7 @@ export function NewInvoiceDialog({
     resolver: zodResolver(formSchema),
     defaultValues: {
       clientId: defaultClientId ?? "",
-      projectId: null,
+      projectIds: [] as string[],
       invoiceNumber: nextInvoiceNumber,
       issueDate: new Date().toISOString().slice(0, 10),
       notes: defaultNotes,
@@ -135,7 +135,7 @@ export function NewInvoiceDialog({
   React.useEffect(() => {
     if (!clientId) {
       setProjects([]);
-      form.setValue("projectId", null);
+      form.setValue("projectIds", []);
       return;
     }
     getProjects({ clientId }).then((r) => {
@@ -148,7 +148,7 @@ export function NewInvoiceDialog({
     if (open) {
       form.reset({
         clientId: defaultClientId ?? "",
-        projectId: null,
+        projectIds: [],
         invoiceNumber: nextInvoiceNumber,
         issueDate: new Date().toISOString().slice(0, 10),
         notes: defaultNotes,
@@ -173,11 +173,10 @@ export function NewInvoiceDialog({
   }, [lineItems]);
 
   async function onSubmit(values: FormValues) {
-    const projectId = values.projectId === "__none__" || !values.projectId ? undefined : values.projectId;
     const result = await createInvoice({
       ...values,
       status: "pending",
-      projectId: projectId ?? null,
+      projectIds: values.projectIds?.length ? values.projectIds : undefined,
       currency: "SAR",
       lineItems: values.lineItems,
     });
@@ -214,7 +213,7 @@ export function NewInvoiceDialog({
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-4 py-4">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-4">
               <FormField
                 control={form.control}
                 name="clientId"
@@ -247,28 +246,43 @@ export function NewInvoiceDialog({
               />
               <FormField
                 control={form.control}
-                name="projectId"
-                render={({ field }) => (
+                name="projectIds"
+                render={() => (
                   <FormItem className="text-left">
-                    <FormLabel>Project (optional)</FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
-                      value={field.value ?? "__none__"}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="text-left">
-                          <SelectValue placeholder="—" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="__none__">—</SelectItem>
+                    <FormLabel>Projects (optional)</FormLabel>
+                    <p className="text-muted-foreground mb-2 text-xs">
+                      Select one or more projects for this client, or leave empty.
+                    </p>
+                    {projects.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">No projects for this client yet.</p>
+                    ) : (
+                      <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
                         {projects.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
+                          <FormField
+                            key={p.id}
+                            control={form.control}
+                            name="projectIds"
+                            render={({ field }) => {
+                              const checked = field.value?.includes(p.id) ?? false;
+                              return (
+                                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(c) => {
+                                      const next = new Set(field.value ?? []);
+                                      if (c === true) next.add(p.id);
+                                      else next.delete(p.id);
+                                      field.onChange([...next]);
+                                    }}
+                                  />
+                                  <span>{p.name}</span>
+                                </label>
+                              );
+                            }}
+                          />
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </div>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -299,8 +313,6 @@ export function NewInvoiceDialog({
                     <FormLabel>Issue date</FormLabel>
                     <FormControl>
                       <DatePickerAr
-                        direction="ltr"
-                        locale={enUS}
                         popoverAlign="start"
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}

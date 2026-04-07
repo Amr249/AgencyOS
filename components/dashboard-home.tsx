@@ -32,7 +32,9 @@ import {
   PlusCircle,
 } from "lucide-react";
 import type { DashboardData } from "@/actions/dashboard";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_BADGE_CLASS, INVOICE_STATUS_LABELS } from "@/types";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 
 const DONUT_COLORS: Record<string, string> = {
   active: "#22c55e",
@@ -49,7 +51,12 @@ const CURRENCY_LOCALE = "en-US";
 function formatCurrency(amount: number, currency: string) {
   if (currency === "SAR" || currency === "ر.س") {
     const formatted = amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    return `${formatted} ر.س`;
+    return (
+      <span className="inline-flex items-center gap-1 tabular-nums" dir="ltr">
+        {formatted}
+        <SarCurrencyIcon className="h-4 w-4 shrink-0" />
+      </span>
+    );
   }
   return new Intl.NumberFormat(CURRENCY_LOCALE, {
     style: "currency",
@@ -59,7 +66,14 @@ function formatCurrency(amount: number, currency: string) {
   }).format(amount);
 }
 
+function signedNumberClass(n: number): string {
+  if (n > 0.005) return "text-green-600";
+  if (n < -0.005) return "text-red-600";
+  return "text-muted-foreground";
+}
+
 export function DashboardHome({ data }: { data: DashboardData }) {
+  const chartMd = useMediaQuery("(min-width: 640px)");
   const {
     currency,
     revenueThisMonth,
@@ -73,6 +87,10 @@ export function DashboardHome({ data }: { data: DashboardData }) {
     overdueTasks,
     upcomingProjects,
     recentInvoices,
+    totalProfit,
+    profitMargin,
+    topProfitableProject,
+    topProfitableClient,
   } = data;
 
   const revenueDelta =
@@ -148,6 +166,82 @@ export function DashboardHome({ data }: { data: DashboardData }) {
         </Card>
       </div>
 
+      {/* Profitability KPIs (YTD) — English labels, no decorative icons */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Net Profit (YTD)</CardTitle>
+            <CardDescription className="text-xs">Collected revenue minus expenses, this year</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold tabular-nums ${signedNumberClass(totalProfit)}`}>
+              {formatCurrency(totalProfit, currency)}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Profit Margin</CardTitle>
+            <CardDescription className="text-xs">Net profit ÷ YTD collected</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div
+              className={`text-2xl font-bold tabular-nums ${
+                profitMargin === null
+                  ? "text-muted-foreground"
+                  : signedNumberClass(profitMargin)
+              }`}
+            >
+              {profitMargin === null ? "—" : `${profitMargin.toFixed(1)}%`}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Most Profitable Project</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {topProfitableProject ? (
+              <>
+                <Link
+                  href={`/dashboard/projects/${topProfitableProject.id}`}
+                  className="font-medium text-primary hover:underline block truncate"
+                >
+                  {topProfitableProject.name}
+                </Link>
+                <div className={`text-lg font-semibold tabular-nums ${signedNumberClass(topProfitableProject.profit)}`}>
+                  {formatCurrency(topProfitableProject.profit, currency)}
+                </div>
+              </>
+            ) : (
+              <p className="text-muted-foreground text-sm">No project data</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Most Profitable Client</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {topProfitableClient ? (
+              <>
+                <Link
+                  href={`/dashboard/clients/${topProfitableClient.id}`}
+                  className="font-medium text-primary hover:underline block truncate"
+                >
+                  {topProfitableClient.name}
+                </Link>
+                <div className={`text-lg font-semibold tabular-nums ${signedNumberClass(topProfitableClient.profit)}`}>
+                  {formatCurrency(topProfitableClient.profit, currency)}
+                </div>
+              </>
+            ) : (
+              <p className="text-muted-foreground text-sm">No client data</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Row 2 — Charts */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -157,15 +251,22 @@ export function DashboardHome({ data }: { data: DashboardData }) {
           </CardHeader>
           <CardContent>
             {revenueByMonth.some((m) => m.invoiced > 0 || m.collected > 0) ? (
-              <div className="h-48 md:h-[300px]">
+              <div className="h-52 min-h-48 w-full min-w-0 md:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={revenueByMonth}>
+                  <BarChart data={revenueByMonth} margin={{ top: 8, right: 8, left: chartMd ? 0 : -8, bottom: chartMd ? 8 : 4 }}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" fontSize={12} />
-                    <YAxis fontSize={12} tickFormatter={(v) => `${v}`} />
-                    <Legend />
-                    <Bar dataKey="invoiced" name="الفواتير" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="collected" name="الأرباح" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                    <XAxis
+                      dataKey="month"
+                      fontSize={chartMd ? 12 : 10}
+                      interval={0}
+                      angle={chartMd ? 0 : -32}
+                      textAnchor={chartMd ? "middle" : "end"}
+                      height={chartMd ? 28 : 56}
+                    />
+                    <YAxis fontSize={chartMd ? 12 : 10} width={chartMd ? 44 : 32} tickFormatter={(v) => `${v}`} />
+                    <Legend wrapperStyle={{ fontSize: chartMd ? 12 : 11 }} />
+                    <Bar dataKey="invoiced" name="الفواتير" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={chartMd ? 48 : 32} />
+                    <Bar dataKey="collected" name="الأرباح" fill="#22c55e" radius={[4, 4, 0, 0]} maxBarSize={chartMd ? 48 : 32} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -183,7 +284,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
           </CardHeader>
           <CardContent>
             {projectStatusCounts.length > 0 ? (
-              <div className="h-48 md:h-[300px]">
+              <div className="h-52 min-h-48 w-full min-w-0 md:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -192,10 +293,14 @@ export function DashboardHome({ data }: { data: DashboardData }) {
                       nameKey="label"
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={90}
+                      innerRadius="38%"
+                      outerRadius="72%"
                       paddingAngle={2}
-                      label={({ label, count }) => `${label}: ${count}`}
+                      label={
+                        chartMd
+                          ? ({ label, count }) => `${label}: ${count}`
+                          : false
+                      }
                     >
                       {projectStatusCounts.map((entry, index) => (
                         <Cell

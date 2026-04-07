@@ -12,7 +12,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "seed:admin": "npx tsx scripts/seed-admin.ts",
-    "fix:migrations": "npx tsx scripts/fix-migrations.ts"
+    "fix:migrations": "npx tsx scripts/fix-migrations.ts",
+    "db:backfill-legacy-payments": "npx tsx scripts/backfill-legacy-payments.ts",
+    "db:migrate-paid-invoices": "npx tsx scripts/migrate-paid-invoices.ts"
   },
   "dependencies": {
     "@abdulrysr/saudi-riyal-new-symbol-font": "^1.0.8",
@@ -58,6 +60,7 @@
     "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.4.0",
     "vaul": "^1.1.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

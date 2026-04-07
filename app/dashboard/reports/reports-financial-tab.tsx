@@ -4,15 +4,19 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RevenueChartSection } from "@/components/reports/revenue-chart-section";
-import { OutstandingInvoicesTable } from "@/components/reports/outstanding-invoices-table";
-import { TopClientsPieChart } from "@/components/modules/reports/top-clients-pie-chart";
+import { MonthlyComparisonChart } from "@/components/reports/monthly-comparison-chart";
+import { ProfitabilityVisualization } from "@/components/reports/profitability-visualization";
 import { ReportsCurrencyProvider, useReportsCurrency } from "@/components/reports/reports-currency-context";
+import { ReportsMoney } from "@/components/reports/reports-money";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { INVOICE_STATUS_LABELS, INVOICE_STATUS_BADGE_CLASS } from "@/types";
 import { TrendingUp, TrendingDown } from "lucide-react";
-import type { FinancialSummary } from "@/actions/reports";
-import type { MonthlyRevenuePoint } from "@/actions/reports";
-import type { RecentInvoiceRow } from "@/actions/reports";
-import type { OutstandingInvoiceRow } from "@/actions/reports";
+import type {
+  FinancialSummary,
+  MonthlyRevenuePoint,
+  RecentInvoiceRow,
+  MonthlyComparisonPoint,
+} from "@/actions/reports";
 
 type ReportsFinancialTabProps = {
   rate: number;
@@ -22,50 +26,55 @@ type ReportsFinancialTabProps = {
   totalProfitsInRange: number;
   totalExpensesInRange: number;
   netProfitInRange: number;
-  topClientsPieData: { clientName: string; total: number; invoiceCount: number }[];
   recentInvoices: RecentInvoiceRow[];
-  outstandingRows: OutstandingInvoiceRow[];
-  totalOutstanding: number;
+  monthlyComparison: MonthlyComparisonPoint[];
 };
 
 function CurrencyToggleAndIndicator() {
   const { currency, setCurrency, rate } = useReportsCurrency();
   return (
     <div className="space-y-1 w-full">
-      <div className="flex gap-2 items-center flex-wrap w-full md:w-auto" dir="rtl">
-        <span className="text-sm text-muted-foreground">العملة:</span>
-        <div className="flex rounded-lg border overflow-hidden">
+      <div className="flex gap-2 items-center flex-wrap w-full md:w-auto" dir="ltr">
+        <span className="text-sm text-muted-foreground">Currency:</span>
+        <div className="flex overflow-hidden rounded-lg border">
           <button
             type="button"
             onClick={() => setCurrency("SAR")}
-            className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-              currency === "SAR" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+            className={`inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
+              currency === "SAR"
+                ? "bg-[#a4fe19] text-neutral-950"
+                : "bg-white text-foreground hover:bg-muted"
             }`}
+            aria-label="SAR"
           >
-            ر.س SAR
+            <SarCurrencyIcon className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={() => setCurrency("EGP")}
-            className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-              currency === "EGP" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+            className={`inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
+              currency === "EGP"
+                ? "bg-[#a4fe19] text-neutral-950"
+                : "bg-white text-foreground hover:bg-muted"
             }`}
           >
-            ج.م EGP
+            EGP
           </button>
         </div>
         {currency === "EGP" && (
-          <span className="text-xs text-muted-foreground">1 ر.س = {rate.toFixed(2)} ج.م</span>
+          <span className="text-xs text-muted-foreground">1 SAR = {rate.toFixed(2)} EGP</span>
         )}
       </div>
       {currency === "EGP" && (
-        <div className="text-xs text-muted-foreground text-right">
-          سعر الصرف المباشر: 1 ر.س = {rate.toFixed(2)} ج.م · يتجدد كل ساعة
+        <div className="text-xs text-muted-foreground text-left">
+          Live rate: 1 SAR = {rate.toFixed(2)} EGP · refreshes hourly
         </div>
       )}
     </div>
   );
 }
+
+const RECENT_INVOICES_PREVIEW = 6;
 
 function FinancialContent({
   summary,
@@ -74,25 +83,25 @@ function FinancialContent({
   totalProfitsInRange,
   totalExpensesInRange,
   netProfitInRange,
-  topClientsPieData,
   recentInvoices,
-  outstandingRows,
-  totalOutstanding,
+  monthlyComparison,
 }: Omit<ReportsFinancialTabProps, "rate">) {
-  const { formatAmount } = useReportsCurrency();
+  const recentPreview = recentInvoices.slice(0, RECENT_INVOICES_PREVIEW);
 
   return (
-    <>
-      {/* Section 1 — KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="space-y-5">
+      {/* KPI row — 2×2 mobile, 4 columns desktop */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-right">إيرادات هذا الشهر</CardTitle>
+            <CardTitle className="text-sm font-medium text-left">Revenue this month</CardTitle>
           </CardHeader>
-          <CardContent className="text-right">
-            <p className="text-2xl font-bold">{formatAmount(summary.revenueThisMonth)}</p>
-            <p className="text-muted-foreground flex items-center justify-end gap-1 text-xs">
-              مقارنة بالشهر الماضي
+          <CardContent className="text-left">
+            <div className="text-2xl font-bold">
+              <ReportsMoney amount={summary.revenueThisMonth} iconClassName="h-5 w-5" />
+            </div>
+            <p className="text-muted-foreground flex items-center justify-start gap-1 text-xs">
+              vs. last month
               {revenueDelta >= 0 ? (
                 <TrendingUp className="h-3 w-3 text-green-600" />
               ) : (
@@ -107,49 +116,79 @@ function FinancialContent({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-right">إجمالي الأرباح هذه السنة</CardTitle>
+            <CardTitle className="text-sm font-medium text-left">Collected this year</CardTitle>
           </CardHeader>
-          <CardContent className="text-right">
-            <p className="text-2xl font-bold">{formatAmount(summary.totalCollectedThisYear)}</p>
-            <p className="text-muted-foreground text-xs">حسب تاريخ الاستلام (paid_at)</p>
+          <CardContent className="text-left">
+            <div className="text-2xl font-bold">
+              <ReportsMoney amount={summary.totalCollectedThisYear} iconClassName="h-5 w-5" />
+            </div>
+            <p className="text-muted-foreground text-xs">By payment date</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-right">المستحق حالياً</CardTitle>
+            <CardTitle className="text-sm font-medium text-left">Outstanding</CardTitle>
           </CardHeader>
-          <CardContent className="text-right">
-            <p className="text-2xl font-bold">{formatAmount(summary.outstandingTotal)}</p>
-            <p className="text-muted-foreground text-xs">فواتير غير مدفوعة</p>
+          <CardContent className="text-left">
+            <div className="text-2xl font-bold">
+              <ReportsMoney amount={summary.outstandingTotal} iconClassName="h-5 w-5" />
+            </div>
+            <p className="text-muted-foreground text-xs">Unpaid balance</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-left">Net profit (range)</CardTitle>
+          </CardHeader>
+          <CardContent className="text-left">
+            <div
+              className={`text-2xl font-bold ${netProfitInRange < 0 ? "text-red-600" : ""}`}
+            >
+              <ReportsMoney amount={netProfitInRange} iconClassName="h-5 w-5" />
+            </div>
+            <p className="text-muted-foreground text-xs">Profit minus expenses in selected period</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Section 2 — Revenue Chart */}
-      <RevenueChartSection
-        monthlyRevenue={monthlyRevenue}
-        totalProfitsInRange={totalProfitsInRange}
-        totalExpensesInRange={totalExpensesInRange}
-        netProfitInRange={netProfitInRange}
-      />
+      {/* Revenue by month — full width */}
+      <div className="w-full max-w-full">
+        <RevenueChartSection
+          dashboardLayout
+          monthlyRevenue={monthlyRevenue}
+          totalProfitsInRange={totalProfitsInRange}
+          totalExpensesInRange={totalExpensesInRange}
+          netProfitInRange={netProfitInRange}
+        />
+      </div>
 
-      {/* Section 3 — Two columns */}
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-        <TopClientsPieChart data={topClientsPieData} />
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-right">آخر الفواتير</CardTitle>
+      {/* Month-over-month + recent invoices */}
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+        <MonthlyComparisonChart
+          data={monthlyComparison}
+          className="flex h-full min-h-[320px] flex-col"
+          chartContainerClassName="aspect-auto h-[280px] w-full md:h-[300px]"
+        />
+        <Card className="flex h-full min-h-[320px] flex-col overflow-hidden" dir="ltr">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-left text-base">Recent invoices</CardTitle>
+            <Link
+              href="/dashboard/invoices"
+              className="text-primary text-sm font-medium hover:underline"
+            >
+              View all
+            </Link>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-h-0 flex-1 overflow-y-auto pt-0">
             {recentInvoices.length === 0 ? (
-              <p className="text-muted-foreground text-center text-sm">لا توجد فواتير بعد.</p>
+              <p className="text-muted-foreground py-6 text-center text-sm">No invoices yet.</p>
             ) : (
-              <ul className="space-y-2">
-                {recentInvoices.map((inv) => (
+              <ul className="space-y-1">
+                {recentPreview.map((inv) => (
                   <li key={inv.id}>
                     <Link
                       href={`/dashboard/invoices/${inv.id}`}
-                      className="flex items-center gap-2 rounded-lg p-2 text-right hover:bg-muted/50"
+                      className="flex items-center gap-2 rounded-lg p-2 text-left hover:bg-muted/50"
                     >
                       <Badge
                         variant="outline"
@@ -157,11 +196,13 @@ function FinancialContent({
                       >
                         {INVOICE_STATUS_LABELS[inv.status] ?? inv.status}
                       </Badge>
-                      <span className="shrink-0 text-sm">{formatAmount(Number(inv.total))}</span>
+                      <span className="shrink-0 text-sm">
+                        <ReportsMoney amount={Number(inv.total)} iconClassName="h-3 w-3" />
+                      </span>
                       <span className="min-w-0 flex-1 truncate text-muted-foreground text-sm">
                         {inv.clientName ?? "—"}
                       </span>
-                      <span className="font-medium text-primary shrink-0 hover:underline">
+                      <span className="shrink-0 font-medium text-primary hover:underline">
                         {inv.invoiceNumber}
                       </span>
                     </Link>
@@ -173,19 +214,8 @@ function FinancialContent({
         </Card>
       </div>
 
-      {/* Section 4 — Outstanding Invoices Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-right">الفواتير المستحقة</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <OutstandingInvoicesTable
-            rows={outstandingRows}
-            totalOutstanding={totalOutstanding}
-          />
-        </CardContent>
-      </Card>
-    </>
+      <ProfitabilityVisualization />
+    </div>
   );
 }
 
@@ -193,7 +223,7 @@ export function ReportsFinancialTab(props: ReportsFinancialTabProps) {
   const { rate, ...rest } = props;
   return (
     <ReportsCurrencyProvider rate={rate}>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <CurrencyToggleAndIndicator />
         <FinancialContent {...rest} />
       </div>

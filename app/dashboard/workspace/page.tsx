@@ -11,10 +11,12 @@ export default async function WorkspacePage() {
   ]);
 
   return (
-    <WorkspaceMyTasksView
-      groups={tasksRes.ok ? tasksRes.data : { today: [], this_week: [], later: [], no_date: [] }}
-      teamMembers={membersRes.ok ? membersRes.data : []}
-      projects={(projectsRes.ok ? projectsRes.data : []).map((p) => ({ id: p.id, name: p.name }))}
-    />
+    <div dir="ltr" lang="en" className="h-full">
+      <WorkspaceMyTasksView
+        groups={tasksRes.ok ? tasksRes.data : { today: [], this_week: [], later: [], no_date: [] }}
+        teamMembers={membersRes.ok ? membersRes.data : []}
+        projects={(projectsRes.ok ? projectsRes.data : []).map((p) => ({ id: p.id, name: p.name }))}
+      />
+    </div>
   );
 }

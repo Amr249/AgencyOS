@@ -47,7 +47,7 @@ export function AppSidebar({
     { title: t("services"), url: "/dashboard/services", icon: IconListDetails },
     { title: t("team"), url: "/dashboard/team", icon: IconUsers },
     { title: t("allTasks"), url: "/dashboard/tasks", icon: IconListDetails },
-    { title: "الفضاء", url: "/dashboard/workspace", icon: IconLayoutKanban },
+    { title: t("workspace"), url: "/dashboard/workspace", icon: IconLayoutKanban },
     { title: t("invoices"), url: "/dashboard/invoices", icon: IconReceipt },
     { title: t("expenses"), url: "/dashboard/expenses", icon: IconWallet },
     { title: t("reports"), url: "/dashboard/reports", icon: IconReport },

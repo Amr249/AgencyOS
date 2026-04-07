@@ -3,5 +3,9 @@ import { WorkspaceWorkloadView } from "@/components/modules/workspace/workspace-
 
 export default async function WorkspaceWorkloadPage() {
   const result = await getWorkspaceWorkload();
-  return <WorkspaceWorkloadView rows={result.ok ? result.data : []} />;
+  return (
+    <div dir="ltr" lang="en" className="h-full">
+      <WorkspaceWorkloadView rows={result.ok ? result.data : []} />
+    </div>
+  );
 }

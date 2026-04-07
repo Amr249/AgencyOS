@@ -64,3 +64,12 @@ Files include: `assignments.ts`, `clients.ts`, `dashboard.ts`, `expenses.ts`, `f
 
 - [database-schema.md](./database-schema.md) — tables and enums.
 - [DATABASE.md](./DATABASE.md) — narrative DB documentation (may overlap; keep in sync over time).
+
+## Current state addendum
+
+<!-- ADDED 2026-03-23 -->
+
+- `/actions` currently has 16 action files (`assignments.ts`, `clients.ts`, `dashboard.ts`, `expenses.ts`, `files.ts`, `invoices.ts`, `project-services.ts`, `projects.ts`, `proposals.ts`, `reports.ts`, `services.ts`, `settings.ts`, `tasks.ts`, `team.ts`, `team-members.ts`, `workspace.ts`).
+- `/app/dashboard/workspace/` contains `layout.tsx` and 5 pages: `page.tsx`, `board/page.tsx`, `calendar/page.tsx`, `timeline/page.tsx`, `workload/page.tsx`.
+- `/components/modules/workspace/` contains: `workspace-nav.tsx`, `workspace-my-tasks-view.tsx`, `workspace-board-view.tsx`, `workspace-calendar-view.tsx`, `workspace-timeline-view.tsx`, `workspace-workload-view.tsx`, `task-detail-panel.tsx`.
+- `/app/api` currently contains six handlers: `auth/[...nextauth]`, `upload`, `search`, `set-locale`, `scrape-mostaql`, `invoices/[id]/pdf`.

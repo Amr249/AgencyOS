@@ -147,6 +147,47 @@ export async function getWorkspaceTimeline(projectId: string) {
   }
 }
 
+export async function getWorkspaceCalendar(month: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return { ok: false as const, error: "Invalid month format (YYYY-MM)" };
+  const year = Number(match[1]);
+  const mo = Number(match[2]);
+  const startDate = `${year}-${String(mo).padStart(2, "0")}-01`;
+  const endDate = new Date(year, mo, 0).toISOString().slice(0, 10);
+  try {
+    const data = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        status: tasks.status,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        estimatedHours: tasks.estimatedHours,
+        actualHours: tasks.actualHours,
+        description: tasks.description,
+        assigneeId: tasks.assigneeId,
+        assigneeName: teamMembers.name,
+        projectName: projects.name,
+      })
+      .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
+      .where(
+        and(
+          isNull(tasks.deletedAt),
+          sql`${tasks.dueDate} is not null`,
+          between(tasks.dueDate, startDate, endDate)
+        )
+      )
+      .orderBy(asc(tasks.dueDate), asc(tasks.sortOrder));
+
+    return { ok: true as const, data };
+  } catch (error) {
+    console.error("getWorkspaceCalendar", error);
+    return { ok: false as const, error: isDbConnectionError(error) ? getDbErrorKey(error) : "unknown" };
+  }
+}
+
 export async function getWorkspaceMyTasks() {
   try {
     const [withAssignee] = await db

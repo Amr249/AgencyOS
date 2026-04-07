@@ -8,10 +8,11 @@
     "services": "الخدمات",
     "team": "الفريق",
     "allTasks": "المهام",
-    "invoices": "الفواتير",
-    "expenses": "المصروفات",
-    "reports": "التقارير",
-    "settings": "الإعدادات"
+    "invoices": "Invoices",
+    "expenses": "Expenses",
+    "reports": "Reports",
+    "settings": "الإعدادات",
+    "workspace": "الفضاء"
   },
   "common": {
     "search": "بحث...",
@@ -264,6 +265,126 @@
     "prioMedium": "متوسطة",
     "prioHigh": "عالية",
     "prioUrgent": "عاجلة"
+  },
+  "newTaskModal": {
+    "title": "مهمة جديدة",
+    "description": "أضف مهمة جديدة للمشروع.",
+    "taskTitleLabel": "عنوان المهمة *",
+    "taskTitlePlaceholder": "عنوان المهمة",
+    "projectLabel": "المشروع *",
+    "projectPlaceholder": "اختر المشروع",
+    "descriptionLabel": "الوصف",
+    "descriptionPlaceholder": "الوصف (اختياري)",
+    "statusLabel": "الحالة",
+    "priorityLabel": "الأولوية",
+    "assigneeLabel": "المسؤول",
+    "assigneePlaceholder": "اختر عضو الفريق",
+    "unassigned": "بدون تعيين",
+    "startDateLabel": "تاريخ البدء",
+    "startDatePlaceholder": "اختر تاريخًا",
+    "dueDateLabel": "تاريخ الانتهاء",
+    "dueDatePlaceholder": "اختر تاريخًا",
+    "estimatedHoursLabel": "الساعات المقدرة",
+    "cancel": "إلغاء",
+    "submit": "إنشاء المهمة",
+    "submitting": "جاري...",
+    "errors": {
+      "createFailed": "فشل إنشاء المهمة"
+    }
+  },
+  "workspace": {
+    "pages": {
+      "noProjects": "لا توجد مشاريع متاحة."
+    },
+    "nav": {
+      "myTasks": "مهامي",
+      "board": "لوحة",
+      "timeline": "الجدول الزمني",
+      "workload": "عبء العمل",
+      "calendar": "التقويم",
+      "selectProject": "اختر المشروع"
+    },
+    "calendar": {
+      "today": "اليوم",
+      "addTask": "إضافة مهمة",
+      "more": "المزيد",
+      "showLess": "عرض أقل",
+      "noTasks": "لا توجد مهام هذا الشهر."
+    },
+    "myTasks": {
+      "title": "مهامي",
+      "newTask": "+ مهمة جديدة",
+      "today": "اليوم",
+      "this_week": "هذا الأسبوع",
+      "later": "لاحقاً",
+      "no_date": "بدون تاريخ",
+      "emptySection": "لا توجد مهام في هذا القسم.",
+      "hours": "{count}h",
+      "colTask": "المهمة",
+      "colProject": "المشروع",
+      "colStatus": "الحالة",
+      "colPriority": "الأولوية",
+      "colAssignee": "المسؤول",
+      "colDueDate": "تاريخ الاستحقاق",
+      "colHours": "الساعات",
+      "unassigned": "—",
+      "noDueDate": "—",
+      "errors": {
+        "updateStatus": "تعذر تحديث الحالة."
+      }
+    },
+    "board": {
+      "addTask": "إضافة مهمة",
+      "unassigned": "غير معيّن",
+      "errors": {
+        "saveSort": "تعذر حفظ ترتيب المهام."
+      }
+    },
+    "timeline": {
+      "week": "أسبوع",
+      "month": "شهر",
+      "unassigned": "غير معيّن",
+      "noDueDate": "بدون تاريخ استحقاق",
+      "withoutDueDate": "{count} مهام بدون تاريخ استحقاق."
+    },
+    "workload": {
+      "title": "عبء العمل",
+      "subtitle": "توزيع مهام الفريق للأسابيع الـ 8 القادمة",
+      "empty": "أضف أعضاء للفريق أولاً",
+      "teamMember": "عضو الفريق",
+      "week": "أسبوع {index}",
+      "tasksCount": "{count} مهام",
+      "selectedTitle": "مهام {member} — {week}",
+      "noTasks": "لا توجد مهام في هذا الأسبوع."
+    },
+    "detail": {
+      "title": "تفاصيل المهمة",
+      "description": "تحرير المهمة ومتابعة الوقت والتعليقات",
+      "assignMember": "تعيين عضو",
+      "none": "بدون تعيين",
+      "dueDate": "تاريخ الاستحقاق",
+      "estimatedHours": "الساعات المقدّرة",
+      "timeTracking": "تتبع الوقت",
+      "hoursProgress": "{logged}h / {estimated}h المقدّرة",
+      "unknown": "غير محدد",
+      "logDescription": "الوصف",
+      "log": "تسجيل",
+      "subtasks": "المهام الفرعية",
+      "addSubtask": "إضافة مهمة فرعية",
+      "add": "إضافة",
+      "comments": "التعليقات",
+      "writeComment": "اكتب تعليقًا...",
+      "post": "نشر",
+      "taskDescription": "الوصف",
+      "delete": "حذف",
+      "errors": {
+        "saveChange": "تعذر حفظ التغيير",
+        "assignMember": "تعذر تعيين العضو",
+        "logTime": "تعذر تسجيل الوقت",
+        "addSubtask": "تعذر إضافة المهمة الفرعية",
+        "postComment": "تعذر نشر التعليق"
+      }
+    }
   },
   "sortableTable": {
     "sortedBy": "مرتب حسب:",

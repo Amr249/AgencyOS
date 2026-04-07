@@ -15,6 +15,8 @@ const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
   status: z.enum(taskStatusValues).default("todo"),
   priority: z.enum(taskPriorityValues).default("medium"),
+  assigneeId: z.string().uuid().nullable().optional(),
+  startDate: z.string().optional(),
   dueDate: z.string().optional(),
   description: z.string().optional(),
   estimatedHours: z.coerce.number().min(0).optional(),
@@ -25,6 +27,7 @@ const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   status: z.enum(taskStatusValues).optional(),
   priority: z.enum(taskPriorityValues).optional(),
+  startDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   estimatedHours: z.coerce.number().min(0).nullable().optional(),
@@ -201,6 +204,8 @@ export async function createTask(input: CreateTaskInput) {
         title: data.title,
         status: data.status,
         priority: data.priority,
+        assigneeId: data.assigneeId || null,
+        startDate: data.startDate || null,
         dueDate: data.dueDate || null,
         description: data.description ?? null,
         estimatedHours: data.estimatedHours != null ? String(data.estimatedHours) : null,
@@ -232,6 +237,7 @@ export async function updateTask(input: UpdateTaskInput) {
     if (data.title !== undefined) updatePayload.title = data.title;
     if (data.status !== undefined) updatePayload.status = data.status;
     if (data.priority !== undefined) updatePayload.priority = data.priority;
+    if (data.startDate !== undefined) updatePayload.startDate = data.startDate ?? null;
     if (data.dueDate !== undefined) updatePayload.dueDate = data.dueDate ?? null;
     if (data.description !== undefined) updatePayload.description = data.description ?? null;
     if (data.estimatedHours !== undefined)

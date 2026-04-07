@@ -11,7 +11,8 @@
     "invoices": "Invoices",
     "expenses": "Expenses",
     "reports": "Reports",
-    "settings": "Settings"
+    "settings": "Settings",
+    "workspace": "Workspace"
   },
   "common": {
     "search": "Search...",
@@ -264,6 +265,126 @@
     "prioMedium": "Medium",
     "prioHigh": "High",
     "prioUrgent": "Urgent"
+  },
+  "newTaskModal": {
+    "title": "New Task",
+    "description": "Add a new task to the project.",
+    "taskTitleLabel": "Task title *",
+    "taskTitlePlaceholder": "Task title",
+    "projectLabel": "Project *",
+    "projectPlaceholder": "Select project",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Description (optional)",
+    "statusLabel": "Status",
+    "priorityLabel": "Priority",
+    "assigneeLabel": "Assignee",
+    "assigneePlaceholder": "Select team member",
+    "unassigned": "Unassigned",
+    "startDateLabel": "Start date",
+    "startDatePlaceholder": "Pick a date",
+    "dueDateLabel": "End date",
+    "dueDatePlaceholder": "Pick a date",
+    "estimatedHoursLabel": "Estimated hours",
+    "cancel": "Cancel",
+    "submit": "Create task",
+    "submitting": "Creating...",
+    "errors": {
+      "createFailed": "Failed to create task."
+    }
+  },
+  "workspace": {
+    "pages": {
+      "noProjects": "No projects available."
+    },
+    "nav": {
+      "myTasks": "My Tasks",
+      "board": "Board",
+      "timeline": "Timeline",
+      "workload": "Workload",
+      "calendar": "Calendar",
+      "selectProject": "Select project"
+    },
+    "calendar": {
+      "today": "Today",
+      "addTask": "Add task",
+      "more": "more",
+      "showLess": "Show less",
+      "noTasks": "No tasks this month."
+    },
+    "myTasks": {
+      "title": "My Tasks",
+      "newTask": "+ New Task",
+      "today": "Today",
+      "this_week": "This Week",
+      "later": "Later",
+      "no_date": "No Date",
+      "emptySection": "No tasks in this section.",
+      "hours": "{count}h",
+      "colTask": "Task",
+      "colProject": "Project",
+      "colStatus": "Status",
+      "colPriority": "Priority",
+      "colAssignee": "Assignee",
+      "colDueDate": "Due Date",
+      "colHours": "Hours",
+      "unassigned": "—",
+      "noDueDate": "—",
+      "errors": {
+        "updateStatus": "Failed to update task status."
+      }
+    },
+    "board": {
+      "addTask": "Add task",
+      "unassigned": "Unassigned",
+      "errors": {
+        "saveSort": "Failed to save task order."
+      }
+    },
+    "timeline": {
+      "week": "Week",
+      "month": "Month",
+      "unassigned": "Unassigned",
+      "noDueDate": "No due date",
+      "withoutDueDate": "{count} tasks without due date."
+    },
+    "workload": {
+      "title": "Workload",
+      "subtitle": "Team task distribution for the next 8 weeks",
+      "empty": "Add team members first.",
+      "teamMember": "Team Member",
+      "week": "Week {index}",
+      "tasksCount": "{count} tasks",
+      "selectedTitle": "{member} tasks — {week}",
+      "noTasks": "No tasks this week."
+    },
+    "detail": {
+      "title": "Task Details",
+      "description": "Edit task, track time, and comments",
+      "assignMember": "Assign member",
+      "none": "None",
+      "dueDate": "Due date",
+      "estimatedHours": "Estimated hours",
+      "timeTracking": "Time Tracking",
+      "hoursProgress": "{logged}h / {estimated}h estimated",
+      "unknown": "Unknown",
+      "logDescription": "Description",
+      "log": "Log",
+      "subtasks": "Subtasks",
+      "addSubtask": "Add subtask",
+      "add": "Add",
+      "comments": "Comments",
+      "writeComment": "Write a comment...",
+      "post": "Post",
+      "taskDescription": "Description",
+      "delete": "Delete",
+      "errors": {
+        "saveChange": "Failed to save change.",
+        "assignMember": "Failed to assign member.",
+        "logTime": "Failed to log time.",
+        "addSubtask": "Failed to add subtask.",
+        "postComment": "Failed to post comment."
+      }
+    }
   },
   "sortableTable": {
     "sortedBy": "Sorted by:",

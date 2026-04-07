@@ -24,6 +24,7 @@ import {
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 
 const STATUS_OPTIONS = [
   { value: "applied", label: "مُقدَّم" },
@@ -155,7 +156,10 @@ export function EditProposalDialog({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-2">
-              <Label>الميزانية من (ر.س)</Label>
+              <Label className="inline-flex items-center gap-1">
+                الميزانية من
+                <SarCurrencyIcon className="h-3 w-3 shrink-0" />
+              </Label>
               <Input
                 type="number"
                 min={0}
@@ -164,7 +168,10 @@ export function EditProposalDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>الميزانية إلى (ر.س)</Label>
+              <Label className="inline-flex items-center gap-1">
+                الميزانية إلى
+                <SarCurrencyIcon className="h-3 w-3 shrink-0" />
+              </Label>
               <Input
                 type="number"
                 min={0}
@@ -174,7 +181,10 @@ export function EditProposalDialog({
             </div>
           </div>
           <div className="space-y-2">
-            <Label>عرضي (ر.س)</Label>
+            <Label className="inline-flex items-center gap-1">
+              عرضي
+              <SarCurrencyIcon className="h-3 w-3 shrink-0" />
+            </Label>
             <Input
               type="number"
               min={0}

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -9,7 +10,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { format } from "date-fns";
-import { arSA } from "date-fns/locale";
+import { arSA, enUS } from "date-fns/locale";
 import type { Locale } from "date-fns";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,13 +29,19 @@ interface DatePickerArProps {
 export function DatePickerAr({
   value,
   onChange,
-  placeholder = "اختر تاريخًا",
+  placeholder,
   className,
   disabled,
-  direction = "rtl",
-  locale = arSA,
+  direction,
+  locale: localeProp,
   popoverAlign = "end",
 }: DatePickerArProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const dir = direction ?? (isAr ? "rtl" : "ltr");
+  const dateFnsLocale = localeProp ?? (isAr ? arSA : enUS);
+  const defaultPlaceholder = isAr ? "اختر تاريخًا" : "Pick a date";
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -43,28 +50,28 @@ export function DatePickerAr({
           disabled={disabled}
           className={cn(
             "w-full justify-between font-normal",
-            direction === "rtl" ? "text-right" : "text-left",
+            dir === "rtl" ? "text-right" : "text-left",
             !value && "text-muted-foreground",
             className
           )}
-          dir={direction}
+          dir={dir}
         >
           {value ? (
-            format(value, "dd/MM/yyyy", { locale })
+            format(value, "dd MMM yyyy", { locale: dateFnsLocale })
           ) : (
-            <span>{placeholder}</span>
+            <span>{placeholder ?? defaultPlaceholder}</span>
           )}
           <ChevronDownIcon className="h-4 w-4 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align={popoverAlign} dir={direction}>
+      <PopoverContent className="w-auto p-0" align={popoverAlign} dir={dir}>
         <Calendar
           mode="single"
           selected={value}
           onSelect={onChange}
           defaultMonth={value}
-          dir={direction}
-          locale={locale}
+          dir={dir}
+          locale={dateFnsLocale}
           initialFocus
         />
       </PopoverContent>

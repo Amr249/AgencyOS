@@ -22,14 +22,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { markAsPaid } from "@/actions/invoices";
 import { toast } from "sonner";
+import { PAYMENT_METHOD_LABELS } from "@/types";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { enUS } from "date-fns/locale";
 
-const PAYMENT_METHODS = [
-  { value: "bank_transfer", label: "Bank transfer" },
-  { value: "cash", label: "Cash" },
-  { value: "credit_card", label: "Credit card" },
-  { value: "other", label: "Other" },
-] as const;
+const PAYMENT_METHOD_VALUES = ["bank_transfer", "cash", "credit_card", "cheque", "other"] as const;
 
 type MarkAsPaidDialogProps = {
   invoiceId: string;
@@ -37,6 +34,8 @@ type MarkAsPaidDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  /** Remaining balance that will be recorded as one payment (invoice total − prior payments). */
+  remainingAmountSar?: number;
 };
 
 export function MarkAsPaidDialog({
@@ -45,6 +44,7 @@ export function MarkAsPaidDialog({
   open,
   onOpenChange,
   onSuccess,
+  remainingAmountSar,
 }: MarkAsPaidDialogProps) {
   const router = useRouter();
   const [paidAt, setPaidAt] = React.useState<Date | undefined>(() => new Date());
@@ -66,52 +66,69 @@ export function MarkAsPaidDialog({
     const res = await markAsPaid({
       id: invoiceId,
       paidAt: paidAtStr,
-      paymentMethod: paymentMethod as "bank_transfer" | "cash" | "credit_card" | "other",
+      paymentMethod,
     });
     setLoading(false);
     if (res.ok) {
-      toast.success("Payment recorded");
+      toast.success("Payment recorded successfully");
       onOpenChange(false);
       onSuccess?.();
       router.refresh();
     } else {
       const err = (res as { error?: unknown }).error;
-      const msg = typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? "Failed";
+      const msg = typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? "Failed to record payment";
       toast.error(msg);
     }
   };
+
+  const formattedAmount =
+    remainingAmountSar != null && Number.isFinite(remainingAmountSar)
+      ? remainingAmountSar.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" dir="ltr">
         <DialogHeader className="text-left">
-          <DialogTitle>Confirm payment</DialogTitle>
-          <DialogDescription>
-            Enter the payment date for this invoice{invoiceNumber ? ` (${invoiceNumber})` : ""}.
+          <DialogTitle>Record Full Payment</DialogTitle>
+          <DialogDescription className="text-left">
+            {invoiceNumber ? <>Invoice {invoiceNumber}</> : null}
+            {invoiceNumber ? <br /> : null}
+            Enter the payment date and method. The remaining balance will be recorded as a single payment that closes the
+            invoice.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
+        {formattedAmount ? (
+          <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-primary/30 bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">This will record a payment of</span>
+            <span className="inline-flex items-center gap-1 font-semibold tabular-nums">
+              {formattedAmount}
+              <SarCurrencyIcon className="h-4 w-4 shrink-0" />
+            </span>
+          </div>
+        ) : null}
+        <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <Label>Payment date</Label>
+            <Label className="text-left">Payment Date</Label>
             <DatePickerAr
+              popoverAlign="start"
               direction="ltr"
               locale={enUS}
-              popoverAlign="start"
               value={paidAt}
               onChange={setPaidAt}
               placeholder="Pick a date"
             />
           </div>
           <div className="grid gap-2">
-            <Label>Payment method (optional)</Label>
+            <Label className="text-left">Payment Method (optional)</Label>
             <Select value={paymentMethod} onValueChange={setPaymentMethod}>
               <SelectTrigger className="text-left">
                 <SelectValue placeholder="Select method" />
               </SelectTrigger>
               <SelectContent>
-                {PAYMENT_METHODS.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
+                {PAYMENT_METHOD_VALUES.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {PAYMENT_METHOD_LABELS[m]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -123,7 +140,7 @@ export function MarkAsPaidDialog({
             Cancel
           </Button>
           <Button onClick={handleConfirm} disabled={loading}>
-            Confirm payment
+            Record Payment
           </Button>
         </DialogFooter>
       </DialogContent>

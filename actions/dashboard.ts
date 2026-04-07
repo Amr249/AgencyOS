@@ -1,12 +1,15 @@
 "use server";
 
-import { eq, isNull, and, desc, inArray, gte, lte } from "drizzle-orm";
+import { eq, isNull, and, desc, inArray, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { invoices, projects, tasks, clients, settings } from "@/lib/db";
+import { invoices, projects, tasks, clients, settings, payments, expenses } from "@/lib/db";
+import { getProjectProfitability, getClientProfitability } from "@/actions/reports";
 import {
   startOfMonth,
   endOfMonth,
   subMonths,
+  startOfYear,
+  endOfYear,
   format,
   parseISO,
   isBefore,
@@ -47,6 +50,12 @@ export type DashboardData = {
     total: string;
     status: string;
   }[];
+  /** YTD: sum of payments in the current calendar year minus sum of expenses in the same year. */
+  totalProfit: number;
+  /** (totalProfit / ytdCollected) × 100 when YTD collected &gt; 0; otherwise null. */
+  profitMargin: number | null;
+  topProfitableProject: { id: string; name: string; profit: number } | null;
+  topProfitableClient: { id: string; name: string; profit: number } | null;
 };
 
 const PROJECT_STATUS_LABELS: Record<string, string> = {
@@ -267,6 +276,50 @@ export async function getDashboardData(): Promise<DashboardData> {
     })
   );
 
+  const yearStartStr = format(startOfYear(now), "yyyy-MM-dd");
+  const yearEndStr = format(endOfYear(now), "yyyy-MM-dd");
+
+  const [[ytdPayRow], [ytdExpRow], projectProfitResult, clientProfitResult] = await Promise.all([
+    db
+      .select({ total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)` })
+      .from(payments)
+      .where(and(gte(payments.paymentDate, yearStartStr), lte(payments.paymentDate, yearEndStr))),
+    db
+      .select({ total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)` })
+      .from(expenses)
+      .where(and(gte(expenses.date, yearStartStr), lte(expenses.date, yearEndStr))),
+    getProjectProfitability(),
+    getClientProfitability(),
+  ]);
+
+  const ytdCollected = Math.round((Number(ytdPayRow?.total ?? 0) || 0) * 100) / 100;
+  const ytdExpensesTotal = Math.round((Number(ytdExpRow?.total ?? 0) || 0) * 100) / 100;
+  const totalProfit = Math.round((ytdCollected - ytdExpensesTotal) * 100) / 100;
+  const profitMargin =
+    ytdCollected > 0.0001
+      ? Math.round((totalProfit / ytdCollected) * 10000) / 100
+      : null;
+
+  let topProfitableProject: DashboardData["topProfitableProject"] = null;
+  if (projectProfitResult.ok && projectProfitResult.data.length > 0) {
+    const top = projectProfitResult.data[0]!;
+    topProfitableProject = {
+      id: top.projectId,
+      name: top.projectName,
+      profit: top.profit,
+    };
+  }
+
+  let topProfitableClient: DashboardData["topProfitableClient"] = null;
+  if (clientProfitResult.ok && clientProfitResult.data.length > 0) {
+    const top = clientProfitResult.data[0]!;
+    topProfitableClient = {
+      id: top.clientId,
+      name: top.companyName ?? "—",
+      profit: top.profit,
+    };
+  }
+
   return {
     currency,
     revenueThisMonth,
@@ -280,5 +333,9 @@ export async function getDashboardData(): Promise<DashboardData> {
     overdueTasks,
     upcomingProjects,
     recentInvoices,
+    totalProfit,
+    profitMargin,
+    topProfitableProject,
+    topProfitableClient,
   };
 }

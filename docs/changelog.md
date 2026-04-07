@@ -4,6 +4,27 @@ Short-form release notes. For the detailed append-only history through 2026-03-0
 
 ## [Unreleased]
 
+### Invoices — Partial payments system (Phase 1 complete)
+
+- **Payments table:** New `payments` rows track individual payments per invoice (`amount`, `payment_date`, `payment_method`, `reference`, `notes`). Mutations recalculate parent invoice **`status`** (`pending` → **`partial`** → **`paid`**).
+- **Invoice status:** Enum extended with **`partial`** for partially paid invoices.
+- **Payment history:** Invoice detail shows a **progress bar**, list of payments, **Record payment**, and delete payment (with confirmation where applicable).
+- **Add payment modal:** Record payments with amount, date, method, reference, and notes (`add-payment-modal.tsx`).
+- **Invoice attachments:** Upload, list, download, and delete files on invoice detail (`invoice-attachments.tsx`, `files.invoice_id`, ImageKit folder `agencyos/invoices/{invoiceId}/`).
+- **AR aging report:** Financial reports include **`aging-report-section.tsx`** (overdue buckets: current, 1–30, 31–60, 61–90, 90+ days).
+- **Invoice numbers:** Sequential **`INV-001`**-style numbers from settings (`invoice_prefix`, `invoice_next_number`), not UUID-based labels.
+- **Multi-project invoices:** Junction **`invoice_projects`**; new/edit invoice UI uses checkboxes for one or many projects.
+- **SAR currency icon:** **`SarCurrencyIcon`** / **`AmountWithSarIcon`** replace plain “ر.س” / “SAR” text across invoice UI (and elsewhere).
+- **English UI:** Invoice list, detail, edit, and **PDF** output use English labels.
+- **Stats fix:** **`getInvoiceStatsWithPayments`** — **collected** includes both the **`payments`** aggregate and **legacy** invoices marked **`paid`** with no payment rows.
+
+- <!-- ADDED 2026-03-23 -->
+- **Workspace UX overhaul:** My Tasks redesigned to a Notion-style database table layout (custom div table, grouped sections, fixed columns, property row, row hover interactions, `dir="auto"` task title rendering for mixed-language content).
+- **Workspace localization/direction update:** Workspace routes and module components now explicitly render English + LTR UI chrome.
+- **Workspace Calendar:** Added `/dashboard/workspace/calendar` route and `WorkspaceCalendarView`; added `getWorkspaceCalendar(month)` action.
+- **Tasks schema/actions:** Added support for task `startDate`; task creation now supports `assigneeId`; New Task modal now includes Start/End dates and assignee picker.
+- **Date picker behavior:** `DatePickerAr` now auto-detects locale/direction using `next-intl` locale by default.
+- **Workspace task deletion UX:** Added delete-task action path in workspace Task Detail Panel (soft-delete via `actions/tasks.ts::deleteTask`).
 - **Workspace module:** added `/dashboard/workspace` with My Tasks, Board, Timeline, and Workload pages; introduced `actions/workspace.ts` for grouped task queries, Kanban sort persistence, assignee updates, time logging, and task comments. Extended schema with `workspace_view`, `tasks.sort_order`, `tasks.assignee_id`, `tasks.actual_hours`, plus new `time_logs` and `task_comments` tables.
 - **Invoices list (`InvoicesListView`):** **Outstanding** summary card uses light gray background (`#ededed`) with **black** title, amount, and SAR icon (replacing former black card / white text). **Total invoiced** card retains lime accent background.
 - **Expenses (`/dashboard/expenses`):** English copy + **LTR** layout (`dir="ltr"` on page and table wrapper). Summary cards and **Amount** column use **`formatAmount`** + **`SarCurrencyIcon`** (`/Saudi_Riyal_Symbol.png`) instead of text “SAR”/ر.س. Table uses **`SortableDataTable`** with **`uiVariant="clients"`** (aligned with Projects table styling). **Row selection** + **bulk delete** (`deleteExpenses(ids)` in `actions/expenses.ts`) with confirmation dialog. **Category badges** use English labels. **`DatePickerAr`** supports optional `direction`, `locale`, and `popoverAlign` for LTR/English date filters and modal. **`NewExpenseDialog`** is English + LTR. Page metadata title/description: “Expenses”.

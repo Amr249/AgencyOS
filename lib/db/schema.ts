@@ -15,6 +15,8 @@ import {
   jsonb,
   pgEnum,
   index,
+  primaryKey,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -46,7 +48,7 @@ export const taskStatusEnum = pgEnum("task_status", [
 ]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "urgent"]);
 export const workspaceViewEnum = pgEnum("workspace_view", ["board", "list", "timeline"]);
-export const invoiceStatusEnum = pgEnum("invoice_status", ["pending", "paid"]);
+export const invoiceStatusEnum = pgEnum("invoice_status", ["pending", "partial", "paid"]);
 export const expenseCategoryEnum = pgEnum("expense_category", [
   "software",
   "hosting",
@@ -55,6 +57,12 @@ export const expenseCategoryEnum = pgEnum("expense_category", [
   "equipment",
   "office",
   "other",
+]);
+export const recurrenceFrequencyEnum = pgEnum("recurrence_frequency", [
+  "weekly",
+  "monthly",
+  "quarterly",
+  "yearly",
 ]);
 export const teamMemberStatusEnum = pgEnum("team_member_status", ["active", "inactive"]);
 export const proposalStatusEnum = pgEnum("proposal_status", [
@@ -144,6 +152,7 @@ export const tasks = pgTable("tasks", {
   priority: taskPriorityEnum("priority").notNull().default("medium"),
   sortOrder: integer("sort_order").notNull().default(0),
   assigneeId: uuid("assignee_id").references(() => teamMembers.id, { onDelete: "set null" }),
+  startDate: date("start_date"),
   dueDate: date("due_date"),
   estimatedHours: numeric("estimated_hours", { precision: 6, scale: 2 }),
   actualHours: numeric("actual_hours", { precision: 6, scale: 2 }),
@@ -166,6 +175,8 @@ export const invoices = pgTable("invoices", {
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   status: invoiceStatusEnum("status").notNull().default("pending"),
   issueDate: date("issue_date").notNull(),
+  /** When null, overdue logic falls back to issue date. */
+  dueDate: date("due_date"),
   subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull(),
   taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 12, scale: 2 }).notNull(),
@@ -190,6 +201,39 @@ export const invoiceItems = pgTable("invoice_items", {
   order: integer("order").notNull().default(0),
 });
 
+/** Many-to-many: one invoice can reference multiple client projects. */
+export const invoiceProjects = pgTable(
+  "invoice_projects",
+  {
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.invoiceId, t.projectId] }),
+    index("invoice_projects_project_id_idx").on(t.projectId),
+  ]
+);
+
+export const payments = pgTable("payments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  invoiceId: uuid("invoice_id")
+    .notNull()
+    .references(() => invoices.id, { onDelete: "cascade" }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  paymentDate: date("payment_date").notNull(),
+  paymentMethod: text("payment_method"),
+  reference: text("reference"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("payments_invoice_id_idx").on(table.invoiceId),
+  index("payments_date_idx").on(table.paymentDate),
+]);
+
 // files
 export const files = pgTable("files", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -202,9 +246,14 @@ export const files = pgTable("files", {
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
   taskId: uuid("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+  invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "cascade" }),
+  expenseId: uuid("expense_id").references((): any => expenses.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+}, (table) => [
+  index("files_invoice_id_idx").on(table.invoiceId),
+  index("files_expense_id_idx").on(table.expenseId),
+]);
 
 // team_members
 export const teamMembers = pgTable("team_members", {
@@ -337,7 +386,29 @@ export const expenses = pgTable("expenses", {
   notes: text("notes"),
   receiptUrl: text("receipt_url"),
   teamMemberId: uuid("team_member_id").references(() => teamMembers.id, { onDelete: "set null" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+  isBillable: boolean("is_billable").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const recurringExpenses = pgTable("recurring_expenses", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: text("title").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  category: expenseCategoryEnum("category").notNull(),
+  frequency: recurrenceFrequencyEnum("frequency").notNull(),
+  nextDueDate: date("next_due_date").notNull(),
+  notes: text("notes"),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+  teamMemberId: uuid("team_member_id").references(() => teamMembers.id, { onDelete: "set null" }),
+  isBillable: boolean("is_billable").default(false).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  /** Vendor logo (e.g. Vercel, Adobe) when category is software */
+  vendorLogoUrl: text("vendor_logo_url"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const timeLogs = pgTable("time_logs", {
@@ -374,7 +445,7 @@ export const settings = pgTable("settings", {
   vatNumber: text("vat_number"),
   agencyLogoUrl: text("agency_logo_url"),
   agencyAddress: jsonb("agency_address").$type<AddressJson>(),
-  invoicePrefix: text("invoice_prefix").default("فاتورة"),
+  invoicePrefix: text("invoice_prefix").default("INV"),
   invoiceNextNumber: integer("invoice_next_number").default(1),
   defaultCurrency: char("default_currency", { length: 3 }).default("SAR"),
   defaultPaymentTerms: integer("default_payment_terms").default(30),
@@ -389,6 +460,8 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   files: many(files),
   proposals: many(proposals),
   clientServices: many(clientServices),
+  expenses: many(expenses),
+  recurringExpenses: many(recurringExpenses),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
@@ -396,17 +469,21 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   phases: many(phases),
   tasks: many(tasks),
   invoices: many(invoices),
+  invoiceProjects: many(invoiceProjects),
   files: many(files),
   projectMembers: many(projectMembers),
   projectServices: many(projectServices),
   projectUserMembers: many(projectUserMembers),
   proposals: many(proposals),
+  expenses: many(expenses),
+  recurringExpenses: many(recurringExpenses),
 }));
 
 export const teamMembersRelations = relations(teamMembers, ({ many }) => ({
   projectMembers: many(projectMembers),
   tasks: many(tasks),
   timeLogs: many(timeLogs),
+  recurringExpenses: many(recurringExpenses),
 }));
 
 export const servicesRelations = relations(services, ({ many }) => ({
@@ -457,20 +534,37 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   comments: many(taskComments),
 }));
 
+export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => ({
+  invoice: one(invoices, { fields: [invoiceProjects.invoiceId], references: [invoices.id] }),
+  project: one(projects, { fields: [invoiceProjects.projectId], references: [projects.id] }),
+}));
+
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   client: one(clients, { fields: [invoices.clientId], references: [clients.id] }),
   project: one(projects, { fields: [invoices.projectId], references: [projects.id] }),
+  invoiceProjects: many(invoiceProjects),
   items: many(invoiceItems),
+  payments: many(payments),
+  files: many(files),
 }));
 
 export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
   invoice: one(invoices, { fields: [invoiceItems.invoiceId], references: [invoices.id] }),
 }));
 
+export const paymentsRelations = relations(payments, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [payments.invoiceId],
+    references: [invoices.id],
+  }),
+}));
+
 export const filesRelations = relations(files, ({ one }) => ({
   client: one(clients, { fields: [files.clientId], references: [clients.id] }),
   project: one(projects, { fields: [files.projectId], references: [projects.id] }),
   task: one(tasks, { fields: [files.taskId], references: [tasks.id] }),
+  invoice: one(invoices, { fields: [files.invoiceId], references: [invoices.id] }),
+  expense: one(expenses, { fields: [files.expenseId], references: [expenses.id] }),
 }));
 
 export const proposalsRelations = relations(proposals, ({ one }) => ({
@@ -478,8 +572,26 @@ export const proposalsRelations = relations(proposals, ({ one }) => ({
   project: one(projects, { fields: [proposals.projectId], references: [projects.id] }),
 }));
 
-export const expensesRelations = relations(expenses, ({ one }) => ({
+export const expensesRelations = relations(expenses, ({ one, many }) => ({
   teamMember: one(teamMembers, { fields: [expenses.teamMemberId], references: [teamMembers.id] }),
+  project: one(projects, { fields: [expenses.projectId], references: [projects.id] }),
+  client: one(clients, { fields: [expenses.clientId], references: [clients.id] }),
+  files: many(files),
+}));
+
+export const recurringExpensesRelations = relations(recurringExpenses, ({ one }) => ({
+  project: one(projects, {
+    fields: [recurringExpenses.projectId],
+    references: [projects.id],
+  }),
+  client: one(clients, {
+    fields: [recurringExpenses.clientId],
+    references: [clients.id],
+  }),
+  teamMember: one(teamMembers, {
+    fields: [recurringExpenses.teamMemberId],
+    references: [teamMembers.id],
+  }),
 }));
 
 export const timeLogsRelations = relations(timeLogs, ({ one }) => ({

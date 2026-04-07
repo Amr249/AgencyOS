@@ -9,7 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_BADGE_CLASS } from "@/types";
 import { updatePhaseStatus } from "@/actions/projects";
 import { EditProjectDialog } from "./edit-project-dialog";
-import { cn, formatBudgetSAR, formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
+import { SarMoney } from "@/components/ui/sar-money";
 import type { phases } from "@/lib/db/schema";
 import { ChevronLeft } from "lucide-react";
 
@@ -115,7 +116,9 @@ export function ProjectOverviewTab({
             </div>
             <div className="text-right">
               <p className="text-muted-foreground text-xs">الميزانية</p>
-              <p>{formatBudgetSAR(project.budget)}</p>
+              <p>
+                <SarMoney value={project.budget} iconClassName="h-3.5 w-3.5" />
+              </p>
             </div>
             <div className="text-right">
               <p className="text-muted-foreground text-xs">تاريخ الانتهاء / الموعد النهائي</p>

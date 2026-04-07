@@ -9,6 +9,7 @@ import { getInvoicesByClientId, getNextInvoiceNumber } from "@/actions/invoices"
 import { getSettings } from "@/actions/settings";
 import { getFiles } from "@/actions/files";
 import { getTeamMembers } from "@/actions/team-members";
+import { getExpensesByClientId, getClientCostSummary } from "@/actions/expenses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,6 +28,7 @@ import { EditClientButton } from "@/components/modules/clients/edit-client-butto
 import { ClientOverview } from "@/components/modules/clients/client-overview";
 import { ClientProjectsTab } from "@/components/modules/clients/client-projects-tab";
 import { ClientInvoicesTab } from "@/components/modules/clients/client-invoices-tab";
+import { ClientExpensesTab } from "@/components/modules/clients/client-expenses-tab";
 import { FileManager } from "@/components/modules/files/file-manager";
 import { getServices } from "@/actions/services";
 
@@ -47,7 +49,19 @@ export default async function ClientDetailPage({ params }: Props) {
   const locale = await getLocale();
   const t = await getTranslations("clients");
   const isArabic = locale === "ar";
-  const [clientResult, projectsResult, invoicesResult, settingsResult, nextNumResult, filesResult, teamMembersResult, servicesResult, clientServicesResult] = await Promise.all([
+  const [
+    clientResult,
+    projectsResult,
+    invoicesResult,
+    settingsResult,
+    nextNumResult,
+    filesResult,
+    teamMembersResult,
+    servicesResult,
+    clientServicesResult,
+    clientExpensesResult,
+    clientCostSummaryResult,
+  ] = await Promise.all([
     getClientById(id),
     getProjectsByClientId(id),
     getInvoicesByClientId(id),
@@ -57,6 +71,8 @@ export default async function ClientDetailPage({ params }: Props) {
     getTeamMembers(),
     getServices(),
     getClientServiceIds(id),
+    getExpensesByClientId(id),
+    getClientCostSummary(id),
   ]);
 
   if (!clientResult.ok) {
@@ -110,6 +126,13 @@ export default async function ClientDetailPage({ params }: Props) {
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
   const serviceOptions = servicesResult.ok ? servicesResult.data : [];
   const initialServiceIds = clientServicesResult.ok ? clientServicesResult.data : [];
+  const clientExpenses = clientExpensesResult.ok ? clientExpensesResult.data : [];
+  const clientCostSummary = clientCostSummaryResult.ok ? clientCostSummaryResult.data : null;
+  const expenseDialogProjects = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    clientId: p.clientId,
+  }));
 
   return (
     <div className="flex flex-col gap-4" dir={isArabic ? "rtl" : "ltr"}>
@@ -179,10 +202,11 @@ export default async function ClientDetailPage({ params }: Props) {
 
       <Tabs defaultValue="overview" className="w-full">
         <TabsList
-          className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap md:grid md:grid-cols-2 lg:grid-cols-3"
+          className="flex w-full flex-nowrap gap-1 overflow-x-auto p-1 whitespace-nowrap md:grid md:grid-cols-2 lg:grid-cols-4"
           dir={isArabic ? "rtl" : "ltr"}
         >
           <TabsTrigger value="overview">{t("tabOverview")}</TabsTrigger>
+          <TabsTrigger value="expenses">Expenses</TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
           <TabsTrigger value="notes">{t("tabNotes")}</TabsTrigger>
         </TabsList>
@@ -221,6 +245,16 @@ export default async function ClientDetailPage({ params }: Props) {
             clients={clientsForDialog}
             settings={settings ? { invoicePrefix: settings.invoicePrefix, invoiceNextNumber: settings.invoiceNextNumber, defaultCurrency: settings.defaultCurrency, defaultPaymentTerms: settings.defaultPaymentTerms, invoiceFooter: settings.invoiceFooter } : null}
             nextInvoiceNumber={nextInvoiceNumber}
+          />
+        </TabsContent>
+        <TabsContent value="expenses" className="mt-4">
+          <ClientExpensesTab
+            clientId={id}
+            expenses={clientExpenses}
+            costSummary={clientCostSummary}
+            teamMembers={teamMembers}
+            projects={expenseDialogProjects}
+            clients={clientsForDialog}
           />
         </TabsContent>
         <TabsContent value="files" className="mt-4">

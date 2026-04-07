@@ -16,16 +16,18 @@ export default async function WorkspaceBoardPage({
   const projectId = params.project ?? projects[0]?.id;
   if (!projectId && projects.length) redirect(`/dashboard/workspace/board?project=${projects[0].id}`);
   if (!projectId) {
-    return <p className="text-sm text-muted-foreground">لا توجد مشاريع متاحة.</p>;
+    return <p className="text-sm text-muted-foreground">No projects available.</p>;
   }
 
   const [boardRes, teamRes] = await Promise.all([getWorkspaceBoard(projectId), getTeamMembers()]);
   return (
-    <WorkspaceBoardView
-      projectId={projectId}
-      columns={boardRes.ok ? boardRes.data.columns : []}
-      projects={projects.map((p) => ({ id: p.id, name: p.name }))}
-      teamMembers={teamRes.ok ? teamRes.data : []}
-    />
+    <div dir="ltr" lang="en" className="h-full">
+      <WorkspaceBoardView
+        projectId={projectId}
+        columns={boardRes.ok ? boardRes.data.columns : []}
+        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        teamMembers={teamRes.ok ? teamRes.data : []}
+      />
+    </div>
   );
 }

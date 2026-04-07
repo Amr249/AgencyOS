@@ -21,6 +21,8 @@ export async function POST(request: Request) {
   const folderParam = formData.get("folder") as string | null;
   const scope = (formData.get("scope") as string) || "client-logo";
   const projectId = formData.get("projectId") as string | null;
+  const invoiceId = formData.get("invoiceId") as string | null;
+  const expenseId = formData.get("expenseId") as string | null;
 
   if (!file || !(file instanceof File)) {
     return NextResponse.json({ error: "Missing or invalid file" }, { status: 400 });
@@ -32,6 +34,10 @@ export async function POST(request: Request) {
   let folder: string;
   if (folderParam && typeof folderParam === "string" && folderParam.length > 0) {
     folder = folderParam.replace(/\/+$/, "").replace(/^\/+/, "");
+  } else if (scope === "invoice-attachment" && invoiceId && /^[0-9a-f-]{36}$/i.test(invoiceId)) {
+    folder = `agencyos/invoices/${invoiceId}`;
+  } else if (scope === "expense-attachment" && expenseId && /^[0-9a-f-]{36}$/i.test(expenseId)) {
+    folder = `agencyos/expenses/${expenseId}`;
   } else if (scope === "agency-logo") {
     folder = IMAGEKIT_AGENCY_LOGO_FOLDER;
   } else if (scope === "client-logo") {
@@ -42,6 +48,8 @@ export async function POST(request: Request) {
       : IMAGEKIT_PROJECT_COVER_FOLDER;
   } else if (scope === "team-avatar") {
     folder = IMAGEKIT_TEAM_AVATAR_FOLDER;
+  } else if (scope === "recurring-vendor-logo") {
+    folder = "agencyos/recurring-vendors";
   } else {
     folder = "agencyos/uploads";
   }

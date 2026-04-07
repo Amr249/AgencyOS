@@ -7,30 +7,28 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { INVOICE_STATUS_BADGE_CLASS } from "@/types";
+import { INVOICE_STATUS_BADGE_CLASS, INVOICE_STATUS_LABELS } from "@/types";
 import { updateInvoiceStatus } from "@/actions/invoices";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
 import { Check } from "lucide-react";
 
-const INVOICE_STATUS_LABELS_EN: Record<string, string> = {
-  pending: "Pending",
-  paid: "Paid",
-};
-
 const INVOICE_STATUS_OPTIONS = [
-  { value: "pending" as const, label: "Pending", dotClass: "bg-amber-500" },
-  { value: "paid" as const, label: "Paid", dotClass: "bg-green-500" },
+  { value: "pending" as const, dotClass: "bg-amber-500" },
+  { value: "partial" as const, dotClass: "bg-blue-500" },
+  { value: "paid" as const, dotClass: "bg-green-500" },
 ] as const;
 
 type InvoiceStatusBadgeProps = {
   invoiceId: string;
   status: string;
-  /** Optional: when user selects "تم الدفع", open payment dialog instead of updating status directly */
-  onRequestMarkAsPaid?: (invoice: { id: string; invoiceNumber: string }) => void;
+  /** Optional: when user selects "Paid", open payment dialog instead of updating status directly */
+  onRequestMarkAsPaid?: (invoice: { id: string; invoiceNumber: string; amountDue?: number }) => void;
   /** Required when onRequestMarkAsPaid is used (e.g. in list view) */
   invoiceNumber?: string;
+  /** Remaining balance (for payment dialog helper text) */
+  amountDue?: number;
   /** Optional: callback after status change (e.g. to update local state in list) */
   onStatusChange?: (newStatus: string) => void;
   /** Optional: size variant */
@@ -42,6 +40,7 @@ export function InvoiceStatusBadge({
   status,
   onRequestMarkAsPaid,
   invoiceNumber,
+  amountDue,
   onStatusChange,
   className,
 }: InvoiceStatusBadgeProps) {
@@ -50,16 +49,26 @@ export function InvoiceStatusBadge({
   const [updating, setUpdating] = React.useState(false);
   const [optimisticStatus, setOptimisticStatus] = React.useState(status);
 
+  React.useEffect(() => {
+    setOptimisticStatus(status);
+  }, [status]);
+
   const displayStatus = optimisticStatus;
 
-  const handleSelect = async (newStatus: "pending" | "paid") => {
+  const labelFor = (s: string) => INVOICE_STATUS_LABELS[s] ?? s;
+
+  const handleSelect = async (newStatus: "pending" | "partial" | "paid") => {
     if (newStatus === displayStatus) {
       setOpen(false);
       return;
     }
     if (newStatus === "paid" && onRequestMarkAsPaid) {
       setOpen(false);
-      onRequestMarkAsPaid({ id: invoiceId, invoiceNumber: invoiceNumber ?? invoiceId });
+      onRequestMarkAsPaid({
+        id: invoiceId,
+        invoiceNumber: invoiceNumber ?? invoiceId,
+        amountDue,
+      });
       return;
     }
     setOptimisticStatus(newStatus);
@@ -77,7 +86,7 @@ export function InvoiceStatusBadge({
     }
   };
 
-  const label = INVOICE_STATUS_LABELS_EN[displayStatus] ?? displayStatus;
+  const label = labelFor(displayStatus);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -109,8 +118,8 @@ export function InvoiceStatusBadge({
               )}
             >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", opt.dotClass)} />
-              {opt.label}
-              {opt.value === displayStatus && <Check className="ms-auto h-4 w-4 shrink-0" />}
+              {labelFor(opt.value)}
+              {opt.value === displayStatus && <Check className="ml-auto h-4 w-4 shrink-0" />}
             </button>
           ))}
         </div>

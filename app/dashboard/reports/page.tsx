@@ -3,15 +3,14 @@ import Link from "next/link";
 import {
   getFinancialSummary,
   getMonthlyRevenue,
-  getTopClientsByRevenue,
   getRecentInvoices,
-  getOutstandingInvoices,
   getProjectsSummary,
   getProjectsByStatus,
   getWeeklyTaskCompletion,
   getOverdueTasks,
   getActiveProjectsWithProgress,
   getNewClientsPerMonth,
+  getMonthlyComparison,
   type DateRangeKey,
 } from "@/actions/reports";
 import { getTeamCostBreakdownThisMonth } from "@/actions/expenses";
@@ -21,16 +20,16 @@ import { ProductivityReportsTab } from "@/components/reports/productivity-report
 import { ReportsFinancialTab } from "@/app/dashboard/reports/reports-financial-tab";
 
 export const metadata: Metadata = {
-  title: "التقارير",
-  description: "التقارير المالية وتقارير المشاريع",
+  title: "Reports",
+  description: "Financial and project reports",
 };
 
 const DATE_RANGE_OPTIONS: { value: DateRangeKey; label: string }[] = [
-  { value: "this_month", label: "هذا الشهر" },
-  { value: "last_month", label: "الشهر الماضي" },
-  { value: "this_quarter", label: "هذا الربع" },
-  { value: "this_year", label: "هذه السنة" },
-  { value: "all", label: "كل الوقت" },
+  { value: "this_month", label: "This month" },
+  { value: "last_month", label: "Last month" },
+  { value: "this_quarter", label: "This quarter" },
+  { value: "this_year", label: "This year" },
+  { value: "all", label: "All time" },
 ];
 
 type PageProps = {
@@ -48,12 +47,11 @@ export default async function ReportsPage({ searchParams }: PageProps) {
     : "this_year") as DateRangeKey;
 
   const currentYear = new Date().getFullYear();
+
   const [
     summary,
     monthlyRevenue,
-    topClients,
     recentInvoices,
-    outstandingRows,
     projectsSummary,
     projectsByStatus,
     weeklyTaskCompletion,
@@ -62,12 +60,11 @@ export default async function ReportsPage({ searchParams }: PageProps) {
     newClientsData,
     teamCostBreakdownResult,
     rate,
+    monthlyComparison,
   ] = await Promise.all([
     getFinancialSummary(),
     getMonthlyRevenue(dateRange),
-    getTopClientsByRevenue(5),
     getRecentInvoices(8),
-    getOutstandingInvoices(),
     getProjectsSummary(),
     getProjectsByStatus(),
     getWeeklyTaskCompletion(),
@@ -76,6 +73,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
     getNewClientsPerMonth(currentYear),
     getTeamCostBreakdownThisMonth(),
     getSarToEgpRate(),
+    getMonthlyComparison(),
   ]);
 
   const teamCostBreakdown = teamCostBreakdownResult.ok ? teamCostBreakdownResult.data : [];
@@ -90,22 +88,15 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const totalProfitsInRange = monthlyRevenue.reduce((s, m) => s + m.profits, 0);
   const totalExpensesInRange = monthlyRevenue.reduce((s, m) => s + (m.expenses ?? 0), 0);
   const netProfitInRange = totalProfitsInRange - totalExpensesInRange;
-  const totalOutstanding = outstandingRows.reduce((s, r) => s + Number(r.total), 0);
-
-  const topClientsPieData = topClients.map((c) => ({
-    clientName: c.clientName ?? "—",
-    total: c.totalPaid,
-    invoiceCount: c.invoiceCount,
-  }));
 
   return (
-    <div className="space-y-6" dir="rtl">
-      <h1 className="text-2xl font-bold tracking-tight">التقارير</h1>
+    <div className="space-y-6 text-left" dir="ltr">
+      <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
 
       <Tabs defaultValue="financial" className="w-full">
-        <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap max-w-full md:grid md:max-w-md md:grid-cols-2" dir="rtl">
-          <TabsTrigger value="financial">التقارير المالية</TabsTrigger>
-          <TabsTrigger value="projects">تقارير المشاريع والإنتاجية</TabsTrigger>
+        <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap max-w-full md:grid md:max-w-md md:grid-cols-2" dir="ltr">
+          <TabsTrigger value="financial">Financial</TabsTrigger>
+          <TabsTrigger value="projects">Projects &amp; productivity</TabsTrigger>
         </TabsList>
 
         {/* Date range filter — below tabs, only for Financial */}
@@ -125,7 +116,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           ))}
         </div>
 
-        <TabsContent value="financial" className="mt-6 space-y-8">
+        <TabsContent value="financial" className="mt-4 space-y-4">
           <ReportsFinancialTab
             rate={rate}
             summary={summary}
@@ -134,14 +125,12 @@ export default async function ReportsPage({ searchParams }: PageProps) {
             totalProfitsInRange={totalProfitsInRange}
             totalExpensesInRange={totalExpensesInRange}
             netProfitInRange={netProfitInRange}
-            topClientsPieData={topClientsPieData}
             recentInvoices={recentInvoices}
-            outstandingRows={outstandingRows}
-            totalOutstanding={totalOutstanding}
+            monthlyComparison={monthlyComparison}
           />
         </TabsContent>
 
-        <TabsContent value="projects" className="mt-6">
+        <TabsContent value="projects" className="mt-4">
           <ProductivityReportsTab
             summary={projectsSummary}
             byStatus={projectsByStatus}

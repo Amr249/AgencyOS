@@ -34,13 +34,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import {
-  FolderOpen,
-  CheckCircle2,
-  AlertCircle,
-  ListTodo,
-  Users,
-} from "lucide-react";
+import { FolderOpen, CheckCircle2, AlertCircle, ListTodo } from "lucide-react";
 import { updateTask } from "@/actions/tasks";
 import {
   PROJECT_STATUS_LABELS,
@@ -61,7 +55,12 @@ import type {
 } from "@/actions/reports";
 
 type TeamCostRow = { teamMemberId: string; name: string; role: string | null; totalSalary: number };
-import { formatBudgetSAR } from "@/lib/utils";
+import { SarMoney } from "@/components/ui/sar-money";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
+import {
+  ReportTablePaginationBar,
+  useReportPagination,
+} from "@/components/reports/report-table-pagination";
 import { format, parseISO, isValid } from "date-fns";
 import { ar } from "date-fns/locale";
 
@@ -116,6 +115,10 @@ export function ProductivityReportsTab({
   teamCostBreakdown = [],
 }: Props) {
   const router = useRouter();
+  const activeProjectsPagination = useReportPagination(activeProjects, { fixedPageSize: 8 });
+  const overduePagination = useReportPagination(overdueTasks, { fixedPageSize: 8 });
+  const teamCostPagination = useReportPagination(teamCostBreakdown, { fixedPageSize: 8 });
+  const recentClientsPagination = useReportPagination(recentClients, { fixedPageSize: 6 });
 
   async function handleMarkDone(taskId: string) {
     const result = await updateTask({ id: taskId, status: "done" });
@@ -128,7 +131,7 @@ export function ProductivityReportsTab({
   }
 
   return (
-    <div className="space-y-8" dir="rtl">
+    <div className="space-y-5" dir="rtl">
       {/* Section 1 — KPI Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -177,7 +180,7 @@ export function ProductivityReportsTab({
       </div>
 
       {/* Section 2 — Two charts side by side */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-right">توزيع المشاريع حسب الحالة</CardTitle>
@@ -185,7 +188,7 @@ export function ProductivityReportsTab({
           </CardHeader>
           <CardContent>
             {byStatus.length > 0 ? (
-              <div className="h-[300px]" dir="rtl">
+              <div className="h-[280px] w-full min-w-0 sm:h-[300px] lg:h-[350px]" dir="rtl">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -194,8 +197,8 @@ export function ProductivityReportsTab({
                       nameKey="label"
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={90}
+                      innerRadius="42%"
+                      outerRadius="74%"
                       paddingAngle={2}
                       label={false}
                     >
@@ -232,7 +235,7 @@ export function ProductivityReportsTab({
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-muted-foreground flex h-[300px] items-center justify-center text-sm">
+              <p className="text-muted-foreground flex h-[280px] items-center justify-center text-sm sm:h-[300px] lg:h-[350px]">
                 لا توجد مشاريع بعد.
               </p>
             )}
@@ -245,17 +248,22 @@ export function ProductivityReportsTab({
           </CardHeader>
           <CardContent>
             {weeklyCompletion.some((w) => w.count > 0) || weeklyCompletion.length > 0 ? (
-              <div className="h-[300px]" dir="rtl">
+              <div className="h-[280px] w-full min-w-0 sm:h-[300px] lg:h-[350px]" dir="rtl">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={weeklyCompletion} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <BarChart data={weeklyCompletion} margin={{ top: 10, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis
                       dataKey="weekLabel"
-                      fontSize={12}
+                      fontSize={11}
                       tick={{ fill: "hsl(var(--muted-foreground))" }}
+                      interval={0}
+                      angle={-25}
+                      textAnchor="end"
+                      height={52}
                     />
                     <YAxis
-                      fontSize={12}
+                      fontSize={11}
+                      width={36}
                       tick={{ fill: "hsl(var(--muted-foreground))" }}
                       allowDecimals={false}
                     />
@@ -264,12 +272,12 @@ export function ProductivityReportsTab({
                       formatter={(value: number) => [value, "عدد المهام"]}
                       labelFormatter={(label) => label}
                     />
-                    <Bar dataKey="count" name="مكتملة" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="count" name="مكتملة" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={40} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-muted-foreground flex h-[300px] items-center justify-center text-sm">
+              <p className="text-muted-foreground flex h-[280px] items-center justify-center text-sm sm:h-[300px] lg:h-[350px]">
                 لا توجد بيانات مهام مكتملة بعد.
               </p>
             )}
@@ -277,8 +285,8 @@ export function ProductivityReportsTab({
         </Card>
       </div>
 
-      {/* Section 3 — Projects Status Table */}
-      <Card>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <Card className="min-h-0">
         <CardHeader>
           <CardTitle className="text-right">حالة المشاريع الحالية</CardTitle>
           <CardDescription className="text-right">
@@ -289,12 +297,18 @@ export function ProductivityReportsTab({
           {activeProjects.length === 0 ? (
             <p className="text-muted-foreground py-8 text-center text-sm">لا توجد مشاريع نشطة.</p>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-right">الأيام المتبقية</TableHead>
                   <TableHead className="text-right">تقدم المهام</TableHead>
-                  <TableHead className="text-right">الميزانية</TableHead>
+                  <TableHead className="text-right">
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      الميزانية
+                      <SarCurrencyIcon className="h-3 w-3 shrink-0" />
+                    </span>
+                  </TableHead>
                   <TableHead className="text-right">الموعد النهائي</TableHead>
                   <TableHead className="text-right">الحالة</TableHead>
                   <TableHead className="text-right">العميل</TableHead>
@@ -302,7 +316,7 @@ export function ProductivityReportsTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {activeProjects.map((p) => (
+                {activeProjectsPagination.pageItems.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="text-right">
                       <span
@@ -333,7 +347,7 @@ export function ProductivityReportsTab({
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      {p.budget != null ? formatBudgetSAR(String(p.budget)) : "—"}
+                      {p.budget != null ? <SarMoney value={p.budget} className="justify-end" /> : "—"}
                     </TableCell>
                     <TableCell className="text-right">
                       <span
@@ -389,12 +403,22 @@ export function ProductivityReportsTab({
                 ))}
               </TableBody>
             </Table>
+            <ReportTablePaginationBar
+              page={activeProjectsPagination.page}
+              pageSize={activeProjectsPagination.pageSize}
+              pageCount={activeProjectsPagination.pageCount}
+              total={activeProjectsPagination.total}
+              onPageChange={activeProjectsPagination.setPage}
+              onPageSizeChange={activeProjectsPagination.setPageSize}
+              hidePageSizeSelect={activeProjectsPagination.isPageSizeFixed}
+              className="mt-3 border-t-0 pt-3"
+            />
+            </>
           )}
         </CardContent>
       </Card>
 
-      {/* Section 4 — Overdue Tasks List */}
-      <Card>
+      <Card className="min-h-0">
         <CardHeader>
           <CardTitle className="text-right">المهام المتأخرة</CardTitle>
           <CardDescription className="text-right">
@@ -409,6 +433,7 @@ export function ProductivityReportsTab({
               </p>
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -421,7 +446,7 @@ export function ProductivityReportsTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {overdueTasks.map((t) => (
+                {overduePagination.pageItems.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell className="text-right">
                       <Button
@@ -459,12 +484,24 @@ export function ProductivityReportsTab({
                 ))}
               </TableBody>
             </Table>
+            <ReportTablePaginationBar
+              page={overduePagination.page}
+              pageSize={overduePagination.pageSize}
+              pageCount={overduePagination.pageCount}
+              total={overduePagination.total}
+              onPageChange={overduePagination.setPage}
+              onPageSizeChange={overduePagination.setPageSize}
+              hidePageSizeSelect={overduePagination.isPageSizeFixed}
+              className="mt-3 border-t-0 pt-3"
+            />
+            </>
           )}
         </CardContent>
       </Card>
+      </div>
 
-      {/* Section 5 — Team cost this month */}
-      <Card>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <Card className="min-h-0">
         <CardHeader>
           <CardTitle className="text-right">تكاليف الفريق هذا الشهر</CardTitle>
           <CardDescription className="text-right">
@@ -477,19 +514,25 @@ export function ProductivityReportsTab({
               لا توجد مصروفات رواتب مرتبطة بأعضاء الفريق هذا الشهر.
             </p>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-right">إجمالي الرواتب (ر.س)</TableHead>
+                  <TableHead className="text-right">
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      Total salary
+                      <SarCurrencyIcon className="h-3 w-3 shrink-0" />
+                    </span>
+                  </TableHead>
                   <TableHead className="text-right">الدور</TableHead>
                   <TableHead className="text-right">الاسم</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {teamCostBreakdown.map((row) => (
+                {teamCostPagination.pageItems.map((row) => (
                   <TableRow key={row.teamMemberId}>
                     <TableCell className="text-right font-medium">
-                      {formatBudgetSAR(String(row.totalSalary))}
+                      <SarMoney value={row.totalSalary} className="justify-end font-medium" />
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       {row.role ?? "—"}
@@ -499,25 +542,35 @@ export function ProductivityReportsTab({
                 ))}
               </TableBody>
             </Table>
+            <ReportTablePaginationBar
+              page={teamCostPagination.page}
+              pageSize={teamCostPagination.pageSize}
+              pageCount={teamCostPagination.pageCount}
+              total={teamCostPagination.total}
+              onPageChange={teamCostPagination.setPage}
+              onPageSizeChange={teamCostPagination.setPageSize}
+              hidePageSizeSelect={teamCostPagination.isPageSizeFixed}
+              className="mt-3 border-t-0 pt-3"
+            />
+            </>
           )}
         </CardContent>
       </Card>
 
-      {/* Section 6 — New Clients This Year */}
-      <Card>
+      <Card className="min-h-0">
         <CardHeader>
           <CardTitle className="text-right">العملاء الجدد هذا العام</CardTitle>
           <CardDescription className="text-right">
             عدد العملاء المضافين في السنة الحالية
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="min-h-0 flex-1 space-y-4">
           <div className="text-right">
-            <div className="text-4xl font-bold">{newClientsTotal}</div>
+            <div className="text-3xl font-bold lg:text-4xl">{newClientsTotal}</div>
             <p className="text-muted-foreground text-sm">عميل جديد</p>
           </div>
           {newClientsByMonth.some((m) => m.count > 0) || newClientsByMonth.length > 0 ? (
-            <div className="h-[200px]" dir="rtl">
+            <div className="h-[160px] lg:h-[200px]" dir="rtl">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={newClientsByMonth}
@@ -551,31 +604,44 @@ export function ProductivityReportsTab({
             {recentClients.length === 0 ? (
               <p className="text-muted-foreground text-right text-sm">لا يوجد عملاء جدد هذا العام.</p>
             ) : (
-              <ul className="space-y-2">
-                {recentClients.map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      href={`/dashboard/clients/${c.id}`}
-                      className="hover:bg-muted/50 flex items-center gap-3 rounded-lg p-2 text-right"
-                    >
-                      <Badge
-                        variant="outline"
-                        className={CLIENT_STATUS_BADGE_CLASS[c.status]}
+              <div className="space-y-3">
+                <ul className="space-y-2">
+                  {recentClientsPagination.pageItems.map((c) => (
+                    <li key={c.id}>
+                      <Link
+                        href={`/dashboard/clients/${c.id}`}
+                        className="hover:bg-muted/50 flex items-center gap-3 rounded-lg p-2 text-right"
                       >
-                        {CLIENT_STATUS_LABELS[c.status] ?? c.status}
-                      </Badge>
-                      <span className="text-muted-foreground shrink-0 text-xs">
-                        {formatDateSafe(c.createdAt)}
-                      </span>
-                      <span className="min-w-0 flex-1 font-medium">{c.companyName}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+                        <Badge
+                          variant="outline"
+                          className={CLIENT_STATUS_BADGE_CLASS[c.status]}
+                        >
+                          {CLIENT_STATUS_LABELS[c.status] ?? c.status}
+                        </Badge>
+                        <span className="text-muted-foreground shrink-0 text-xs">
+                          {formatDateSafe(c.createdAt)}
+                        </span>
+                        <span className="min-w-0 flex-1 font-medium">{c.companyName}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <ReportTablePaginationBar
+                  page={recentClientsPagination.page}
+                  pageSize={recentClientsPagination.pageSize}
+                  pageCount={recentClientsPagination.pageCount}
+                  total={recentClientsPagination.total}
+                  onPageChange={recentClientsPagination.setPage}
+                  onPageSizeChange={recentClientsPagination.setPageSize}
+                  hidePageSizeSelect={recentClientsPagination.isPageSizeFixed}
+                  className="border-t-0 pt-1"
+                />
+              </div>
             )}
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

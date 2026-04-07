@@ -42,3 +42,16 @@
 
 - Messages in [`messages/ar.json`](../messages/ar.json) and [`messages/en.json`](../messages/en.json).
 - Error strings for DB keys live under **`errors.*`** (see [error-handling.md](./error-handling.md)).
+
+## Current state addendum
+
+<!-- ADDED 2026-03-23 -->
+
+- Workspace pages currently enforce English/LTR wrappers (`dir="ltr" lang="en"`) for:
+  - `/dashboard/workspace`
+  - `/dashboard/workspace/board`
+  - `/dashboard/workspace/calendar`
+  - `/dashboard/workspace/timeline`
+  - `/dashboard/workspace/workload`
+- Workspace module components also render LTR-oriented layouts by design.
+- Expenses remains the original documented LTR exception.

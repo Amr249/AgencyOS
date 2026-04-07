@@ -5,8 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { enUS } from "date-fns/locale";
-import { createExpense, updateExpense, type ExpenseCategory } from "@/actions/expenses";
+import { createExpense, updateExpense, type ExpenseRow } from "@/actions/expenses";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +26,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { CATEGORY_LABELS } from "./expense-category-badge";
 
 const categoryValues = [
@@ -55,29 +56,30 @@ const formSchema = z.object({
   notes: z.string().optional(),
   receiptUrl: z.string().url().optional().nullable(),
   teamMemberId: z.string().uuid().optional().nullable(),
+  projectId: z.union([z.string().uuid(), z.null()]),
+  clientId: z.union([z.string().uuid(), z.null()]),
+  isBillable: z.boolean(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
-type ExpenseRow = {
-  id: string;
-  title: string;
-  amount: string;
-  category: ExpenseCategory;
-  date: string;
-  notes: string | null;
-  receiptUrl: string | null;
-  teamMemberId?: string | null;
-};
-
 type TeamMemberOption = { id: string; name: string; role: string | null };
+
+export type ExpenseDialogProject = { id: string; name: string; clientId: string };
+export type ExpenseDialogClient = { id: string; companyName: string };
 
 type NewExpenseDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
-  editExpense?: ExpenseRow | null;
+  /** Row being edited; omit for new expense */
+  expense?: ExpenseRow | null;
   teamMembers?: TeamMemberOption[];
+  projects?: ExpenseDialogProject[];
+  clients?: ExpenseDialogClient[];
+  /** Pre-fill when adding an expense from a project (or other) context */
+  defaultProjectId?: string;
+  defaultClientId?: string;
 };
 
 function getTodayISO() {
@@ -89,11 +91,15 @@ export function NewExpenseDialog({
   open,
   onOpenChange,
   onSuccess,
-  editExpense,
+  expense,
   teamMembers = [],
+  projects = [],
+  clients = [],
+  defaultProjectId,
+  defaultClientId,
 }: NewExpenseDialogProps) {
   const [receiptUploading, setReceiptUploading] = React.useState(false);
-  const isEdit = !!editExpense;
+  const isEdit = !!expense;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -105,21 +111,38 @@ export function NewExpenseDialog({
       notes: "",
       receiptUrl: null,
       teamMemberId: null,
+      projectId: null,
+      clientId: null,
+      isBillable: false,
     },
   });
 
+  const projectIdWatch = form.watch("projectId");
+
   React.useEffect(() => {
-    if (open && editExpense) {
+    if (projectIdWatch && projects.length > 0) {
+      const project = projects.find((p) => p.id === projectIdWatch);
+      if (project?.clientId) {
+        form.setValue("clientId", project.clientId);
+      }
+    }
+  }, [projectIdWatch, projects, form]);
+
+  React.useEffect(() => {
+    if (open && expense) {
       form.reset({
-        title: editExpense.title,
-        amount: Number(editExpense.amount),
-        category: editExpense.category,
-        date: editExpense.date,
-        notes: editExpense.notes ?? "",
-        receiptUrl: editExpense.receiptUrl,
-        teamMemberId: editExpense.teamMemberId ?? null,
+        title: expense.title,
+        amount: Number(expense.amount),
+        category: expense.category,
+        date: expense.date,
+        notes: expense.notes ?? "",
+        receiptUrl: expense.receiptUrl,
+        teamMemberId: expense.teamMemberId ?? null,
+        projectId: expense.projectId ?? null,
+        clientId: expense.clientId ?? null,
+        isBillable: expense.isBillable ?? false,
       });
-    } else if (open && !editExpense) {
+    } else if (open && !expense) {
       form.reset({
         title: "",
         amount: 0,
@@ -128,9 +151,12 @@ export function NewExpenseDialog({
         notes: "",
         receiptUrl: null,
         teamMemberId: null,
+        projectId: defaultProjectId ?? null,
+        clientId: defaultClientId ?? null,
+        isBillable: false,
       });
     }
-  }, [open, editExpense, form]);
+  }, [open, expense, form, defaultProjectId, defaultClientId]);
 
   async function handleReceiptUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -154,16 +180,22 @@ export function NewExpenseDialog({
   }
 
   async function onSubmit(values: FormValues) {
-    if (isEdit && editExpense) {
+    const shared = {
+      title: values.title,
+      amount: values.amount,
+      category: values.category,
+      date: values.date,
+      notes: values.notes || undefined,
+      receiptUrl: values.receiptUrl ?? null,
+      teamMemberId: values.teamMemberId ?? null,
+      projectId: values.projectId ?? null,
+      clientId: values.clientId ?? null,
+      isBillable: values.isBillable,
+    };
+    if (isEdit && expense) {
       const res = await updateExpense({
-        id: editExpense.id,
-        title: values.title,
-        amount: values.amount,
-        category: values.category,
-        date: values.date,
-        notes: values.notes || undefined,
-        receiptUrl: values.receiptUrl ?? null,
-        teamMemberId: values.teamMemberId ?? null,
+        id: expense.id,
+        ...shared,
       });
       if (res.ok) {
         toast.success("Expense updated");
@@ -173,15 +205,7 @@ export function NewExpenseDialog({
         toast.error(typeof res.error === "string" ? res.error : "Failed to update expense");
       }
     } else {
-      const res = await createExpense({
-        title: values.title,
-        amount: values.amount,
-        category: values.category,
-        date: values.date,
-        notes: values.notes || undefined,
-        receiptUrl: values.receiptUrl ?? null,
-        teamMemberId: values.teamMemberId ?? null,
-      });
+      const res = await createExpense(shared);
       if (res.ok) {
         toast.success("Expense added");
         onOpenChange(false);
@@ -221,7 +245,10 @@ export function NewExpenseDialog({
               name="amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Amount (SAR)</FormLabel>
+                  <FormLabel className="inline-flex items-center gap-1">
+                    Amount
+                    <SarCurrencyIcon className="h-3.5 w-3.5 shrink-0" />
+                  </FormLabel>
                   <FormControl>
                     <Input type="number" step="0.01" min="0" placeholder="0" {...field} />
                   </FormControl>
@@ -250,6 +277,84 @@ export function NewExpenseDialog({
                     </SelectContent>
                   </Select>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            {projects.length > 0 && (
+              <FormField
+                control={form.control}
+                name="projectId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="block text-left">Project</FormLabel>
+                    <Select
+                      onValueChange={(value) => field.onChange(value === "none" ? null : value)}
+                      value={field.value ?? "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger id="project">
+                          <SelectValue placeholder="Select project (optional)" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">No project</SelectItem>
+                        {projects.map((project) => (
+                          <SelectItem key={project.id} value={project.id}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {clients.length > 0 && (
+              <FormField
+                control={form.control}
+                name="clientId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="block text-left">Client</FormLabel>
+                    <Select
+                      onValueChange={(value) => field.onChange(value === "none" ? null : value)}
+                      value={field.value ?? "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger id="client">
+                          <SelectValue placeholder="Select client (optional)" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">No client</SelectItem>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>
+                            {client.companyName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            <FormField
+              control={form.control}
+              name="isBillable"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      id="billable"
+                      checked={field.value}
+                      onCheckedChange={(checked) => field.onChange(checked === true)}
+                    />
+                  </FormControl>
+                  <FormLabel htmlFor="billable" className="cursor-pointer text-sm font-normal leading-none">
+                    Billable expense (can be charged to client)
+                  </FormLabel>
                 </FormItem>
               )}
             />
@@ -293,8 +398,6 @@ export function NewExpenseDialog({
                       value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                       onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
                       placeholder="Select date"
-                      direction="ltr"
-                      locale={enUS}
                       popoverAlign="start"
                     />
                   </FormControl>

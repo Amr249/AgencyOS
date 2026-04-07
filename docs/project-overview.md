@@ -38,3 +38,13 @@ Internal operations dashboard for a **Saudi web design agency** (OnePixle): clie
 1. **RTL-first** — `<html dir>` and `<body dir>` follow locale; dashboard sidebar uses `side="right"` for Arabic (`app/dashboard/layout.tsx`).
 2. **Arabic user-facing errors** — DB connectivity uses keyed errors (`errors.connectionTimeout`, etc.) in Arabic/English message files; some actions still return raw Arabic strings (see [error-handling.md](./error-handling.md)).
 3. **Clean dashboard aesthetics** — dark sidebar tokens, restrained cards, IBM Plex Sans / IBM Plex Sans Arabic fonts in root layout.
+
+## Current state addendum
+
+<!-- ADDED 2026-03-23 -->
+
+- Workspace now includes five routes: `/dashboard/workspace`, `/dashboard/workspace/board`, `/dashboard/workspace/calendar`, `/dashboard/workspace/timeline`, `/dashboard/workspace/workload`.
+- Current workspace UI is intentionally rendered in English + LTR in page wrappers and workspace module components.
+- Task model currently includes both `start_date` and `due_date` in the DB-backed schema path.
+- Drizzle migrations in `/drizzle` include `0000` through `0003`; however `drizzle/meta/_journal.json` currently lists entries through `0001`.  
+  <!-- OUTDATED: journal metadata lags SQL files present in /drizzle -->

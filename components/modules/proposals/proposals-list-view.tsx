@@ -39,7 +39,8 @@ import { ProposalStatusBadge } from "./proposal-status-badge";
 import { ProposalsWinRateChart } from "./proposals-win-rate-chart";
 import { ProposalsStatusDonut } from "./proposals-status-donut";
 import { toast } from "sonner";
-import { formatBudgetSAR, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import { SarMoney } from "@/components/ui/sar-money";
 import { CirclePlus, MoreHorizontal, Pencil, UserPlus, Trash2 } from "lucide-react";
 
 type ProposalRow = {
@@ -91,12 +92,18 @@ const DATE_RANGE_OPTIONS = [
   { value: "this_year", label: "هذه السنة" },
 ];
 
-function formatBudgetRange(min: string | null, max: string | null): string {
+function BudgetRangeDisplay({ min, max }: { min: string | null; max: string | null }) {
   if (min != null && min !== "" && max != null && max !== "") {
-    return `${formatBudgetSAR(min)} - ${formatBudgetSAR(max)}`;
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <SarMoney value={min} iconClassName="h-3 w-3" />
+        <span>–</span>
+        <SarMoney value={max} iconClassName="h-3 w-3" />
+      </span>
+    );
   }
-  if (min != null && min !== "") return formatBudgetSAR(min);
-  if (max != null && max !== "") return formatBudgetSAR(max);
+  if (min != null && min !== "") return <SarMoney value={min} iconClassName="h-3 w-3" />;
+  if (max != null && max !== "") return <SarMoney value={max} iconClassName="h-3 w-3" />;
   return "—";
 }
 
@@ -163,7 +170,9 @@ export function ProposalsListView({
         id: "budget",
         enableSorting: false,
         header: () => <span className="text-right">الميزانية</span>,
-        cell: ({ row }) => formatBudgetRange(row.original.budgetMin, row.original.budgetMax),
+        cell: ({ row }) => (
+          <BudgetRangeDisplay min={row.original.budgetMin} max={row.original.budgetMax} />
+        ),
       },
       {
         accessorKey: "myBid",
@@ -173,7 +182,7 @@ export function ProposalsListView({
             <span className="text-right">عرضي {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
-        cell: ({ row }) => formatBudgetSAR(row.original.myBid),
+        cell: ({ row }) => <SarMoney value={row.original.myBid} iconClassName="h-3 w-3" />,
       },
       {
         accessorKey: "status",
@@ -264,8 +273,6 @@ export function ProposalsListView({
     updateParams({ search: q || undefined });
   };
 
-  const totalWonFormatted = `${Number(stats.totalWonValue).toLocaleString("ar-SA")} ر.س`;
-
   return (
     <div className="space-y-6" dir="rtl">
       <div className="flex flex-col gap-4 sm:flex-row-reverse sm:items-center sm:justify-between">
@@ -316,7 +323,9 @@ export function ProposalsListView({
             <CardTitle className="text-sm font-medium">إجمالي قيمة المشاريع المكسوبة</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalWonFormatted}</div>
+            <div className="text-2xl font-bold">
+              <SarMoney value={String(stats.totalWonValue)} iconClassName="h-5 w-5" />
+            </div>
           </CardContent>
         </Card>
       </div>
