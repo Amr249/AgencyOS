@@ -5,6 +5,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { createProject, type CreateProjectInput } from "@/actions/projects";
+import {
+  createProjectFromTemplate,
+  getProjectTemplates,
+  type ProjectTemplatePickerRow,
+} from "@/actions/templates";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +43,12 @@ import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  ClientSelectOptionRow,
+  TeamMemberSelectOptionRow,
+  entityInitials,
+} from "@/components/entity-select-option";
 
 const projectStatusOptions = [
   { value: "lead", label: "Lead" },
@@ -48,9 +59,12 @@ const projectStatusOptions = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
+const TEMPLATE_BLANK = "__blank__" as const;
+
 const formSchema = z.object({
   name: z.string().min(1, "Project name is required"),
   clientId: z.string().uuid("Select a client"),
+  templateId: z.string().default(TEMPLATE_BLANK),
   status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -62,8 +76,8 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-type ClientOption = { id: string; companyName: string | null };
-type TeamMemberOption = { id: string; name: string; role: string | null };
+type ClientOption = { id: string; companyName: string | null; logoUrl?: string | null };
+type TeamMemberOption = { id: string; name: string; role: string | null; avatarUrl?: string | null };
 type ServiceOption = { id: string; name: string; status: string };
 
 type NewProjectDialogProps = {
@@ -95,6 +109,8 @@ export function NewProjectDialog({
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [coverImageUrl, setCoverImageUrl] = React.useState<string | null>(null);
   const [coverUploading, setCoverUploading] = React.useState(false);
+  const [templateOptions, setTemplateOptions] = React.useState<ProjectTemplatePickerRow[]>([]);
+  const [templatesLoading, setTemplatesLoading] = React.useState(false);
   const coverInputRef = React.useRef<HTMLInputElement>(null);
   const isControlled = open !== undefined && onOpenChange !== undefined;
   const effectiveOpen = isControlled ? open : dialogOpen;
@@ -105,6 +121,7 @@ export function NewProjectDialog({
     defaultValues: {
       name: "",
       clientId: "",
+      templateId: TEMPLATE_BLANK,
       status: "lead",
       startDate: "",
       endDate: "",
@@ -115,6 +132,8 @@ export function NewProjectDialog({
     },
   });
 
+  const selectedTemplateId = form.watch("templateId");
+
   const lockedClient = !!defaultClientId;
   React.useEffect(() => {
     if (effectiveOpen && !form.formState.isDirty) {
@@ -122,6 +141,7 @@ export function NewProjectDialog({
       form.reset({
         name: "",
         clientId: defaultClientId ?? "",
+        templateId: TEMPLATE_BLANK,
         status: "lead",
         startDate: "",
         endDate: "",
@@ -132,6 +152,25 @@ export function NewProjectDialog({
       });
     }
   }, [effectiveOpen, form, defaultClientId]);
+
+  React.useEffect(() => {
+    if (!effectiveOpen) return;
+    setTemplatesLoading(true);
+    void getProjectTemplates().then((r) => {
+      if (r.ok) {
+        setTemplateOptions(r.data);
+      } else {
+        toast.error(r.error);
+        setTemplateOptions([]);
+      }
+      setTemplatesLoading(false);
+    });
+  }, [effectiveOpen]);
+
+  const selectedTemplate =
+    selectedTemplateId && selectedTemplateId !== TEMPLATE_BLANK
+      ? templateOptions.find((t) => t.id === selectedTemplateId)
+      : undefined;
 
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -157,7 +196,7 @@ export function NewProjectDialog({
   };
 
   async function onSubmit(values: FormValues) {
-    const result = await createProject({
+    const payload: CreateProjectInput = {
       name: values.name,
       clientId: values.clientId,
       status: values.status,
@@ -168,9 +207,15 @@ export function NewProjectDialog({
       description: values.description || undefined,
       teamMemberIds: values.teamMemberIds?.length ? values.teamMemberIds : undefined,
       serviceIds: values.serviceIds?.length ? values.serviceIds : undefined,
-    } as CreateProjectInput);
+    };
+
+    const useTemplate = values.templateId && values.templateId !== TEMPLATE_BLANK;
+    const result = useTemplate
+      ? await createProjectFromTemplate(values.templateId, payload)
+      : await createProject(payload);
+
     if (result.ok) {
-      toast.success("Project created");
+      toast.success(useTemplate ? "Project created from template" : "Project created");
       setEffectiveOpen(false);
       onSuccess?.();
     } else {
@@ -240,8 +285,20 @@ export function NewProjectDialog({
               <FormItem>
                 <FormLabel>Client *</FormLabel>
                 {lockedClient ? (
-                  <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
-                    {clients.find((c) => c.id === field.value)?.companyName ?? field.value}
+                  <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
+                    {(() => {
+                      const c = clients.find((x) => x.id === field.value);
+                      const label = c?.companyName ?? field.value;
+                      return (
+                        <>
+                          <Avatar className="h-5 w-5 shrink-0">
+                            <AvatarImage src={c?.logoUrl?.trim() || undefined} alt="" />
+                            <AvatarFallback className="text-[10px]">{entityInitials(label, 1)}</AvatarFallback>
+                          </Avatar>
+                          <span className="truncate">{label}</span>
+                        </>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <Select onValueChange={field.onChange} value={field.value}>
@@ -251,11 +308,14 @@ export function NewProjectDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.companyName || c.id}
-                        </SelectItem>
-                      ))}
+                      {clients.map((c) => {
+                        const label = c.companyName || c.id;
+                        return (
+                          <SelectItem key={c.id} value={c.id} textValue={label}>
+                            <ClientSelectOptionRow logoUrl={c.logoUrl} label={label} />
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 )}
@@ -263,6 +323,64 @@ export function NewProjectDialog({
               </FormItem>
             )}
           />
+          <FormField
+            control={form.control}
+            name="templateId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Start from template</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value}
+                  disabled={templatesLoading}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={templatesLoading ? "Loading templates…" : "Blank project"}
+                      />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value={TEMPLATE_BLANK}>Blank project</SelectItem>
+                    {templateOptions.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {`${t.name} (${t.taskCount} ${t.taskCount === 1 ? "task" : "tasks"})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-xs">
+                  Optional. Templates include phases and tasks only—no dates or assignees from the template.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          {selectedTemplate ? (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-2">
+              <p className="font-medium text-foreground">Template preview</p>
+              <p className="text-muted-foreground text-xs">
+                {selectedTemplate.taskCount} task{selectedTemplate.taskCount === 1 ? "" : "s"} ·{" "}
+                {(selectedTemplate.defaultPhases ?? []).filter(Boolean).length} phase
+                {(selectedTemplate.defaultPhases ?? []).filter(Boolean).length === 1 ? "" : "s"}
+              </p>
+              {(selectedTemplate.defaultPhases ?? []).filter(Boolean).length > 0 ? (
+                <ol className="list-decimal list-inside text-xs text-muted-foreground space-y-0.5 max-h-28 overflow-y-auto">
+                  {(selectedTemplate.defaultPhases ?? [])
+                    .map((n) => n.trim())
+                    .filter(Boolean)
+                    .map((name, i) => (
+                      <li key={`${i}-${name}`}>
+                        <span className="text-foreground">{name}</span>
+                      </li>
+                    ))}
+                </ol>
+              ) : (
+                <p className="text-muted-foreground text-xs">No phases in this template.</p>
+              )}
+            </div>
+          ) : null}
           <FormField
             control={form.control}
             name="status"
@@ -312,8 +430,16 @@ export function NewProjectDialog({
                           {teamMembers
                             .filter((m) => !(field.value ?? []).includes(m.id))
                             .map((m) => (
-                              <SelectItem key={m.id} value={m.id}>
-                                {m.name} — {m.role ?? "—"}
+                              <SelectItem
+                                key={m.id}
+                                value={m.id}
+                                textValue={`${m.name} ${m.role ?? ""}`}
+                              >
+                                <TeamMemberSelectOptionRow
+                                  avatarUrl={m.avatarUrl}
+                                  name={m.name}
+                                  secondary={m.role ?? "—"}
+                                />
                               </SelectItem>
                             ))}
                         </SelectContent>
@@ -328,6 +454,12 @@ export function NewProjectDialog({
                                 variant="secondary"
                                 className="gap-1 pr-1.5 pl-1.5"
                               >
+                                <Avatar className="h-4 w-4 shrink-0">
+                                  <AvatarImage src={m?.avatarUrl?.trim() || undefined} alt="" />
+                                  <AvatarFallback className="text-[8px]">
+                                    {entityInitials(m?.name ?? id, 1)}
+                                  </AvatarFallback>
+                                </Avatar>
                                 {m?.name ?? id}
                                 <button
                                   type="button"

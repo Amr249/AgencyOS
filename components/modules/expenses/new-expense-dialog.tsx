@@ -37,6 +37,11 @@ import {
 import { toast } from "sonner";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { CATEGORY_LABELS } from "./expense-category-badge";
+import {
+  ClientSelectOptionRow,
+  ProjectSelectOptionRow,
+  TeamMemberSelectOptionRow,
+} from "@/components/entity-select-option";
 
 const categoryValues = [
   "software",
@@ -63,10 +68,16 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-type TeamMemberOption = { id: string; name: string; role: string | null };
+type TeamMemberOption = { id: string; name: string; role: string | null; avatarUrl?: string | null };
 
-export type ExpenseDialogProject = { id: string; name: string; clientId: string };
-export type ExpenseDialogClient = { id: string; companyName: string };
+export type ExpenseDialogProject = {
+  id: string;
+  name: string;
+  clientId: string;
+  coverImageUrl?: string | null;
+  clientLogoUrl?: string | null;
+};
+export type ExpenseDialogClient = { id: string; companyName: string; logoUrl?: string | null };
 
 type NewExpenseDialogProps = {
   open: boolean;
@@ -299,8 +310,12 @@ export function NewExpenseDialog({
                       <SelectContent>
                         <SelectItem value="none">No project</SelectItem>
                         {projects.map((project) => (
-                          <SelectItem key={project.id} value={project.id}>
-                            {project.name}
+                          <SelectItem key={project.id} value={project.id} textValue={project.name}>
+                            <ProjectSelectOptionRow
+                              coverImageUrl={project.coverImageUrl}
+                              clientLogoUrl={project.clientLogoUrl}
+                              name={project.name}
+                            />
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -329,8 +344,8 @@ export function NewExpenseDialog({
                       <SelectContent>
                         <SelectItem value="none">No client</SelectItem>
                         {clients.map((client) => (
-                          <SelectItem key={client.id} value={client.id}>
-                            {client.companyName}
+                          <SelectItem key={client.id} value={client.id} textValue={client.companyName}>
+                            <ClientSelectOptionRow logoUrl={client.logoUrl} label={client.companyName} />
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -376,8 +391,16 @@ export function NewExpenseDialog({
                       </FormControl>
                       <SelectContent>
                         {teamMembers.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name} — {m.role ?? "—"}
+                          <SelectItem
+                            key={m.id}
+                            value={m.id}
+                            textValue={`${m.name} ${m.role ?? ""}`}
+                          >
+                            <TeamMemberSelectOptionRow
+                              avatarUrl={m.avatarUrl}
+                              name={m.name}
+                              secondary={m.role ?? "—"}
+                            />
                           </SelectItem>
                         ))}
                       </SelectContent>

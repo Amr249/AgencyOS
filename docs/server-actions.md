@@ -48,10 +48,19 @@ Task assignment to **app users** (`users` + `task_assignments`), distinct from `
 
 | Export | Purpose |
 |--------|---------|
-| `getExpenses`, `getExpensesSummary`, `getExpensesByTeamMemberId`, `getTeamCostBreakdownThisMonth` | Queries + summaries |
-| `createExpense`, `updateExpense` | Create / partial update (includes optional `teamMemberId` for salary expenses) |
-| `deleteExpense(id)` | Delete one expense by UUID |
-| `deleteExpenses(ids)` | Bulk delete: `ids: string[]` (min 1 UUID); uses `inArray`; returns `{ ok, count }` on success |
+| `getExpenses(filters?)` | List with joins (team member, project, direct client). Filters: **`category`**, **`dateFrom`**, **`dateTo`**, **`projectId`**, **`clientId`**, **`isBillable`** (Zod) |
+| `getExpensesExportData(filters?)` | Same filter shape as `getExpenses`; returns rows for **CSV / Excel** export from the UI |
+| `getExpenseById(id)` | Single expense with relations for **expense detail** page |
+| `getExpensesSummary()` | Aggregates: this month / this year totals, top category |
+| `getExpensesByTeamMemberId` | Salary-style rows for team member detail |
+| `getExpensesByProjectId(projectId)` | All expenses linked to a project |
+| `getExpensesByClientId(clientId)` | Expenses with **`client_id`** = client or **`project_id`** on that client’s projects |
+| `getProjectCostSummary(projectId)` | Totals / counts for project cost widgets |
+| `getClientCostSummary(clientId)` | Totals for client cost widgets |
+| `getTeamCostBreakdownThisMonth` | Per–team-member salary totals (reports / productivity) |
+| `createExpense`, `updateExpense` | Create / partial update — supports **`projectId`**, **`clientId`**, **`isBillable`**, **`teamMemberId`**, receipt URL |
+| `deleteExpense(id)` | Delete one |
+| `deleteExpenses(ids)` | Bulk delete (`inArray`); returns `{ ok, count }` on success |
 
 **DB errors:** `getDbErrorKey` pattern.
 
@@ -61,8 +70,8 @@ Task assignment to **app users** (`users` + `task_assignments`), distinct from `
 
 | Export | Purpose |
 |--------|---------|
-| `getFiles` | `{ clientId?, projectId?, invoiceId? }` — at least one scope id required |
-| `createFile` | Record after ImageKit upload; optional **`invoiceId`** for invoice attachments |
+| `getFiles` | `{ clientId?, projectId?, invoiceId?, expenseId? }` — **exactly one** scope id required |
+| `createFile` | After ImageKit upload; optional **`invoiceId`** or **`expenseId`** for attachments |
 | `deleteFile` | ImageKit + DB row |
 
 **DB errors:** `getDbErrorKey` pattern.
@@ -73,13 +82,31 @@ Task assignment to **app users** (`users` + `task_assignments`), distinct from `
 
 | Export | Purpose |
 |--------|---------|
-| `createPayment(input)` | Insert payment row; **recalculates** parent invoice `status` (`pending` / `partial` / `paid`) and `paid_at` |
+| `createPayment(input)` | Insert payment; **recalculates** parent invoice **`status`** (`pending` / `partial` / `paid`) and **`paid_at`** |
 | `updatePayment(input)` | Update payment by id; **recalculates** invoice status |
 | `deletePayment(id)` | Remove payment; **recalculates** invoice status |
-| `getPaymentsByInvoiceId(invoiceId)` | List payments for an invoice (newest first) |
-| `getInvoicePaymentSummary(invoiceId)` | Returns **`totalPaid`**, **`amountDue`**, **`invoiceTotal`**, **`paymentProgress`** (uses `invoiceCollectedAmount` for legacy paid rows) |
+| `getPaymentsByInvoiceId(invoiceId)` | List payments for one invoice (ordered by date / created) |
+| `getInvoicePaymentSummary(invoiceId)` | **`totalPaid`**, **`amountDue`**, **`invoiceTotal`**, **`paymentProgress`** (uses `invoiceCollectedAmount` for legacy paid rows) |
+
+There is **no** global `getPaymentHistory` export; use **`getPaymentsByInvoiceId`** per invoice (or add a dedicated query if cross-invoice history is needed).
 
 **DB errors:** `getDbErrorKey` on connection failures; Zod errors on validation.
+
+---
+
+## `recurring-expenses.ts` (`actions/recurring-expenses.ts`)
+
+| Export | Purpose |
+|--------|---------|
+| `getRecurringExpenses()` | List with **project**, **client**, **team member** names |
+| `createRecurringExpense(input)` | Insert row (frequency, next due date, optional links, **`vendorLogoUrl`** when category is software) |
+| `updateRecurringExpense(input)` | Partial update by id |
+| `deleteRecurringExpense(id)` | Hard delete |
+| `toggleRecurringExpenseActive(id)` | Flip **`is_active`** |
+| `processRecurringExpenses()` | For due **`next_due_date`**: inserts matching **`expenses`** rows, advances schedule |
+| `getDueRecurringExpenses()` | Due rows (for dashboards / reminders) |
+
+**DB errors:** `getDbErrorKey` pattern (and Zod flatten on validation errors).
 
 ---
 
@@ -87,14 +114,18 @@ Task assignment to **app users** (`users` + `task_assignments`), distinct from `
 
 | Export | Purpose |
 |--------|---------|
-| `getInvoices`, `getInvoicesWithPayments`, `getInvoicesByProjectId`, `getInvoicesByClientId`, `getInvoiceStats`, **`getInvoiceStatsWithPayments`**, `getInvoiceById`, **`getInvoiceWithPayments`**, `getNextInvoiceNumber` | Reads — **`getInvoiceStatsWithPayments`** used by list page for accurate collected/outstanding (payments + legacy paid-without-rows) |
-| `createInvoice`, `updateInvoice` | CRUD with line items; supports **`projectIds`** for **`invoice_projects`** junction + primary `project_id` |
-| `getOverdueInvoices` | Invoices past due (or issue) with **amount due** computed |
+| `getInvoices`, `getInvoicesWithPayments`, `getInvoicesByProjectId`, `getInvoicesByClientId`, `getInvoiceStats`, **`getInvoiceStatsWithPayments`**, `getInvoiceById`, **`getInvoiceWithPayments`**, `getNextInvoiceNumber` | Reads — list stats use **`getInvoiceStatsWithPayments`** for collected/outstanding |
+| **`getInvoicesExportData(filters?)`** | Rows for **CSV / Excel** export from invoice list |
+| `createInvoice`, `updateInvoice` | Line items; **`projectIds`** syncs **`invoice_projects`** + primary **`project_id`** |
+| `getOverdueInvoices` | Past due (or issue) with **amount due** |
 | `updateInvoiceStatus`, `markAsPaid`, `duplicateInvoice`, `deleteInvoice`, `deleteInvoices` | Workflow |
-| **`markAsPaid`** | Inserts a **`payments`** row for the **remaining balance**, then sets invoice **`paid`** (only when balance &gt; 0) |
-| `migrateInvoicesToNewFormat` | Maintenance / one-off migration helper |
+| **`markAsPaid`** | Inserts **`payments`** row for **remaining balance**, then **`paid`** when balance > 0 |
+| `migrateInvoicesToNewFormat` | Maintenance helper |
+| **`migrateLegacyPaidInvoicePayments`** | Backfill **`payments`** for legacy paid invoices |
 
 **DB errors:** `getDbErrorKey` pattern throughout.
+
+**Aging:** AR aging data is loaded via **`getAgingReport`** in **`actions/reports.ts`** (not `invoices.ts`).
 
 ---
 
@@ -135,9 +166,43 @@ Task assignment to **app users** (`users` + `task_assignments`), distinct from `
 
 ## `reports.ts`
 
-Many read-only exports for dashboards: `getProjectsSummary`, `getProjectsByStatus`, `getWeeklyTaskCompletion`, `getOverdueTasks`, `getActiveProjectsWithProgress`, `getNewClientsPerMonth`, `getFinancialSummary`, `getMonthlyRevenue`, `getMonthlyAreaData`, `getTopClientsByRevenue`, `getRecentInvoices`, `getOutstandingInvoices`, `getClientSpendByService`, `getServicesProfitability`.
+Most exports are **read-only**. Several profitability helpers return **`{ ok: true, data } | { ok: false, error: DbErrorKey }`** (see implementations).
 
-**DB errors:** **None** — functions return typed data; **failures propagate as thrown errors**. Consider wrapping critical report loaders for graceful Neon failure messages.
+### Financial (core)
+
+| Export | Purpose |
+|--------|---------|
+| `getFinancialSummary()` | KPIs: revenue months, **collected this year** (by payment activity), outstanding, etc. |
+| `getMonthlyRevenue(dateRange)` | Per month: invoiced, collected, expenses, **profits** (shape used by charts) |
+| `getMonthlyComparison()` | Recent months comparison dataset |
+| `getMonthlyAreaDefaultBounds` / `getMonthlyAreaData(start, end)` | Range bounds + area-chart series |
+| `getTopClientsByRevenue(limit)` | Top clients by paid revenue |
+| `getRecentInvoices(limit)` | Latest invoices |
+| `getOutstandingInvoices()` | Pending / partial with amount due |
+| `getProfitLossStatement(period)` | **Profit and loss** for a period key (`this_month`, `this_quarter`, `this_year`, `all_time`, …); includes comparison window when applicable |
+| `getCashFlowForecast()` | Current net position + **3-month** outlook (outstanding AR, recurring + avg spend) |
+
+### Profitability (Phase 3)
+
+| Export | Purpose |
+|--------|---------|
+| `getProjectProfitability(range?)` | Per-project revenue (payments, multi-project split) vs **expenses** |
+| `getClientProfitability(range?)` | Per-client revenue vs expenses (direct + project-linked, no double count) |
+| `getServiceProfitability(range?)` | Revenue/expense/profit **by service** (allocates **`getProjectProfitability`** across **`project_services`**) |
+| `getServicesProfitability()` | **Legacy / simpler** service revenue roll-up from **paid** invoices (no expense side) |
+
+### Other analytics
+
+| Export | Purpose |
+|--------|---------|
+| `getClientSpendByService()` | Client × service spend from paid invoices |
+| `getAgingReport()` | AR buckets + invoice list with **amount due** (respects **payments**) |
+
+### Productivity (unchanged)
+
+`getProjectsSummary`, `getProjectsByStatus`, `getWeeklyTaskCompletion`, `getOverdueTasks`, `getActiveProjectsWithProgress`, `getNewClientsPerMonth`.
+
+**DB errors:** Mixed — profitability + aging use **`getDbErrorKey`**; older helpers may **throw** on failure. Prefer try/catch or `ok` checks per call site.
 
 ---
 
@@ -237,7 +302,8 @@ Workspace module actions for My Tasks, Board, Timeline, Workload, time tracking,
 
 | Pattern | Files |
 |---------|--------|
-| **`isDbConnectionError` + `getDbErrorKey`** | `clients`, `expenses`, `files`, `invoices`, `project-services`, `projects`, `proposals`, `services`, `settings`, `tasks`, `team`, `team-members` |
+| **`isDbConnectionError` + `getDbErrorKey`** | `clients`, `expenses`, `files`, `invoices`, `payments`, `project-services`, `projects`, `proposals`, **`recurring-expenses`**, `services`, `settings`, `tasks`, `team`, `team-members` |
 | **`isDbConnectionError` + `getDbErrorKey`** | `workspace` |
 | **`isDbConnectionError` only (Arabic strings)** | `assignments` |
-| **Not used** | `dashboard`, `reports` |
+| **Mixed / throws** | **`reports`** — many helpers use **`getDbErrorKey`** on `ok: false`; older paths may still **throw** |
+| **Not used** | `dashboard` |

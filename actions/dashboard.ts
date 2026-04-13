@@ -4,6 +4,9 @@ import { eq, isNull, and, desc, inArray, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { invoices, projects, tasks, clients, settings, payments, expenses } from "@/lib/db";
 import { getProjectProfitability, getClientProfitability } from "@/actions/reports";
+import { getUpcomingMilestones } from "@/actions/milestones";
+import { getRecentActivity, type RecentActivityEntry } from "@/actions/activity-log";
+import { getProjectsHealthMap } from "@/actions/project-health";
 import {
   startOfMonth,
   endOfMonth,
@@ -43,6 +46,16 @@ export type DashboardData = {
     endDate: string;
     status: string;
   }[];
+  upcomingMilestones: {
+    id: string;
+    projectId: string;
+    projectName: string;
+    name: string;
+    dueDate: string;
+    status: string;
+    overdue: boolean;
+  }[];
+  recentActivity: RecentActivityEntry[];
   recentInvoices: {
     id: string;
     invoiceNumber: string;
@@ -56,6 +69,17 @@ export type DashboardData = {
   profitMargin: number | null;
   topProfitableProject: { id: string; name: string; profit: number } | null;
   topProfitableClient: { id: string; name: string; profit: number } | null;
+  /** Projects with a set budget where burn (expenses + billable time) is ≥80% of budget. */
+  budgetWarnings: {
+    id: string;
+    name: string;
+    clientName: string | null;
+    percentUsed: number;
+    remaining: number;
+    spent: number;
+    budget: number;
+    level: "warning" | "danger";
+  }[];
 };
 
 const PROJECT_STATUS_LABELS: Record<string, string> = {
@@ -230,6 +254,23 @@ export async function getDashboardData(): Promise<DashboardData> {
     status: p.status,
   }));
 
+  const upcomingMilestonesResult = await getUpcomingMilestones(14);
+  const upcomingMilestones =
+    upcomingMilestonesResult.ok
+      ? upcomingMilestonesResult.data.map((m) => ({
+          id: m.id,
+          projectId: m.projectId,
+          projectName: m.projectName,
+          name: m.name,
+          dueDate: String(m.dueDate),
+          status: m.status,
+          overdue: String(m.dueDate) < todayStr,
+        }))
+      : [];
+
+  const recentActivityResult = await getRecentActivity(10);
+  const recentActivity = recentActivityResult.ok ? recentActivityResult.data : [];
+
   const recentInvoicesRows = await db
     .select({
       id: invoices.id,
@@ -320,6 +361,57 @@ export async function getDashboardData(): Promise<DashboardData> {
     };
   }
 
+  const budgetProjectRows = await db
+    .select({
+      id: projects.id,
+      name: projects.name,
+      budget: projects.budget,
+      clientId: projects.clientId,
+    })
+    .from(projects)
+    .where(
+      and(
+        isNull(projects.deletedAt),
+        sql`${projects.budget} is not null`,
+        sql`coalesce(cast(${projects.budget} as numeric), 0) > 0`
+      )
+    );
+
+  let budgetWarnings: DashboardData["budgetWarnings"] = [];
+  if (budgetProjectRows.length > 0) {
+    const healthRes = await getProjectsHealthMap(budgetProjectRows.map((p) => p.id));
+    const warnClientIds = [...new Set(budgetProjectRows.map((p) => p.clientId))];
+    const warnClients =
+      warnClientIds.length > 0
+        ? await db
+            .select({ id: clients.id, companyName: clients.companyName })
+            .from(clients)
+            .where(inArray(clients.id, warnClientIds))
+        : [];
+    const warnClientMap = new Map(warnClients.map((c) => [c.id, c.companyName]));
+
+    if (healthRes.ok) {
+      for (const p of budgetProjectRows) {
+        const h = healthRes.data[p.id];
+        if (!h || h.budget == null || h.budgetUsedPercent == null) continue;
+        if (h.budgetUsedPercent < 80) continue;
+        const remaining = Math.round((h.budget - h.totalBurn) * 100) / 100;
+        budgetWarnings.push({
+          id: p.id,
+          name: p.name,
+          clientName: warnClientMap.get(p.clientId) ?? null,
+          percentUsed: h.budgetUsedPercent,
+          remaining,
+          spent: h.totalBurn,
+          budget: h.budget,
+          level: h.status === "over_budget" || h.budgetUsedPercent >= 100 ? "danger" : "warning",
+        });
+      }
+      budgetWarnings.sort((a, b) => b.percentUsed - a.percentUsed);
+      budgetWarnings = budgetWarnings.slice(0, 12);
+    }
+  }
+
   return {
     currency,
     revenueThisMonth,
@@ -332,10 +424,13 @@ export async function getDashboardData(): Promise<DashboardData> {
     projectStatusCounts,
     overdueTasks,
     upcomingProjects,
+    upcomingMilestones,
+    recentActivity,
     recentInvoices,
     totalProfit,
     profitMargin,
     topProfitableProject,
     topProfitableClient,
+    budgetWarnings,
   };
 }

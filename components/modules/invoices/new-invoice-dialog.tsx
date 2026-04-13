@@ -41,6 +41,12 @@ import { Cross2Icon } from "@radix-ui/react-icons";
 import { Lock } from "lucide-react";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  ClientSelectOptionRow,
+  ProjectSelectOptionRow,
+  entityInitials,
+} from "@/components/entity-select-option";
 
 function SarAmount({ value }: { value: string }) {
   const f = formatAmount(value);
@@ -71,8 +77,13 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-type ClientOption = { id: string; companyName: string | null };
-type ProjectOption = { id: string; name: string };
+type ClientOption = { id: string; companyName: string | null; logoUrl?: string | null };
+type ProjectOption = {
+  id: string;
+  name: string;
+  coverImageUrl?: string | null;
+  clientLogoUrl?: string | null;
+};
 type SettingsData = {
   invoicePrefix: string | null;
   invoiceNextNumber: number | null;
@@ -81,14 +92,24 @@ type SettingsData = {
   invoiceFooter: string | null;
 };
 
+export type MilestoneInvoicePrefill = {
+  milestoneName: string;
+  /** Milestone billing amount (numeric string from DB or empty) */
+  amount: string | null | undefined;
+  projectId: string;
+};
+
 type NewInvoiceDialogProps = {
-  trigger: React.ReactNode;
+  /** Omit when dialog is only opened programmatically (`open` + `onOpenChange`). */
+  trigger?: React.ReactNode;
   clients: ClientOption[];
   settings: SettingsData | null;
   nextInvoiceNumber: string;
   /** When set, client is pre-selected and locked (e.g. from client detail page). */
   defaultClientId?: string;
-  onSuccess?: () => void;
+  /** When dialog opens, pre-fill line item and project checkboxes from a milestone. */
+  milestonePrefill?: MilestoneInvoicePrefill | null;
+  onSuccess?: (invoice: { id: string; invoiceNumber: string }) => void | Promise<void>;
   /** Controlled open state (e.g. for FAB on mobile). */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -106,6 +127,7 @@ export function NewInvoiceDialog({
   settings,
   nextInvoiceNumber,
   defaultClientId,
+  milestonePrefill,
   onSuccess,
   open: openProp,
   onOpenChange: setOpenProp,
@@ -139,23 +161,51 @@ export function NewInvoiceDialog({
       return;
     }
     getProjects({ clientId }).then((r) => {
-      if (r.ok) setProjects(r.data.map((p) => ({ id: p.id, name: p.name })));
+      if (r.ok)
+        setProjects(
+          r.data.map((p) => ({
+            id: p.id,
+            name: p.name,
+            coverImageUrl: p.coverImageUrl,
+            clientLogoUrl: p.clientLogoUrl,
+          }))
+        );
       else setProjects([]);
     });
   }, [clientId, form]);
 
+  const prefillKey = milestonePrefill
+    ? `${milestonePrefill.projectId}:${milestonePrefill.milestoneName}:${milestonePrefill.amount ?? ""}`
+    : "";
+
   React.useEffect(() => {
-    if (open) {
-      form.reset({
-        clientId: defaultClientId ?? "",
-        projectIds: [],
-        invoiceNumber: nextInvoiceNumber,
-        issueDate: new Date().toISOString().slice(0, 10),
-        notes: defaultNotes,
-        lineItems: [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0 }],
-      });
-    }
-  }, [open, nextInvoiceNumber, defaultNotes, defaultClientId, form]);
+    if (!open) return;
+    const unitPrice = milestonePrefill
+      ? (() => {
+          const raw = milestonePrefill.amount;
+          if (raw == null || raw === "") return 0;
+          const n = parseFloat(String(raw).replace(",", "."));
+          return Number.isNaN(n) || n < 0 ? 0 : n;
+        })()
+      : 0;
+    form.reset({
+      clientId: defaultClientId ?? "",
+      projectIds: milestonePrefill ? [milestonePrefill.projectId] : [],
+      invoiceNumber: nextInvoiceNumber,
+      issueDate: new Date().toISOString().slice(0, 10),
+      notes: defaultNotes,
+      lineItems: milestonePrefill
+        ? [
+            {
+              description: `Milestone: ${milestonePrefill.milestoneName}`,
+              quantity: 1,
+              unitPrice,
+              taxRate: 0,
+            },
+          ]
+        : [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0 }],
+    });
+  }, [open, nextInvoiceNumber, defaultNotes, defaultClientId, form, milestonePrefill, prefillKey]);
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "lineItems" });
 
@@ -199,13 +249,14 @@ export function NewInvoiceDialog({
       toast.error("Invoice created but PDF download failed");
     }
     toast.success("Invoice created and PDF downloaded");
+    const ret = onSuccess?.({ id: result.data.id, invoiceNumber: result.data.invoiceNumber });
+    if (ret instanceof Promise) await ret;
     setOpen(false);
-    onSuccess?.();
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger != null ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="max-h-[90vh] w-[95vw] max-w-[95vw] overflow-y-auto sm:max-w-3xl" dir="ltr">
         <DialogHeader className="text-left">
           <DialogTitle>New invoice</DialogTitle>
@@ -221,8 +272,20 @@ export function NewInvoiceDialog({
                   <FormItem className="text-left">
                     <FormLabel>Client *</FormLabel>
                     {lockedClient ? (
-                      <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
-                        {clients.find((c) => c.id === field.value)?.companyName ?? field.value}
+                      <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
+                        {(() => {
+                          const c = clients.find((x) => x.id === field.value);
+                          const label = c?.companyName ?? field.value;
+                          return (
+                            <>
+                              <Avatar className="h-5 w-5 shrink-0">
+                                <AvatarImage src={c?.logoUrl?.trim() || undefined} alt="" />
+                                <AvatarFallback className="text-[10px]">{entityInitials(label, 1)}</AvatarFallback>
+                              </Avatar>
+                              <span className="truncate">{label}</span>
+                            </>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <Select onValueChange={field.onChange} value={field.value || undefined}>
@@ -232,11 +295,14 @@ export function NewInvoiceDialog({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {clients.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.companyName || c.id}
-                            </SelectItem>
-                          ))}
+                          {clients.map((c) => {
+                            const label = c.companyName || c.id;
+                            return (
+                              <SelectItem key={c.id} value={c.id} textValue={label}>
+                                <ClientSelectOptionRow logoUrl={c.logoUrl} label={label} />
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                     )}
@@ -275,7 +341,11 @@ export function NewInvoiceDialog({
                                       field.onChange([...next]);
                                     }}
                                   />
-                                  <span>{p.name}</span>
+                                  <ProjectSelectOptionRow
+                                    coverImageUrl={p.coverImageUrl}
+                                    clientLogoUrl={p.clientLogoUrl}
+                                    name={p.name}
+                                  />
                                 </label>
                               );
                             }}

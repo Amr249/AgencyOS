@@ -26,8 +26,8 @@ type ClientProjectsTabProps = {
   clientName: string;
   projects: ProjectRow[];
   taskCounts: Record<string, { total: number; done: number }>;
-  clients: { id: string; companyName: string | null }[];
-  teamMembers?: { id: string; name: string; role: string | null }[];
+  clients: { id: string; companyName: string | null; logoUrl?: string | null }[];
+  teamMembers?: { id: string; name: string; role: string | null; avatarUrl?: string | null }[];
   defaultCurrency: string;
 };
 

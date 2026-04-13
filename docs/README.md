@@ -26,6 +26,7 @@ Living documentation for the **AgencyOS** Next.js dashboard. Keep these files up
 | [API.md](./API.md) | HTTP API routes under `app/api`. |
 | [DECISIONS.md](./DECISIONS.md) | Technical decision log. |
 | [TODO.md](./TODO.md) | Build status / backlog. |
+| [types/index.md](./types/index.md) | Display maps in `types/index.ts` (invoice, payment, recurrence labels, etc.). |
 
 ## Setup & environment
 

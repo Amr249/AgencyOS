@@ -69,7 +69,7 @@ What is built, in progress, and not started, by module. **Update at the start an
 - [x] **Partial payments** — payment history, status recalculation, add/delete payments
 - [x] **Payment history** UI + progress bar (`payment-history.tsx`, `add-payment-modal.tsx`)
 - [x] **Invoice file attachments** (`invoice-attachments.tsx`, `getFiles` / `createFile` with **`invoiceId`**)
-- [x] **Aging report** (`aging-report-section.tsx` on Financial reports)
+- [x] **Aging report** — `getAgingReport` + `aging-report-section.tsx` (compose where needed)
 - [x] **Invoice number format** — sequential `INV-001` from settings
 - [x] **English UI** — list, detail, edit, dialogs
 - [x] **PDF** — English (`GET /api/invoices/[id]/pdf`, `InvoicePdfDocument`)
@@ -102,24 +102,31 @@ What is built, in progress, and not started, by module. **Update at the start an
 
 ## Reports
 
-- [x] Placeholder page
-- [x] Financial tab: KPI cards, revenue chart (invoiced by created_at, collected by paid_at, expenses bar), profit KPI (صافي الربح = collected − expenses), summary below chart
-- [x] **AR aging** section (`aging-report-section.tsx`) — buckets by days overdue
-- [ ] Revenue report (CSV export)
-- [ ] Project profitability view
-- [x] Outstanding invoices table with "تحديد كمدفوعة"
-- [ ] Client summary (billed per client)
+- [x] Financial + productivity tabs (English LTR financial tab; productivity tab with Arabic copy in legacy widgets)
+- [x] KPI cards, **`RevenueChartSection`**, **`MonthlyComparisonChart`**, recent invoices, **SAR/EGP** toggle
+- [x] **Profitability** — `getProjectProfitability` / `getClientProfitability` / `getServiceProfitability` + **`ProfitabilityVisualization`** on Financial tab
+- [x] **P&L** action `getProfitLossStatement` + **`ProfitLossSection`** + PDF (`/api/reports/pdf`)
+- [x] **Cash flow** action `getCashFlowForecast` + **`CashFlowForecastSection`**
+- [x] **AR aging** action `getAgingReport` + **`AgingReportSection`** (compose on layout as needed)
+- [x] **PDF exports** for profit-loss, project/client/service profitability (`downloadReportPdf`)
+- [x] **Invoice list CSV/XLSX** and **expenses list CSV/XLSX** (data exports)
+- [x] **Dashboard** finance KPIs: YTD profit, margin, top profitable project/client
+- [x] Composable widgets: **`reports-financial-subtabs`**, **`project-profitability-section`**, **`client-profitability-section`**, **`top-profitable-projects-widget`**, **`outstanding-invoices-table`**
+- [ ] Optional: mount all composable sections on a single “full financial dashboard” route (if desired)
 
 ---
 
 ## Expenses
 
-- [x] Drizzle schema (expenses table, expense_category enum)
-- [x] Server Actions: getExpenses(filters), getExpensesSummary(), createExpense, updateExpense, deleteExpense, **deleteExpenses** (bulk) (Zod)
-- [x] Page app/dashboard/expenses: **English + LTR**; summary bar with **SAR icon** (`SarCurrencyIcon`) + formatted amount; category + date filters; **SortableDataTable** (`uiVariant="clients"`); **row selection + bulk delete**; New/Edit dialog (English); single + bulk delete AlertDialogs
-- [x] Receipt upload via /api/upload (folder agencyos/expenses/receipts)
+- [x] Drizzle schema: **`expenses`** (+ **`project_id`**, **`client_id`**, **`is_billable`**), **`recurring_expenses`**, **`recurrence_frequency`**, **`files.expense_id`**
+- [x] Server Actions: **`getExpenses`** (extended filters), **`getExpensesExportData`**, **`getExpenseById`**, **`getExpensesByProjectId`**, **`getExpensesByClientId`**, **`getProjectCostSummary`**, **`getClientCostSummary`**, **`getExpensesSummary`**, create/update/delete + **`deleteExpenses`**, team helpers
+- [x] **`actions/recurring-expenses.ts`** — full CRUD, toggle active, **`processRecurringExpenses`**, **`getDueRecurringExpenses`**
+- [x] Pages: **`/dashboard/expenses`** (list + exports + recurring link), **`/dashboard/expenses/[id]`** (detail + attachments), **`/dashboard/expenses/recurring`**
+- [x] **Project** / **client** detail **Expenses** tabs (`ProjectExpensesTab`, `ClientExpensesTab`)
+- [x] English + LTR UI, **SAR** icon, bulk delete, **CSV/XLSX**
+- [x] Receipt + **expense attachments** (ImageKit + `files.expense_id`)
 - [x] Sidebar "المصروفات" between الفواتير and التقارير
-- [x] Financial reports: monthly expenses in chart, profit KPI
+- [x] Reports/dashboard consume expense data for profit and cash-flow logic
 
 ---
 
@@ -168,4 +175,4 @@ What is built, in progress, and not started, by module. **Update at the start an
 - [x] Workspace Task Detail Panel now includes delete-task confirmation/action
 - [ ] Reconcile migration metadata journal with SQL files (`drizzle/meta/_journal.json` currently lags 0002/0003)
 
-<!-- OUTDATED: several legacy checklist lines above still describe older Arabic-only UI labels and earlier workspace scope -->
+<!-- Arabic-only descriptions in older modules (e.g. Proposals, parts of Clients) may still apply; Finance uses English/LTR. -->

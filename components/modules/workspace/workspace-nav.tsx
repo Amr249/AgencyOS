@@ -10,15 +10,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ProjectSelectOptionRow, type ProjectPickerOption } from "@/components/entity-select-option";
 
-type ProjectOption = { id: string; name: string };
+type ProjectOption = ProjectPickerOption;
 
 const tabs = [
   { href: "/dashboard/workspace", label: "My Tasks" },
   { href: "/dashboard/workspace/board", label: "Board" },
   { href: "/dashboard/workspace/calendar", label: "Calendar" },
   { href: "/dashboard/workspace/timeline", label: "Timeline" },
+  { href: "/dashboard/workspace/timesheet", label: "Timesheet" },
   { href: "/dashboard/workspace/workload", label: "Workload" },
+  { href: "/dashboard/workspace/availability", label: "Availability" },
 ];
 
 export function WorkspaceNav({ projects = [] }: { projects?: ProjectOption[] }) {
@@ -27,6 +30,7 @@ export function WorkspaceNav({ projects = [] }: { projects?: ProjectOption[] }) 
   const searchParams = useSearchParams();
   const selectedProject = searchParams.get("project") ?? "";
   const shouldShowProject = pathname.includes("/workspace/board") || pathname.includes("/workspace/timeline");
+  const showAllProjectsOption = pathname.includes("/workspace/board");
 
   function onProjectChange(projectId: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -60,9 +64,18 @@ export function WorkspaceNav({ projects = [] }: { projects?: ProjectOption[] }) 
             <SelectValue placeholder="Select project" />
           </SelectTrigger>
           <SelectContent>
+            {showAllProjectsOption ? (
+              <SelectItem value="all" textValue="All projects">
+                All projects
+              </SelectItem>
+            ) : null}
             {projects.map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
+              <SelectItem key={project.id} value={project.id} textValue={project.name}>
+                <ProjectSelectOptionRow
+                  coverImageUrl={project.coverImageUrl}
+                  clientLogoUrl={project.clientLogoUrl}
+                  name={project.name}
+                />
               </SelectItem>
             ))}
           </SelectContent>

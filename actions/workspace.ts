@@ -1,19 +1,34 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, between, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { getServerSession } from "next-auth";
+import { and, asc, between, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { z } from "zod";
+import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { clients, projects, taskComments, taskStatusEnum, tasks, teamMembers, timeLogs } from "@/lib/db/schema";
+import {
+  clients,
+  projects,
+  taskAssignments,
+  taskComments,
+  taskStatusEnum,
+  tasks,
+  teamMembers,
+  timeLogs,
+  users,
+} from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { getAvailabilityDeductionsByMember } from "@/actions/team-availability";
+import { revalidateTimeTrackingCaches } from "@/lib/revalidate-time-tracking-caches";
+import { DEFAULT_WEEKLY_CAPACITY_HOURS } from "@/lib/workspace-constants";
+import type { TaskWithProject } from "@/actions/tasks";
 
 const TASK_STATUSES = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
-const COLUMN_LABELS: Record<(typeof TASK_STATUSES)[number], string> = {
-  todo: "قيد الانتظار",
-  in_progress: "قيد التنفيذ",
-  in_review: "قيد المراجعة",
-  done: "مكتمل",
-  blocked: "موقوف",
+
+/** Board row: same card shape as Tasks Kanban, plus assignee fields for swimlane grouping. */
+export type WorkspaceBoardTask = TaskWithProject & {
+  assigneeId: string | null;
+  assigneeName: string | null;
 };
 
 const sortOrderSchema = z.array(
@@ -57,50 +72,82 @@ export async function getWorkspaceBoard(projectId: string) {
       .select({
         id: tasks.id,
         projectId: tasks.projectId,
-        phaseId: tasks.phaseId,
+        projectName: projects.name,
+        projectCoverImageUrl: projects.coverImageUrl,
+        projectClientLogoUrl: clients.logoUrl,
         parentTaskId: tasks.parentTaskId,
         title: tasks.title,
         description: tasks.description,
         status: tasks.status,
         priority: tasks.priority,
         sortOrder: tasks.sortOrder,
+        startDate: tasks.startDate,
         dueDate: tasks.dueDate,
         estimatedHours: tasks.estimatedHours,
+        notes: tasks.notes,
         actualHours: tasks.actualHours,
         createdAt: tasks.createdAt,
+        milestoneId: tasks.milestoneId,
         assigneeId: tasks.assigneeId,
         assigneeName: teamMembers.name,
-        assigneeAvatarUrl: teamMembers.avatarUrl,
       })
       .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .innerJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
-      .where(and(eq(tasks.projectId, parsed.data), isNull(tasks.deletedAt)))
+      .where(
+        and(
+          eq(tasks.projectId, parsed.data),
+          isNull(tasks.deletedAt),
+          isNull(tasks.parentTaskId)
+        )
+      )
       .orderBy(asc(tasks.sortOrder), asc(tasks.createdAt));
 
     const taskIds = rows.map((r) => r.id);
-    const logs = taskIds.length
-      ? await db
-          .select({
-            taskId: timeLogs.taskId,
-            totalLoggedHours: sql<string>`coalesce(sum(${timeLogs.hours}), 0)`,
-          })
-          .from(timeLogs)
-          .where(inArray(timeLogs.taskId, taskIds))
-          .groupBy(timeLogs.taskId)
-      : [];
+    let subtaskCountMap: Record<string, number> = {};
+    if (taskIds.length > 0) {
+      const subtaskRows = await db
+        .select({ parentTaskId: tasks.parentTaskId })
+        .from(tasks)
+        .where(and(isNull(tasks.deletedAt), inArray(tasks.parentTaskId, taskIds)));
+      for (const r of subtaskRows) {
+        if (r.parentTaskId) {
+          subtaskCountMap[r.parentTaskId] = (subtaskCountMap[r.parentTaskId] ?? 0) + 1;
+        }
+      }
+    }
 
-    const logMap = Object.fromEntries(logs.map((l) => [l.taskId, toNumber(l.totalLoggedHours)]));
+    const boardTasks: WorkspaceBoardTask[] = rows.map((r) => ({
+      id: r.id,
+      projectId: r.projectId,
+      projectName: r.projectName,
+      projectCoverImageUrl: r.projectCoverImageUrl?.trim() || null,
+      projectClientLogoUrl: r.projectClientLogoUrl?.trim() || null,
+      parentTaskId: r.parentTaskId,
+      title: r.title,
+      description: r.description,
+      status: r.status,
+      priority: r.priority,
+      startDate: r.startDate,
+      dueDate: r.dueDate,
+      estimatedHours: r.estimatedHours,
+      notes: r.notes,
+      createdAt: r.createdAt,
+      actualHours: r.actualHours,
+      milestoneId: r.milestoneId ?? null,
+      subtaskCount: subtaskCountMap[r.id],
+      assigneeId: r.assigneeId,
+      assigneeName: r.assigneeName,
+    }));
 
-    const grouped = Object.fromEntries(TASK_STATUSES.map((s) => [s, [] as any[]])) as Record<
+    const grouped = Object.fromEntries(TASK_STATUSES.map((s) => [s, [] as WorkspaceBoardTask[]])) as Record<
       (typeof TASK_STATUSES)[number],
-      any[]
+      WorkspaceBoardTask[]
     >;
 
-    for (const row of rows) {
-      grouped[row.status as (typeof TASK_STATUSES)[number]].push({
-        ...row,
-        totalLoggedHours: logMap[row.id] ?? 0,
-      });
+    for (const t of boardTasks) {
+      grouped[t.status as (typeof TASK_STATUSES)[number]].push(t);
     }
 
     return {
@@ -108,13 +155,119 @@ export async function getWorkspaceBoard(projectId: string) {
       data: {
         columns: TASK_STATUSES.map((status) => ({
           status,
-          label: COLUMN_LABELS[status],
           tasks: grouped[status],
         })),
       },
     };
   } catch (error) {
     console.error("getWorkspaceBoard", error);
+    return { ok: false as const, error: isDbConnectionError(error) ? getDbErrorKey(error) : "unknown" };
+  }
+}
+
+/** Kanban columns for tasks across multiple projects (same shape as `getWorkspaceBoard`). */
+export async function getWorkspaceBoardForProjects(projectIds: string[]) {
+  const parsed = z.array(z.string().uuid()).min(1).safeParse(projectIds);
+  if (!parsed.success) {
+    return {
+      ok: true as const,
+      data: {
+        columns: TASK_STATUSES.map((status) => ({
+          status,
+          tasks: [] as WorkspaceBoardTask[],
+        })),
+      },
+    };
+  }
+  try {
+    const ids = parsed.data;
+    const rows = await db
+      .select({
+        id: tasks.id,
+        projectId: tasks.projectId,
+        projectName: projects.name,
+        projectCoverImageUrl: projects.coverImageUrl,
+        projectClientLogoUrl: clients.logoUrl,
+        parentTaskId: tasks.parentTaskId,
+        title: tasks.title,
+        description: tasks.description,
+        status: tasks.status,
+        priority: tasks.priority,
+        sortOrder: tasks.sortOrder,
+        startDate: tasks.startDate,
+        dueDate: tasks.dueDate,
+        estimatedHours: tasks.estimatedHours,
+        notes: tasks.notes,
+        actualHours: tasks.actualHours,
+        createdAt: tasks.createdAt,
+        milestoneId: tasks.milestoneId,
+        assigneeId: tasks.assigneeId,
+        assigneeName: teamMembers.name,
+      })
+      .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
+      .where(and(inArray(tasks.projectId, ids), isNull(tasks.deletedAt), isNull(tasks.parentTaskId)))
+      .orderBy(asc(tasks.sortOrder), asc(tasks.createdAt));
+
+    const taskIds = rows.map((r) => r.id);
+    let subtaskCountMap: Record<string, number> = {};
+    if (taskIds.length > 0) {
+      const subtaskRows = await db
+        .select({ parentTaskId: tasks.parentTaskId })
+        .from(tasks)
+        .where(and(isNull(tasks.deletedAt), inArray(tasks.parentTaskId, taskIds)));
+      for (const r of subtaskRows) {
+        if (r.parentTaskId) {
+          subtaskCountMap[r.parentTaskId] = (subtaskCountMap[r.parentTaskId] ?? 0) + 1;
+        }
+      }
+    }
+
+    const boardTasks: WorkspaceBoardTask[] = rows.map((r) => ({
+      id: r.id,
+      projectId: r.projectId,
+      projectName: r.projectName,
+      projectCoverImageUrl: r.projectCoverImageUrl?.trim() || null,
+      projectClientLogoUrl: r.projectClientLogoUrl?.trim() || null,
+      parentTaskId: r.parentTaskId,
+      title: r.title,
+      description: r.description,
+      status: r.status,
+      priority: r.priority,
+      startDate: r.startDate,
+      dueDate: r.dueDate,
+      estimatedHours: r.estimatedHours,
+      notes: r.notes,
+      createdAt: r.createdAt,
+      actualHours: r.actualHours,
+      milestoneId: r.milestoneId ?? null,
+      subtaskCount: subtaskCountMap[r.id],
+      assigneeId: r.assigneeId,
+      assigneeName: r.assigneeName,
+    }));
+
+    const grouped = Object.fromEntries(TASK_STATUSES.map((s) => [s, [] as WorkspaceBoardTask[]])) as Record<
+      (typeof TASK_STATUSES)[number],
+      WorkspaceBoardTask[]
+    >;
+
+    for (const t of boardTasks) {
+      grouped[t.status as (typeof TASK_STATUSES)[number]].push(t);
+    }
+
+    return {
+      ok: true as const,
+      data: {
+        columns: TASK_STATUSES.map((status) => ({
+          status,
+          tasks: grouped[status],
+        })),
+      },
+    };
+  } catch (error) {
+    console.error("getWorkspaceBoardForProjects", error);
     return { ok: false as const, error: isDbConnectionError(error) ? getDbErrorKey(error) : "unknown" };
   }
 }
@@ -147,13 +300,37 @@ export async function getWorkspaceTimeline(projectId: string) {
   }
 }
 
+function toIsoDateLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Monday of the week containing `d` (local calendar). */
+function startOfWeekMonday(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = x.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  x.setDate(x.getDate() + diff);
+  return x;
+}
+
+/** Sunday at end of the week that contains `d`. */
+function endOfWeekSunday(d: Date): Date {
+  const start = startOfWeekMonday(d);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+  return end;
+}
+
 export async function getWorkspaceCalendar(month: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(month);
   if (!match) return { ok: false as const, error: "Invalid month format (YYYY-MM)" };
   const year = Number(match[1]);
   const mo = Number(match[2]);
-  const startDate = `${year}-${String(mo).padStart(2, "0")}-01`;
-  const endDate = new Date(year, mo, 0).toISOString().slice(0, 10);
+  const monthStart = new Date(year, mo - 1, 1);
+  const monthEnd = new Date(year, mo, 0);
+  const gridStart = startOfWeekMonday(monthStart);
+  const gridEnd = endOfWeekSunday(monthEnd);
+  const startDate = toIsoDateLocal(gridStart);
+  const endDate = toIsoDateLocal(gridEnd);
   try {
     const data = await db
       .select({
@@ -188,22 +365,116 @@ export async function getWorkspaceCalendar(month: string) {
   }
 }
 
-export async function getWorkspaceMyTasks() {
+export type WorkspaceMyTaskRow = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  startDate: string | null;
+  dueDate: string | null;
+  projectId: string;
+  projectName: string;
+  clientName: string | null;
+  assigneeName: string | null;
+  assigneeAvatarUrl: string | null;
+  assigneeId: string | null;
+  actualHours: string | null;
+  estimatedHours: string | null;
+  description: string | null;
+};
+
+export type WorkspaceMyTaskGroups = {
+  overdue: WorkspaceMyTaskRow[];
+  today: WorkspaceMyTaskRow[];
+  tomorrow: WorkspaceMyTaskRow[];
+  this_week: WorkspaceMyTaskRow[];
+  later: WorkspaceMyTaskRow[];
+  no_date: WorkspaceMyTaskRow[];
+};
+
+function localYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function addDays(base: Date, n: number): Date {
+  const d = new Date(base);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function categorizeMyTaskBucket(
+  task: { dueDate: string | null; status: string },
+  todayStr: string,
+  tomorrowStr: string,
+  weekLastStr: string
+): keyof WorkspaceMyTaskGroups {
+  const done = task.status === "done";
+  if (!task.dueDate) return "no_date";
+  const d = task.dueDate;
+  if (!done && d < todayStr) return "overdue";
+  if (d === todayStr) return "today";
+  if (d === tomorrowStr) return "tomorrow";
+  if (d > tomorrowStr && d <= weekLastStr) return "this_week";
+  return "later";
+}
+
+const EMPTY_MY_TASK_GROUPS: WorkspaceMyTaskGroups = {
+  overdue: [],
+  today: [],
+  tomorrow: [],
+  this_week: [],
+  later: [],
+  no_date: [],
+};
+
+/** Tasks assigned to the logged-in user (via task_assignments), grouped by due date. */
+export async function getWorkspaceMyTasks(): Promise<
+  { ok: true; data: WorkspaceMyTaskGroups } | { ok: false; error: string }
+> {
   try {
-    const [withAssignee] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(tasks)
-      .where(and(isNull(tasks.deletedAt), sql`${tasks.assigneeId} is not null`));
-    const mustUseAssignee = (withAssignee?.count ?? 0) > 0;
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return { ok: true as const, data: { ...EMPTY_MY_TASK_GROUPS } };
+    }
 
-    const today = new Date();
-    const start = today.toISOString().slice(0, 10);
-    const weekEnd = new Date(today);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-    const end = weekEnd.toISOString().slice(0, 10);
+    const userId = session.user.id;
 
-    const conditions = [isNull(tasks.deletedAt)];
-    if (mustUseAssignee) conditions.push(sql`${tasks.assigneeId} is not null`);
+    const taskIdSet = new Set<string>();
+
+    const [userRow] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const em = userRow?.email?.trim().toLowerCase();
+    if (em) {
+      const membersWithEmail = await db
+        .select({ id: teamMembers.id })
+        .from(teamMembers)
+        .where(sql`lower(trim(coalesce(${teamMembers.email}, ''))) = ${em}`);
+      if (membersWithEmail.length > 0) {
+        const memberIds = membersWithEmail.map((m) => m.id);
+        const fromAssignments = await db
+          .select({ taskId: taskAssignments.taskId })
+          .from(taskAssignments)
+          .where(inArray(taskAssignments.teamMemberId, memberIds));
+        for (const r of fromAssignments) taskIdSet.add(r.taskId);
+
+        const byAssignee = await db
+          .select({ id: tasks.id })
+          .from(tasks)
+          .where(and(inArray(tasks.assigneeId, memberIds), isNull(tasks.deletedAt)));
+        for (const t of byAssignee) taskIdSet.add(t.id);
+      }
+    }
+
+    const taskIds = [...taskIdSet];
+    if (taskIds.length === 0) {
+      return { ok: true as const, data: { ...EMPTY_MY_TASK_GROUPS } };
+    }
 
     const rows = await db
       .select({
@@ -211,36 +482,45 @@ export async function getWorkspaceMyTasks() {
         title: tasks.title,
         status: tasks.status,
         priority: tasks.priority,
+        startDate: tasks.startDate,
         dueDate: tasks.dueDate,
+        projectId: projects.id,
         projectName: projects.name,
         clientName: clients.companyName,
         assigneeName: teamMembers.name,
         assigneeAvatarUrl: teamMembers.avatarUrl,
+        assigneeId: tasks.assigneeId,
         actualHours: tasks.actualHours,
+        estimatedHours: tasks.estimatedHours,
+        description: tasks.description,
       })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
       .innerJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
-      .where(and(...conditions))
+      .where(and(inArray(tasks.id, taskIds), isNull(tasks.deletedAt)))
       .orderBy(asc(tasks.dueDate), desc(tasks.createdAt));
 
-    const groups = { today: [] as any[], this_week: [] as any[], later: [] as any[], no_date: [] as any[] };
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStr = localYmd(todayStart);
+    const tomorrowStr = localYmd(addDays(todayStart, 1));
+    const weekLastStr = localYmd(addDays(todayStart, 6));
+
+    const groups: WorkspaceMyTaskGroups = {
+      overdue: [],
+      today: [],
+      tomorrow: [],
+      this_week: [],
+      later: [],
+      no_date: [],
+    };
+
     for (const task of rows) {
-      if (!task.dueDate) {
-        groups.no_date.push(task);
-        continue;
-      }
-      if (task.dueDate === start) {
-        groups.today.push(task);
-      } else if (task.dueDate > start && between(sql`${task.dueDate}`, start, end)) {
-        groups.this_week.push(task);
-      } else if (task.dueDate > end) {
-        groups.later.push(task);
-      } else {
-        groups.this_week.push(task);
-      }
+      const key = categorizeMyTaskBucket(task, todayStr, tomorrowStr, weekLastStr);
+      groups[key].push(task);
     }
+
     return { ok: true as const, data: groups };
   } catch (error) {
     console.error("getWorkspaceMyTasks", error);
@@ -248,7 +528,46 @@ export async function getWorkspaceMyTasks() {
   }
 }
 
-export async function getWorkspaceWorkload() {
+export type WorkloadCapacityTaskRow = {
+  id: string;
+  title: string;
+  hours: number;
+  projectId: string;
+  status: string;
+  priority: string;
+  dueDate: string | null;
+  estimatedHours: string | null;
+  actualHours: string | null;
+  assigneeId: string | null;
+};
+
+export type WorkloadCapacityRow = {
+  member: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    role: string | null;
+  };
+  capacityHours: number;
+  assignedHours: number;
+  availableHours: number;
+  utilizationPercent: number;
+  loadLabel: "available" | "assigned" | "overloaded";
+  weekStart: string;
+  weekEnd: string;
+  tasks: WorkloadCapacityTaskRow[];
+};
+
+function workloadLoadLabel(utilizationPercent: number): "available" | "assigned" | "overloaded" {
+  if (utilizationPercent > 100) return "overloaded";
+  if (utilizationPercent >= 80) return "assigned";
+  return "available";
+}
+
+/** Capacity vs assigned hours for the current rolling week (today … +6 days), per active team member. */
+export async function getWorkspaceWorkloadCapacity(): Promise<
+  { ok: true; data: WorkloadCapacityRow[] } | { ok: false; error: string }
+> {
   try {
     const members = await db
       .select({
@@ -261,79 +580,134 @@ export async function getWorkspaceWorkload() {
       .where(eq(teamMembers.status, "active"))
       .orderBy(asc(teamMembers.name));
 
+    if (!members.length) {
+      return { ok: true as const, data: [] };
+    }
+
     const now = new Date();
     now.setHours(0, 0, 0, 0);
-    const rangeEnd = new Date(now);
-    rangeEnd.setDate(rangeEnd.getDate() + 56);
-    const rangeStartDate = now.toISOString().slice(0, 10);
-    const rangeEndDate = rangeEnd.toISOString().slice(0, 10);
+    const weekEndDate = new Date(now);
+    weekEndDate.setDate(weekEndDate.getDate() + 6);
+    const weekStartStr = now.toISOString().slice(0, 10);
+    const weekEndStr = weekEndDate.toISOString().slice(0, 10);
+
+    const logWindowEnd = new Date(weekEndDate);
+    logWindowEnd.setHours(23, 59, 59, 999);
 
     const memberIds = members.map((m) => m.id);
-    const taskRows = memberIds.length
-      ? await db
-          .select({
-            id: tasks.id,
-            title: tasks.title,
-            dueDate: tasks.dueDate,
-            estimatedHours: tasks.estimatedHours,
-            assigneeId: tasks.assigneeId,
-          })
-          .from(tasks)
-          .where(
-            and(
-              isNull(tasks.deletedAt),
-              inArray(tasks.assigneeId, memberIds),
-              between(tasks.dueDate, rangeStartDate, rangeEndDate)
-            )
-          )
-      : [];
+
+    const taskRows = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        dueDate: tasks.dueDate,
+        estimatedHours: tasks.estimatedHours,
+        actualHours: tasks.actualHours,
+        assigneeId: tasks.assigneeId,
+        projectId: tasks.projectId,
+        status: tasks.status,
+        priority: tasks.priority,
+      })
+      .from(tasks)
+      .where(
+        and(
+          isNull(tasks.deletedAt),
+          inArray(tasks.assigneeId, memberIds),
+          between(tasks.dueDate, weekStartStr, weekEndStr)
+        )
+      );
 
     const taskIds = taskRows.map((t) => t.id);
-    const logRows = taskIds.length
-      ? await db
-          .select({
-            taskId: timeLogs.taskId,
-            hours: sql<string>`coalesce(sum(${timeLogs.hours}), 0)`,
-          })
-          .from(timeLogs)
-          .where(inArray(timeLogs.taskId, taskIds))
-          .groupBy(timeLogs.taskId)
-      : [];
-    const logMap = Object.fromEntries(logRows.map((r) => [r.taskId, toNumber(r.hours)]));
 
-    const weekStarts = Array.from({ length: 8 }).map((_, i) => {
-      const d = new Date(now);
-      d.setDate(d.getDate() + i * 7);
-      return d;
-    });
+    const logsInWeek =
+      taskIds.length === 0
+        ? []
+        : await db
+            .select({
+              taskId: timeLogs.taskId,
+              hours: sql<string>`coalesce(sum(${timeLogs.hours}), 0)`,
+            })
+            .from(timeLogs)
+            .where(
+              and(
+                inArray(timeLogs.taskId, taskIds),
+                gte(timeLogs.loggedAt, now),
+                lte(timeLogs.loggedAt, logWindowEnd)
+              )
+            )
+            .groupBy(timeLogs.taskId);
 
-    const data = members.map((member) => {
-      const memberTasks = taskRows.filter((t) => t.assigneeId === member.id);
-      const weeks = weekStarts.map((ws) => {
-        const we = new Date(ws);
-        we.setDate(we.getDate() + 6);
-        const weekTasks = memberTasks.filter((t) => {
-          if (!t.dueDate) return false;
-          return t.dueDate >= ws.toISOString().slice(0, 10) && t.dueDate <= we.toISOString().slice(0, 10);
-        });
+    const logWeekMap = Object.fromEntries(logsInWeek.map((r) => [r.taskId, toNumber(r.hours)]));
+
+    const logsTotal =
+      taskIds.length === 0
+        ? []
+        : await db
+            .select({
+              taskId: timeLogs.taskId,
+              hours: sql<string>`coalesce(sum(${timeLogs.hours}), 0)`,
+            })
+            .from(timeLogs)
+            .where(inArray(timeLogs.taskId, taskIds))
+            .groupBy(timeLogs.taskId);
+
+    const logTotalMap = Object.fromEntries(logsTotal.map((r) => [r.taskId, toNumber(r.hours)]));
+
+    const deductionMap = await getAvailabilityDeductionsByMember(memberIds, weekStartStr, weekEndStr);
+
+    const data: WorkloadCapacityRow[] = members.map((member) => {
+      const mTasks = taskRows.filter((t) => t.assigneeId === member.id);
+      let assignedSum = 0;
+      const capacityTasks: WorkloadCapacityTaskRow[] = mTasks.map((t) => {
+        const est = toNumber(t.estimatedHours);
+        const weekL = logWeekMap[t.id] ?? 0;
+        const totalL = logTotalMap[t.id] ?? 0;
+        const hours = est > 0 ? est : weekL > 0 ? weekL : totalL > 0 ? totalL : 0;
+        assignedSum += hours;
         return {
-          weekStart: ws.toISOString().slice(0, 10),
-          taskCount: weekTasks.length,
-          estimatedHours: Number(
-            weekTasks.reduce((sum, t) => sum + toNumber(t.estimatedHours), 0).toFixed(2)
-          ),
-          loggedHours: Number(
-            weekTasks.reduce((sum, t) => sum + (logMap[t.id] ?? 0), 0).toFixed(2)
-          ),
-          tasks: weekTasks.map((t) => t.title),
+          id: t.id,
+          title: t.title,
+          hours: Number(hours.toFixed(2)),
+          projectId: t.projectId,
+          status: t.status,
+          priority: t.priority,
+          dueDate: t.dueDate,
+          estimatedHours: t.estimatedHours,
+          actualHours: t.actualHours,
+          assigneeId: t.assigneeId,
         };
       });
-      return { member, weeks };
+
+      const assignedHours = Number(assignedSum.toFixed(2));
+      const deduction = deductionMap.get(member.id) ?? 0;
+      const capacity = Math.max(
+        0,
+        Number((DEFAULT_WEEKLY_CAPACITY_HOURS - deduction).toFixed(2))
+      );
+      const utilizationPercent =
+        capacity > 0
+          ? Math.round((assignedHours / capacity) * 1000) / 10
+          : assignedHours > 0
+            ? 100
+            : 0;
+      const availableHours = Math.max(0, Number((capacity - assignedHours).toFixed(2)));
+
+      return {
+        member,
+        capacityHours: capacity,
+        assignedHours,
+        availableHours,
+        utilizationPercent,
+        loadLabel: workloadLoadLabel(utilizationPercent),
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        tasks: capacityTasks.sort((a, b) => a.title.localeCompare(b.title)),
+      };
     });
 
     return { ok: true as const, data };
   } catch (error) {
-    console.error("getWorkspaceWorkload", error);
+    console.error("getWorkspaceWorkloadCapacity", error);
     return { ok: false as const, error: isDbConnectionError(error) ? getDbErrorKey(error) : "unknown" };
   }
 }
@@ -368,10 +742,17 @@ export async function logTime(input: {
   const parsed = logTimeSchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const task = await db.query.tasks.findFirst({
+      where: eq(tasks.id, parsed.data.taskId),
+      columns: { projectId: true },
+    });
+    if (!task) return { ok: false as const, error: "Task not found" };
+
     const [newLog] = await db
       .insert(timeLogs)
       .values({
         taskId: parsed.data.taskId,
+        projectId: task.projectId,
         hours: String(parsed.data.hours),
         description: parsed.data.description ?? null,
         teamMemberId: parsed.data.teamMemberId ?? null,
@@ -380,7 +761,7 @@ export async function logTime(input: {
       .returning();
 
     await recalculateTaskActualHours(parsed.data.taskId);
-    revalidatePath("/dashboard/workspace");
+    revalidateTimeTrackingCaches(task.projectId);
     return { ok: true as const, data: newLog };
   } catch (error) {
     console.error("logTime", error);
@@ -392,9 +773,22 @@ export async function deleteTimeLog(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
-    const [deleted] = await db.delete(timeLogs).where(eq(timeLogs.id, parsed.data)).returning({ taskId: timeLogs.taskId });
+    const [deleted] = await db
+      .delete(timeLogs)
+      .where(eq(timeLogs.id, parsed.data))
+      .returning({ taskId: timeLogs.taskId, projectId: timeLogs.projectId });
     if (deleted?.taskId) await recalculateTaskActualHours(deleted.taskId);
-    revalidatePath("/dashboard/workspace");
+    const projectId =
+      deleted?.projectId ??
+      (deleted?.taskId
+        ? (
+            await db.query.tasks.findFirst({
+              where: eq(tasks.id, deleted.taskId),
+              columns: { projectId: true },
+            })
+          )?.projectId
+        : undefined);
+    revalidateTimeTrackingCaches(projectId);
     return { ok: true as const };
   } catch (error) {
     console.error("deleteTimeLog", error);
@@ -432,7 +826,7 @@ export async function getTimeLogs(taskId: string) {
 
 export async function createTaskComment(taskId: string, body: string) {
   const parsed = z
-    .object({ taskId: z.string().uuid(), body: z.string().min(1).max(2000) })
+    .object({ taskId: z.string().uuid(), body: z.string().min(1).max(4000) })
     .safeParse({ taskId, body });
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {

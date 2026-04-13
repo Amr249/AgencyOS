@@ -38,14 +38,19 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { SortableDataTable } from "@/components/ui/sortable-data-table";
+import type { ProjectHealth } from "@/actions/project-health";
 import { NewProjectDialog } from "./new-project-dialog";
 import { EditProjectDialog } from "./edit-project-dialog";
+import { ProjectHealthBadge } from "./project-health-badge";
+import { ProjectBudgetWarningGlyphFromHealth } from "./budget-alert";
 import { deleteProject, deleteProjects, updateProject } from "@/actions/projects";
 import { cn, formatAmount, formatDate } from "@/lib/utils";
 import { AvatarStack } from "@/components/ui/avatar-stack";
 import { MoreHorizontal, Pencil, Trash2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
+import { ClientSelectOptionRow } from "@/components/entity-select-option";
+import { PROJECT_STATUS_LABELS_EN, PROJECT_STATUS_PILL_CLASS } from "@/types";
 
 const STATUS_LIST = ["lead", "active", "on_hold", "review", "completed", "cancelled"] as const;
 
@@ -136,17 +141,18 @@ type ProjectRow = {
   clientLogoUrl: string | null;
 };
 
-type ClientOption = { id: string; companyName: string | null };
+type ClientOption = { id: string; companyName: string | null; logoUrl?: string | null };
 type ServiceOption = { id: string; name: string; status: string };
 
 type ProjectMembersMap = Record<string, { id: string; name: string; avatarUrl: string | null }[]>;
 type ProjectServicesMap = Record<string, { id: string; name: string; status: string }[]>;
 
-type TeamMemberOption = { id: string; name: string; role: string | null };
+type TeamMemberOption = { id: string; name: string; role: string | null; avatarUrl?: string | null };
 
 type ProjectsListViewProps = {
   projects: ProjectRow[];
   taskCounts: Record<string, { total: number; done: number }>;
+  healthByProjectId?: Record<string, ProjectHealth>;
   projectMembers?: ProjectMembersMap;
   projectServices?: ProjectServicesMap;
   clients: ClientOption[];
@@ -183,27 +189,10 @@ const STATUS_DOT_CLASS: Record<string, string> = {
   cancelled: "bg-red-500",
 };
 
-const PROJECT_STATUS_PILL_CLASS: Record<string, string> = {
-  active: "bg-blue-50 text-blue-700",
-  completed: "bg-green-50 text-green-700",
-  lead: "bg-blue-50 text-blue-700",
-  on_hold: "bg-amber-50 text-amber-700",
-  review: "bg-purple-50 text-purple-700",
-  cancelled: "bg-red-50 text-red-700",
-};
-
-const PROJECT_STATUS_LABELS_EN: Record<string, string> = {
-  lead: "Lead",
-  active: "Active",
-  on_hold: "On Hold",
-  review: "Review",
-  completed: "Completed",
-  cancelled: "Cancelled",
-};
-
 export function ProjectsListView({
   projects,
   taskCounts,
+  healthByProjectId = {},
   projectMembers = {},
   projectServices = {},
   clients,
@@ -351,9 +340,18 @@ export function ProjectsListView({
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 text-left">
-              <Link href={`/dashboard/projects/${row.original.id}`} className="block truncate text-left font-medium text-primary hover:underline">
-                {row.original.name}
-              </Link>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Link
+                  href={`/dashboard/projects/${row.original.id}`}
+                  className="block truncate text-left font-medium text-primary hover:underline"
+                >
+                  {row.original.name}
+                </Link>
+                <ProjectBudgetWarningGlyphFromHealth
+                  health={healthByProjectId[row.original.id]}
+                  className="shrink-0"
+                />
+              </div>
             </div>
           </div>
         ),
@@ -392,6 +390,16 @@ export function ProjectsListView({
             <StatusBadgePopover projectId={row.original.id} currentStatus={row.original.status} onSuccess={() => router.refresh()} />
           </div>
         ),
+      },
+      {
+        id: "health",
+        enableSorting: false,
+        header: () => <span className="text-left">Health</span>,
+        cell: ({ row }) => {
+          const h = healthByProjectId[row.original.id];
+          if (!h) return <span className="text-muted-foreground">—</span>;
+          return <ProjectHealthBadge health={h} stopClickPropagation />;
+        },
       },
       {
         accessorKey: "endDate",
@@ -461,6 +469,7 @@ export function ProjectsListView({
       allVisibleSelected,
       selectedIds,
       projectServices,
+      healthByProjectId,
       router,
       setEditingProject,
       setProjectToDelete,
@@ -555,19 +564,19 @@ export function ProjectsListView({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All clients</SelectItem>
-              {clients.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  <span className="flex items-center gap-2">
-                    <Avatar className="h-5 w-5 shrink-0">
-                      <AvatarImage src={projects.find((p) => p.clientId === c.id)?.clientLogoUrl ?? undefined} />
-                      <AvatarFallback className="text-[10px]">
-                        {(c.companyName ?? "?").slice(0, 1).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span>{c.companyName || c.id}</span>
-                  </span>
-                </SelectItem>
-              ))}
+              {clients.map((c) => {
+                const label = c.companyName || c.id;
+                const logoFromClient = c.logoUrl?.trim();
+                const logoFromProject = projects.find((p) => p.clientId === c.id)?.clientLogoUrl ?? undefined;
+                return (
+                  <SelectItem key={c.id} value={c.id} textValue={label}>
+                    <ClientSelectOptionRow
+                      logoUrl={logoFromClient || logoFromProject}
+                      label={label}
+                    />
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
@@ -625,7 +634,13 @@ export function ProjectsListView({
                     <AvatarFallback className="text-sm">{(p.clientName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1 text-left">
-                    <p className="font-medium truncate">{p.name}</p>
+                    <p className="font-medium truncate flex items-center gap-1.5">
+                      <span className="truncate">{p.name}</span>
+                      <ProjectBudgetWarningGlyphFromHealth
+                        health={healthByProjectId[p.id]}
+                        className="shrink-0"
+                      />
+                    </p>
                     <p className="text-muted-foreground text-sm">{p.clientName ?? "—"}</p>
                     {(projectServices[p.id]?.length ?? 0) > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
@@ -641,7 +656,11 @@ export function ProjectsListView({
                     )}
                   </div>
                 </Link>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  {healthByProjectId[p.id] ? (
+                    <ProjectHealthBadge health={healthByProjectId[p.id]!} />
+                  ) : null}
+                  <div className="flex items-center gap-2">
                   <StatusBadgePopover projectId={p.id} currentStatus={p.status} onSuccess={() => router.refresh()} />
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -655,6 +674,7 @@ export function ProjectsListView({
                       <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={(e) => { e.preventDefault(); setProjectToDelete({ id: p.id, name: p.name }); }}><Trash2 className="me-2 h-4 w-4" />Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  </div>
                 </div>
               </div>
             );
@@ -673,6 +693,7 @@ export function ProjectsListView({
                 name: "Project Name",
                 services: "Services",
                 status: "Status",
+                health: "Health",
                 endDate: "Deadline",
                 budget: "Budget",
               }}

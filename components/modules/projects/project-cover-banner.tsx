@@ -33,16 +33,16 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
       if (res.ok && data.url) {
         const result = await updateProject({ id: projectId, coverImageUrl: data.url });
         if (result.ok) {
-          toast.success("تم تحديث الغلاف");
+          toast.success("Cover updated");
           router.refresh();
         } else {
-          toast.error("فشل حفظ الغلاف");
+          toast.error("Failed to save cover");
         }
       } else {
-        toast.error(data.error ?? "فشل الرفع");
+        toast.error(data.error ?? "Upload failed");
       }
     } catch {
-      toast.error("فشل الرفع");
+      toast.error("Upload failed");
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -55,6 +55,8 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
         "relative -mx-4 mt-2 w-full overflow-hidden rounded-xl bg-muted sm:-mx-6 sm:rounded-none",
         coverImageUrl ? "h-[200px]" : "h-[200px] border border-dashed border-muted-foreground/30"
       )}
+      dir="ltr"
+      lang="en"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -78,7 +80,8 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
               "absolute inset-0 flex flex-col items-start justify-start gap-2 p-3 bg-black/40 transition-opacity",
               hover ? "opacity-100" : "opacity-0"
             )}
-            dir="rtl"
+            dir="ltr"
+            lang="en"
           >
             <Button
               type="button"
@@ -89,10 +92,10 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
               className="gap-2"
             >
               <Pencil className="h-4 w-4" />
-              {uploading ? "جاري الرفع…" : "تعديل الغلاف"}
+              {uploading ? "Uploading…" : "Edit Cover"}
             </Button>
             <p className="text-xs text-white/90">
-              يُنصح بأبعاد 1920×1080 بكسل (16:9) — مناسب للتصميم على Canva
+              Recommended 1920×1080 (16:9) for best results
             </p>
           </div>
         </>
@@ -106,7 +109,7 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
             disabled={uploading}
             className="gap-2"
           >
-            {uploading ? "جاري الرفع…" : "+ إضافة صورة غلاف"}
+            {uploading ? "Uploading…" : "+ Add Cover Image"}
           </Button>
         </div>
       )}

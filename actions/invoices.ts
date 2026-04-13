@@ -19,6 +19,7 @@ import {
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { invoiceCollectedAmount } from "@/lib/invoice-collected";
 import { formatInvoiceSerial } from "@/lib/invoice-number";
+import { logActivityWithActor } from "@/actions/activity-log";
 
 const invoiceStatusValues = ["pending", "partial", "paid"] as const;
 const lineItemSchema = z.object({
@@ -753,6 +754,18 @@ export async function createInvoice(input: CreateInvoiceInput) {
 
     await db.update(settings).set({ invoiceNextNumber: seq + 1 }).where(eq(settings.id, 1));
 
+    await logActivityWithActor({
+      entityType: "invoice",
+      entityId: inv.id,
+      action: "created",
+      metadata: {
+        invoiceNumber: inv.invoiceNumber,
+        total: inv.total,
+        projectId: primaryProjectId,
+        clientId: inv.clientId,
+      },
+    });
+
     revalidatePath("/dashboard/invoices");
     revalidatePath(`/dashboard/invoices/${inv.id}`);
     return { ok: true as const, data: inv };
@@ -957,6 +970,16 @@ export async function markAsPaid(input: z.infer<typeof markAsPaidSchema>) {
       .where(eq(invoices.id, id))
       .returning();
     if (!row) return { ok: false as const, error: "Invoice not found" };
+    await logActivityWithActor({
+      entityType: "invoice",
+      entityId: id,
+      action: "paid",
+      metadata: {
+        invoiceNumber: row.invoiceNumber,
+        total: row.total,
+        projectId: row.projectId,
+      },
+    });
     revalidatePath("/dashboard/invoices");
     revalidatePath(`/dashboard/invoices/${id}`);
     revalidatePath("/dashboard/reports");

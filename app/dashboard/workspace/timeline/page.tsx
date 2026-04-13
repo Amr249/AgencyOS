@@ -20,7 +20,12 @@ export default async function WorkspaceTimelinePage({
     <div dir="ltr" lang="en" className="h-full">
       <WorkspaceTimelineView
         tasks={timelineRes.ok ? timelineRes.data : []}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          coverImageUrl: p.coverImageUrl,
+          clientLogoUrl: p.clientLogoUrl,
+        }))}
       />
     </div>
   );

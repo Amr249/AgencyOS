@@ -49,7 +49,7 @@ type ClientInvoicesTabProps = {
   totalInvoiced: number;
   totalPaid: number;
   totalOutstanding: number;
-  clients: { id: string; companyName: string | null }[];
+  clients: { id: string; companyName: string | null; logoUrl?: string | null }[];
   settings: SettingsData | null;
   nextInvoiceNumber: string;
 };

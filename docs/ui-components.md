@@ -49,11 +49,11 @@
 
 | Area | Notable files |
 |------|----------------|
-| **clients** | `client-form-sheet`, `client-overview`, `client-*-tab`, `clients-page-fab`, `edit-client-button`, `data-table` (via app) |
-| **projects** | `projects-list-view`, `new-project-dialog`, `edit-project-dialog`, `project-*-tab`, `project-cover-banner`, `project-tasks-tab` (Kanban wiring) |
+| **clients** | `client-form-sheet`, `client-overview`, `client-*-tab` (incl. **`client-expenses-tab`**), `clients-page-fab`, `edit-client-button`, `data-table` (via app) |
+| **projects** | `projects-list-view`, `new-project-dialog`, `edit-project-dialog`, `project-*-tab` (incl. **`project-expenses-tab`**), `project-cover-banner`, `project-tasks-tab` (Kanban wiring) |
 | **tasks** | `tasks-list-view`, `tasks-kanban`, `tasks-page-content`, `new-task-modal`, `task-detail-modal` |
-| **invoices** | `invoices-list-view`, `new-invoice-dialog` (multi-project checkboxes), `edit-invoice-form`, `invoice-detail-header`, `invoice-detail-actions`, **`payment-history`**, **`add-payment-modal`**, **`invoice-attachments`**, `invoice-pdf-document`, `mark-as-paid-dialog` |
-| **expenses** | `expenses-list-view` (LTR, `SortableDataTable` `uiVariant="clients"`, bulk delete, `SarCurrencyIcon` + `formatAmount`), `new-expense-dialog` (English/LTR), `expense-category-badge` (English labels) |
+| **invoices** | `invoices-list-view` (**CSV / XLSX** export), `new-invoice-dialog` (multi-project checkboxes), `edit-invoice-form`, `invoice-detail-header`, `invoice-detail-actions`, **`payment-history`**, **`add-payment-modal`**, **`invoice-attachments`**, `invoice-pdf-document`, `mark-as-paid-dialog` |
+| **expenses** | `expenses-list-view` (LTR, filters incl. project/client, bulk delete, **CSV/XLSX** export), `new-expense-dialog`, `expense-category-badge`, **`recurring-expenses-view`**, **`new-recurring-expense-dialog`**, **`expense-attachments`**, **`expense-detail-header`** |
 | **proposals** | `proposals-list-view`, `new-proposal-dialog`, `edit-proposal-dialog`, `convert-to-client-dialog`, `proposal-status-badge` |
 | **team** | `team-list-view`, `new-member-modal`, `team-member-detail-tabs`, `edit-team-member-button` |
 | **services** | `services-list-view`, `new-service-modal` |
@@ -63,12 +63,26 @@
 
 | Component | Description |
 |-----------|-------------|
-| [`reports/*`](../components/reports/) | Revenue charts, productivity tab helpers, outstanding invoices table. |
-| [`reports/aging-report-section`](../components/reports/aging-report-section.tsx) | **AR aging** — buckets (current, 1–30, 31–60, 61–90, 90+ days) on Financial reports. |
-| [`modules/invoices/payment-history`](../components/modules/invoices/payment-history.tsx) | Invoice detail: payment list, progress bar, “Record payment”. |
+| [`reports/revenue-chart-section`](../components/reports/revenue-chart-section.tsx) | Financial reports: revenue / expenses / profit chart wrapper. |
+| [`reports/monthly-comparison-chart`](../components/reports/monthly-comparison-chart.tsx) | Month-over-month comparison chart. |
+| [`reports/revenue-chart`](../components/reports/revenue-chart.tsx) | Shared Recharts bar chart (invoiced / collected / expenses). |
+| [`reports/profitability-visualization`](../components/reports/profitability-visualization.tsx) | **Profitability analysis** — project / client / service toggles, bar / pie / treemap, date range, **`downloadReportPdf`** for active mode. |
+| [`app/dashboard/reports/reports-financial-tab`](../app/dashboard/reports/reports-financial-tab.tsx) | Client: financial tab composition (KPIs, charts, **`ProfitabilityVisualization`**, currency provider). |
+| [`reports/profit-loss-section`](../components/reports/profit-loss-section.tsx) | **`getProfitLossStatement`** + period selector + **Download PDF**. |
+| [`reports/cash-flow-forecast-section`](../components/reports/cash-flow-forecast-section.tsx) | **`getCashFlowForecast`** outlook (and placeholder variant). |
+| [`reports/aging-report-section`](../components/reports/aging-report-section.tsx) | **AR aging** — buckets + detail table; data from **`getAgingReport`**. |
+| [`reports/project-profitability-section`](../components/reports/project-profitability-section.tsx) / [`client-profitability-section`](../components/reports/client-profitability-section.tsx) | Sortable profitability tables + **PDF** export per scope. |
+| [`reports/top-profitable-projects-widget`](../components/reports/top-profitable-projects-widget.tsx) | Top profitable projects highlight. |
+| [`reports/reports-financial-subtabs`](../components/reports/reports-financial-subtabs.tsx) | **Profitability** subtabs (project vs client) and **financial details** subtabs (pie, recent invoices, outstanding). |
+| [`reports/reports-currency-context`](../components/reports/reports-currency-context.tsx) | SAR ↔ EGP toggle state for reports. |
+| [`reports/reports-money`](../components/reports/reports-money.tsx) | Formatted money + icon inside reports. |
+| [`reports/reports-pdf-document`](../components/reports/reports-pdf-document.tsx) | `@react-pdf/renderer` documents for **`/api/reports/pdf`**. |
+| [`reports/outstanding-invoices-table`](../components/reports/outstanding-invoices-table.tsx) | Outstanding list; mark-paid workflow. |
+| [`reports/productivity-reports-tab`](../components/reports/productivity-reports-tab.tsx) | Projects & productivity tab (KPIs, charts, team salary breakdown). |
+| [`modules/reports/top-clients-pie-chart`](../components/modules/reports/top-clients-pie-chart.tsx) | Pie chart widget (used inside report subtabs). |
+| [`modules/invoices/payment-history`](../components/modules/invoices/payment-history.tsx) | Invoice detail: payment list, progress bar, record/delete payment. |
 | [`modules/invoices/add-payment-modal`](../components/modules/invoices/add-payment-modal.tsx) | Modal to record a partial or full payment (amount, date, method, reference, notes). |
-| [`modules/invoices/invoice-attachments`](../components/modules/invoices/invoice-attachments.tsx) | Invoice detail: upload/list/download/delete files (ImageKit + `createFile` with `invoiceId`). |
-| [`modules/reports/top-clients-pie-chart`](../components/modules/reports/top-clients-pie-chart.tsx) | Pie chart widget. |
+| [`modules/invoices/invoice-attachments`](../components/modules/invoices/invoice-attachments.tsx) | Invoice detail: upload/list/download/delete (`createFile` + `invoiceId`; PDF preview). |
 
 ## Other
 

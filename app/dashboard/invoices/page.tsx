@@ -83,7 +83,11 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
       <InvoicesListView
         invoices={invoices}
         stats={stats}
-        clients={clients.map((c) => ({ id: c.id, companyName: c.companyName }))}
+        clients={clients.map((c) => ({
+          id: c.id,
+          companyName: c.companyName,
+          logoUrl: c.logoUrl,
+        }))}
         settings={settingsData}
         nextInvoiceNumber={nextInvoiceNumber}
       />

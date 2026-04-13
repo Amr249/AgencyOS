@@ -13,7 +13,7 @@ One section per module: what it does, pages, Server Actions, and main components
 | Route | File | Description |
 |-------|------|-------------|
 | List | `app/dashboard/clients/page.tsx` | Server Component; Active \| Archived tab (query `?view=archived`); fetches via `getClientsList()` or `getArchivedClientsList()`, renders `ClientsDataTable` and "New Client" + `ClientFormSheet`. |
-| Detail | `app/dashboard/clients/[id]/page.tsx` | Server Component; fetches client via `getClientById()`, plus `getProjectsByClientId()`, `getProjectTaskCounts()`, `getInvoicesByClientId()`, `getSettings()`, `getNextInvoiceNumber()`. Tabs: **Overview** (ClientOverview), **Projects** (ClientProjectsTab — live table with name link, status, end date, budget SAR, progress bar; "+ مشروع جديد" with client locked; empty state "+ إضافة مشروع"), **Invoices** (ClientInvoicesTab — summary badges total invoiced/paid/outstanding, table with invoice #, project, amount SAR, status badge, issue/due dates, actions تحميل PDF \| تحديد كمدفوعة \| حذف; "+ فاتورة جديدة" with client locked; empty state "+ إنشاء فاتورة"), **Files** (FileManager: رفع ملف +, drag & drop, grid with thumbnails, تحميل \| نسخ الرابط \| حذف), **Notes**. All tables RTL. |
+| Detail | `app/dashboard/clients/[id]/page.tsx` | Server Component; fetches client via `getClientById()`, plus `getProjectsByClientId()`, `getProjectTaskCounts()`, `getInvoicesByClientId()`, **`getExpensesByClientId()`**, **`getClientCostSummary()`**, `getSettings()`, `getNextInvoiceNumber()`. Tabs: **Overview** (ClientOverview), **Projects** (ClientProjectsTab), **Invoices** (ClientInvoicesTab — English actions: Download PDF, mark paid, delete), **`Expenses`** (**`ClientExpensesTab`** — cost summary + expense rows for this client), **Files** (FileManager), **Notes**. Core CRM tabs remain RTL where not overridden by child components. |
 
 **Server Actions** (`actions/clients.ts`):
 
@@ -37,7 +37,8 @@ One section per module: what it does, pages, Server Actions, and main components
 | EditClientButton | `components/modules/clients/edit-client-button.tsx` | Opens `ClientFormSheet` with client for edit. |
 | ClientOverview | `components/modules/clients/client-overview.tsx` | Detail overview: contact card, address card, notes card. |
 | ClientProjectsTab | `components/modules/clients/client-projects-tab.tsx` | Client detail Projects tab: table (اسم المشروع link, الحالة, الموعد النهائي, الميزانية, شريط التقدم); "+ مشروع جديد" opens `NewProjectDialog` with `defaultClientId` (client locked); empty state "لا توجد مشاريع لهذا العميل بعد." + "+ إضافة مشروع". Uses `getProjectsByClientId`, `getProjectTaskCounts`. |
-| ClientInvoicesTab | `components/modules/clients/client-invoices-tab.tsx` | Client detail Invoices tab: summary badges (إجمالي الفواتير, مدفوع, غير مدفوع); table (رقم الفاتورة, المشروع, المبلغ, الحالة بانتظار الدفع/تم الدفع, تاريخ الإصدار, تاريخ الاستحقاق, إجراءات: تحميل PDF \| تحديد كمدفوعة \| حذف); "+ فاتورة جديدة" with `defaultClientId`; empty state "+ إنشاء فاتورة". Mark-as-paid dialog; delete AlertDialog (draft/cancelled only). |
+| ClientInvoicesTab | `components/modules/clients/client-invoices-tab.tsx` | Client detail Invoices tab: summary badges; table with invoice #, project, amount (**SAR icon**), status (**pending / partial / paid**), dates; **Download PDF**, mark paid, delete; new invoice with `defaultClientId`. |
+| **ClientExpensesTab** | `components/modules/clients/client-expenses-tab.tsx` | **Expenses** tab: **`getClientCostSummary`** + **`getExpensesByClientId`**; links to expense detail where applicable. |
 
 ---
 
@@ -95,7 +96,7 @@ One section per module: what it does, pages, Server Actions, and main components
 | Route | File | Description |
 |-------|------|-------------|
 | List | `app/dashboard/projects/page.tsx` | Server Component; fetches projects via `getProjects(filters)` (search, status, clientId), `getProjectTaskCounts()`, **getProjectMemberIdsByProjectIds()**, **getTeamMembers()**, `getClientsList()`, `getSettings()`. Renders `ProjectsListView` (client): title "Projects", **view switcher** (Table \| Gallery \| Board, default Gallery) then "+ New Project" (Dialog). Search (project or client name), status filter, client filter — same across all views. **Table**: Company (avatar + name), Project name (with **avatar stack** of assigned team members, max 3 +N), **Status** (clickable badge with chevron; popover to change status inline via Server Action, toast on success), Deadline, Budget (SAR), Tasks progress, Actions (Edit, Delete). **Gallery**: grid 4/2/1 cols; card cover = project cover image if set, else client logo, else status-colored block + project initial; project name, **clickable status badge** (same popover), **avatar stack of assigned members** (max 3 +N), client avatar+name, deadline, progress, budget; … menu on hover; card click → detail. **Board**: Kanban columns by status; each card has **avatar stack** (if any), **clickable status badge** (popover fallback); card click → detail. **New Project dialog:** after status, **أعضاء الفريق** multi-select (dropdown + removable tags); on create, inserts into `project_members`. Edit opens `EditProjectDialog`; Delete calls `deleteProject`. |
-| Detail | `app/dashboard/projects/[id]/page.tsx` | Server Component; breadcrumb "Projects > [Project Name]"; **cover banner** (if `cover_image_url` set): full-width image below breadcrumb, above tabs; on hover, "Edit cover" opens file picker → upload to ImageKit → `updateProject(coverImageUrl)`. If no cover, no placeholder. Fetches `getProjectById(id)`, clients, settings, tasks, invoices, **getProjectMembers(id)**, **getTeamMembers()**. Tabs: Overview, Tasks, **الفريق (Team)**, Invoices, Files, Notes. **الفريق tab:** list of assigned team members (avatar, name, role, role on project), "+ تعيين عضو" opens modal (dropdown of active team members not already assigned, optional "الدور في المشروع"), "إزالة" with confirmation. |
+| Detail | `app/dashboard/projects/[id]/page.tsx` | Server Component; breadcrumb "Projects > [Project Name]"; **cover banner** (if `cover_image_url` set): full-width image below breadcrumb, above tabs; on hover, "Edit cover" opens file picker → upload to ImageKit → `updateProject(coverImageUrl)`. If no cover, no placeholder. Fetches `getProjectById(id)`, clients, settings, tasks, invoices, **`getExpensesByProjectId`**, **`getProjectCostSummary`**, **getProjectMembers(id)**, **getTeamMembers()**. Tabs: Overview, Tasks, **الفريق (Team)**, Invoices, **`Expenses`** (**`ProjectExpensesTab`**), Files, Notes. **الفريق tab:** list of assigned team members (avatar, name, role, role on project), "+ تعيين عضو" opens modal (dropdown of active team members not already assigned, optional "الدور في المشروع"), "إزالة" with confirmation. |
 
 **Server Actions** (`actions/projects.ts`):
 
@@ -138,6 +139,7 @@ One section per module: what it does, pages, Server Actions, and main components
 | ProjectOverviewTab | `components/modules/projects/project-overview-tab.tsx` | Details card (client link, status, dates, budget, hourly rate, description), Edit button, Phases horizontal stepper (Discovery … Launch) with Mark Active / Done per phase via `updatePhaseStatus`. |
 | ProjectTasksTab | `components/modules/projects/project-tasks-tab.tsx` | Kanban columns: Todo, In Progress, In Review, Done, Blocked. "+ Add Task" per column; task cards show title, priority badge, due date; status dropdown to move. Uses `getTasksByProjectId`, `createTask`, `updateTask`. |
 | ProjectInvoicesTab | `components/modules/projects/project-invoices-tab.tsx` | Table: Invoice #, Amount, Status, Due Date. "+ New Invoice" links to `/dashboard/invoices?projectId=…`. |
+| **ProjectExpensesTab** | `components/modules/projects/project-expenses-tab.tsx` | **Expenses** tab: **`getProjectCostSummary`** + **`getExpensesByProjectId`**; English/LTR table patterns aligned with global Expenses module. |
 | ProjectNotesTab | `components/modules/projects/project-notes-tab.tsx` | Textarea for private notes; Save button calls `updateProjectNotes`. |
 
 **Status badge colors (projects):** Lead=blue, Active=green, On Hold=amber, Review=purple, Completed=gray, Cancelled=red (see `types/index.ts` `PROJECT_STATUS_BADGE_CLASS`).
@@ -230,8 +232,9 @@ One section per module: what it does, pages, Server Actions, and main components
 - **Payment history** — All payments listed on invoice detail with add/delete (via `actions/payments.ts`).
 - **Payment progress bar** — Visual progress + amount due on detail (`PaymentHistory`).
 - **Invoice file attachments** — Upload/download/delete on detail (`InvoiceAttachments`, ImageKit path `agencyos/invoices/{invoiceId}/`, `files.invoice_id`).
-- **AR aging** — Financial reports include **`AgingReportSection`** (buckets: current, 1–30, 31–60, 61–90, 90+ days).
+- **AR aging** — Server action **`getAgingReport`** and UI **`AgingReportSection`** (`components/reports/aging-report-section.tsx`) implement buckets (current, 1–30, 31–60, 61–90, 90+ days); compose on a report view where needed.
 - **Invoice number format** — Configurable prefix + sequential number (e.g. `INV-001`), not UUIDs.
+- **List export** — **CSV** and **Excel (`.xlsx`)** from **`InvoicesListView`** via **`getInvoicesExportData`**.
 
 **Pages:**
 
@@ -252,13 +255,15 @@ One section per module: what it does, pages, Server Actions, and main components
 | Action | Purpose |
 |--------|---------|
 | `getInvoices` / `getInvoicesWithPayments` | List + enriched totals; project filter matches **primary** or **`invoice_projects`** |
-| **`getInvoiceStatsWithPayments`** | Dashboard stats: **collected** includes `payments` + **legacy** `paid` rows with no payment rows |
+| **`getInvoicesExportData`** | Filtered rows for **CSV / XLSX** export |
+| **`getInvoiceStatsWithPayments`** | **collected** includes `payments` + **legacy** `paid` rows with no payment rows |
 | `getInvoiceById` | Invoice + **`linkedProjectIds`**, combined project names, items |
 | **`getInvoiceWithPayments`** | Invoice + client, project, **`invoiceProjects`**, items, payments, **`totalPaid`**, **`amountDue`**, **`linkedProjects`** |
 | `getOverdueInvoices` | Past due with amount due |
 | `createInvoice` / `updateInvoice` | Line items; **`projectIds`** syncs **`invoice_projects`** |
 | **`markAsPaid`** | Inserts **`payments`** row for **remaining balance**, sets paid |
-| `createPayment`, `updatePayment`, `deletePayment` | See **`actions/payments.ts`** — recalculate invoice status |
+| `createPayment`, `updatePayment`, `deletePayment` | **`actions/payments.ts`** — recalculate invoice status |
+| **`migrateLegacyPaidInvoicePayments`** | Backfill payments for historical data |
 
 **Components:**
 
@@ -273,7 +278,7 @@ One section per module: what it does, pages, Server Actions, and main components
 | MarkAsPaidDialog | `mark-as-paid-dialog.tsx` | Full remaining balance — **English** |
 | EditInvoiceForm | `edit-invoice-form.tsx` | Pending edit; multi-project |
 | InvoicePdfDocument | `invoice-pdf-document.tsx` | English PDF; branding, payments, amount due |
-| **`aging-report-section.tsx`** | `components/reports/aging-report-section.tsx` | AR aging buckets in Financial reports |
+| **`aging-report-section.tsx`** | `components/reports/aging-report-section.tsx` | AR aging UI (buckets + detail); fed by **`getAgingReport`** |
 
 **Status workflow** (`invoice_status`):
 
@@ -315,34 +320,43 @@ Labels: `types/index.ts` — `INVOICE_STATUS_LABELS` / `INVOICE_STATUS_BADGE_CLA
 
 ## Expenses
 
-**Purpose:** Track agency expenses by category (software, hosting, marketing, salaries, equipment, office, other). Used in Financial Reports for profit (collected − expenses). Receipt upload via ImageKit (folder `agencyos/expenses/receipts`).
+**Purpose:** Track agency expenses by category; link to **projects**, **clients**, and **billable** flag; optional **recurring schedules** that spawn real **`expenses`** rows. Receipts and extra files use ImageKit + **`files.expense_id`**. Drives **profit and loss**, **profitability**, and **cash-flow** reports.
 
-**UI note:** The expenses list page is implemented in **English** with an explicit **`dir="ltr"`** subtree (table + filters + modal), so it stays LTR even when the app locale is Arabic. Amounts use **`SarCurrencyIcon`** + numeric **`formatAmount`** (same pattern as Projects budget column).
+**UI note:** List, detail, and recurring flows use **English + LTR** (`dir="ltr"`) so they stay consistent even when the app locale is Arabic. Amounts use **`SarCurrencyIcon`** / **`formatAmount`**.
+
+**Phase 2 (complete):** Project/client linking, **`is_billable`**, **recurring expenses** UI + **`actions/recurring-expenses.ts`**, **bulk delete**, **CSV / XLSX export**, **expense detail** with **attachments**, **Expenses** tabs on **project** and **client** detail pages.
 
 **Pages:**
 
 | Route | File | Description |
 |-------|------|-------------|
-| List | `app/dashboard/expenses/page.tsx` | Server: fetches `getExpenses(filters)` (category, dateFrom, dateTo from searchParams), `getExpensesSummary()`, **getTeamMembers()**. Metadata title/description: **Expenses**. Renders `ExpensesListView`: title **Expenses**, **+ New Expense**; summary cards (**Total expenses this month/year**, **Top expense category**) with amount + SAR icon; filters (category, **From date** / **To date** with LTR `DatePickerAr`); **`SortableDataTable`** with **`uiVariant="clients"`** (rounded bordered table, LTR toolbar): checkbox column, drag handle, **Title** (for **Salaries** + linked member: 👤 name under title), **Category** badge, **Amount** (icon + number), **Date** (DD/MM/YYYY), **Notes**, actions (Edit \| Delete). **Bulk selection** bar: count, Clear selection, **Delete** → confirms then **`deleteExpenses`**. Single-row delete AlertDialog (English). |
+| List | `app/dashboard/expenses/page.tsx` | `getExpenses(filters)` — **category**, **dateFrom**, **dateTo**, **projectId**, **clientId** (from query); `getExpensesSummary()`; **getTeamMembers**, **getProjects**, **getClientsList** for dialogs/filters. **`ExpensesListView`**: summary cards, filters (incl. project/client), **billable** filter in UI where present, **SortableDataTable**, **bulk delete**, **Export CSV / Excel**, link to **Recurring** and **New expense**. |
+| Detail | `app/dashboard/expenses/[id]/page.tsx` | **`getExpenseById`**, **`getFiles({ expenseId })`**, pickers data. Header + metadata; **`ExpenseAttachments`** (upload/preview/download/delete). |
+| Recurring | `app/dashboard/expenses/recurring/page.tsx` | **`getRecurringExpenses()`**; **`RecurringExpensesView`** + **`NewRecurringExpenseDialog`**; optional **process due** workflow via **`processRecurringExpenses`**. |
 
 **Server Actions** (`actions/expenses.ts`):
 
 | Action | Purpose |
 |--------|---------|
-| `getExpenses(filters?)` | category (expense_category), dateFrom, dateTo. Returns list ordered by date desc. Zod-validated. |
-| `getExpensesSummary()` | totalThisMonth, totalThisYear, topCategory (category with highest spend). |
-| `createExpense(data)` | Zod: title, amount, category, date, notes, receiptUrl, teamMemberId (optional). Revalidates /dashboard/expenses, /dashboard/reports. |
-| `updateExpense(input)` | Partial update by id. Revalidates expenses + reports. |
-| `deleteExpense(id)` | Hard delete one row. Revalidates expenses + reports. |
-| `deleteExpenses(ids)` | Hard delete many rows (`inArray` on ids). Revalidates expenses + reports. |
+| `getExpenses(filters?)` | Filters: category, dates, **projectId**, **clientId**, **isBillable** |
+| `getExpensesExportData`, `getExpenseById`, `getExpensesSummary` | Export rows, detail, aggregates |
+| `getExpensesByProjectId`, `getExpensesByClientId`, `getProjectCostSummary`, `getClientCostSummary` | Scoped lists and KPIs for **project/client** tabs and widgets |
+| `getExpensesByTeamMemberId`, `getTeamCostBreakdownThisMonth` | Team / salary reporting |
+| `createExpense`, `updateExpense`, `deleteExpense`, `deleteExpenses` | CRUD + bulk |
+
+**Server Actions** (`actions/recurring-expenses.ts`): **`getRecurringExpenses`**, **`createRecurringExpense`**, **`updateRecurringExpense`**, **`deleteRecurringExpense`**, **`toggleRecurringExpenseActive`**, **`processRecurringExpenses`**, **`getDueRecurringExpenses`**.
 
 **Components:**
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| ExpensesListView | `components/modules/expenses/expenses-list-view.tsx` | LTR layout; summary with **`AmountWithSarIcon`** helper; filters; bulk-delete toolbar; **`SortableDataTable`** (`tableId` `expenses-table`, `uiVariant="clients"`). |
-| NewExpenseDialog | `components/modules/expenses/new-expense-dialog.tsx` | Dialog **LTR**, English labels; fields: Title, Amount (SAR), Category, optional **Team member** when category = Salaries, Date (`DatePickerAr` LTR/enUS), Notes, Receipt upload → `/api/upload` folder `agencyos/expenses/receipts`. Create or Edit mode. |
-| ExpenseCategoryBadge | `components/modules/expenses/expense-category-badge.tsx` | Colored outline badge; **English** labels (Software, Hosting, Marketing, Salaries, Equipment, Office, Other). |
+| ExpensesListView | `components/modules/expenses/expenses-list-view.tsx` | Filters, table, bulk actions, exports, navigation to recurring |
+| NewExpenseDialog | `components/modules/expenses/new-expense-dialog.tsx` | Create/edit: **project**, **client**, **billable**, salaries → **team member**, receipt upload |
+| **RecurringExpensesView** | `components/modules/expenses/recurring-expenses-view.tsx` | Table of schedules; active toggle; edit/delete |
+| **NewRecurringExpenseDialog** | `components/modules/expenses/new-recurring-expense-dialog.tsx` | Create/edit recurring row (frequency labels from **`RECURRENCE_FREQUENCY_LABELS`**) |
+| **ExpenseAttachments** | `components/modules/expenses/expense-attachments.tsx` | Files scoped by **`expenseId`** (PDF preview, grid) |
+| **ExpenseDetailHeader** | `components/modules/expenses/expense-detail-header.tsx` | Detail actions |
+| ExpenseCategoryBadge | `components/modules/expenses/expense-category-badge.tsx` | English category labels |
 
 **Category badge colors:** Software → blue, Hosting → purple, Marketing → pink, Salaries → amber, Equipment → orange, Office → gray, Other → slate.
 
@@ -350,23 +364,23 @@ Labels: `types/index.ts` — `INVOICE_STATUS_LABELS` / `INVOICE_STATUS_BADGE_CLA
 
 ## Files
 
-**Purpose:** ImageKit-backed file storage scoped by client or project. Upload, list, download, copy link, delete. All uploads via server-side ImageKit; metadata in `files` table.
+**Purpose:** ImageKit-backed file storage scoped by **client**, **project**, **invoice**, or **expense**. Upload, list, download, copy link, delete. Metadata in **`files`** (`invoice_id`, `expense_id`, …).
 
-**Pages:** No dedicated list page. **Client detail** (الملفات tab) and **Project detail** (الملفات tab) each render `FileManager` with `clientId` or `projectId`.
+**Pages:** No dedicated list page. **Client** and **Project** detail **Files** tabs use **`FileManager`**. **Invoice** and **expense** attachments use module components (`invoice-attachments`, `expense-attachments`).
 
 **API:**
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/upload` | POST | Multipart form: `file`, `folder` (ImageKit path). Optional legacy: `scope`, `projectId`. Returns `{ url, fileId, name, size, mimeType, filePath }`. Used by FileManager (folder: `agencyos/clients/{id}/` or `agencyos/projects/{id}/`) and by client logo, agency logo, project cover. |
+| `/api/upload` | POST | Multipart: `file`, `folder`, and/or **`scope`** (e.g. **`invoice-attachment`** + **`invoiceId`**, expense scopes, **`recurring-vendor-logo`**, etc.). Returns `{ url, fileId, name, size, mimeType, filePath }`. |
 
 **Server Actions** (`actions/files.ts`):
 
 | Action | Purpose |
 |--------|---------|
-| `getFiles({ clientId?, projectId? })` | Fetch files scoped to client or project (one of them required). Returns list ordered by createdAt desc. |
-| `createFile(data)` | Save file metadata after ImageKit upload. Zod: name, imagekitFileId, imagekitUrl, filePath, mimeType, sizeBytes, clientId, projectId. |
-| `deleteFile(id)` | Delete file from ImageKit by imagekit_file_id, then hard-delete from DB. Revalidates client/project paths. |
+| `getFiles({ clientId?, projectId?, invoiceId?, expenseId? })` | One scope required |
+| `createFile(data)` | After upload; optional **`invoiceId`** or **`expenseId`** |
+| `deleteFile(id)` | ImageKit + DB; revalidates related dashboard paths |
 
 **Components:**
 
@@ -378,63 +392,67 @@ Labels: `types/index.ts` — `INVOICE_STATUS_LABELS` / `INVOICE_STATUS_BADGE_CLA
 
 ## Dashboard (Home)
 
-**Purpose:** First screen after login — KPIs, revenue chart, project status donut, overdue tasks, upcoming deadlines, recent invoices, quick actions.
+**Purpose:** First screen after login — KPIs, revenue chart, project status donut, overdue tasks, upcoming deadlines, recent invoices, quick actions, plus **finance-focused KPIs** tied to **Phase 3** (YTD profit, profit margin, top profitable project/client).
 
 **Pages:**
 
 | Route | File | Description |
 |-------|------|-------------|
-| Home | `app/dashboard/page.tsx` | Server component; fetches `getDashboardData()` from `actions/dashboard.ts`, renders `DashboardHome` (client) with KPI cards, bar chart (revenue 12 months), donut (project status), three columns (overdue tasks, upcoming deadlines, recent invoices), quick action buttons. |
+| Home | `app/dashboard/page.tsx` | Server component; **`getDashboardData()`**; **`DashboardHome`**: KPI cards, charts, lists, quick actions. |
 
 **Server Actions** (`actions/dashboard.ts`):
 
 | Action | Purpose |
 |--------|---------|
-| `getDashboardData()` | Returns: currency (from settings), revenueThisMonth/revenueLastMonth, outstandingTotal/outstandingCount, activeProjectsCount, overdueTasksCount, revenueByMonth (12 months: invoiced vs collected), projectStatusCounts, overdueTasks (up to 5), upcomingProjects (end_date in next 14 days, up to 5), recentInvoices (last 5). All via direct Drizzle queries. |
+| `getDashboardData()` | Currency, revenue this/last month, outstanding, active projects, overdue tasks, **12-month** invoiced vs collected, project status counts, overdue task list, upcoming projects, recent invoices, **`totalProfit`** (YTD payments − YTD expenses), **`profitMargin`**, **`topProfitableProject`**, **`topProfitableClient`** (via **`getProjectProfitability`** / **`getClientProfitability`**). |
 
 **Components:**
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| DashboardHome | `components/dashboard-home.tsx` | Client: Row 1 — 4 KPI cards (Revenue This Month with vs last month %, Outstanding with count, Active Projects with link to filtered list, Overdue Tasks in red). Row 2 — Bar chart (Recharts) Revenue last 12 months (Invoiced vs Collected), Donut (Recharts) Project status. Row 3 — Overdue tasks (title, project name, days overdue, link to project), Upcoming deadlines (project name, client, date, status badge), Recent invoices (number, client, amount, status). Row 4 — Quick actions: New Project, New Client, New Invoice, New Task (links to respective pages). Currency from settings for formatting; empty states when no data. |
+| DashboardHome | `components/dashboard-home.tsx` | Composes KPI cards (incl. **profit** / **margin** / **top performers** where implemented), Recharts bar + donut, task/project/invoice columns, quick actions. |
 
 ---
 
 ## Reports
 
-**Purpose:** Financial reports (revenue, KPIs, top clients, outstanding invoices) and project/productivity reports. RTL, Arabic labels, amounts as `1,000 ر.س`, Western numerals (1,2,3).
+**Purpose:** **English + LTR** financial analytics (revenue, profit, **P&L**, **cash flow**, **profitability**, **AR aging**, exports) and a **Projects & productivity** tab (mixed Arabic labels in older widgets — see `ProductivityReportsTab`). Optional **SAR ↔ EGP** toggle on the financial tab (`ReportsCurrencyProvider`, live rate).
+
+**Phase 3 (complete):** Profitability and finance **server actions** (**`getProjectProfitability`**, **`getClientProfitability`**, **`getServiceProfitability`**, legacy **`getServicesProfitability`**, **`getProfitLossStatement`**, **`getCashFlowForecast`**, **`getAgingReport`**) plus **PDF** pipeline **`/api/reports/pdf`** (`downloadReportPdf`, `reports-pdf-document.tsx`). **Invoices** and **Expenses** lists support **CSV/XLSX** export.
 
 **Pages:**
 
 | Route | File | Description |
 |-------|------|-------------|
-| Reports | `app/dashboard/reports/page.tsx` | Two tabs: **التقارير المالية** (Financial) and **تقارير المشاريع والإنتاجية** (Productivity). Date range filter (Financial only): هذا الشهر \| الشهر الماضي \| هذا الربع \| هذه السنة \| كل الوقت (default هذه السنة). **Financial tab:** KPI cards (إيرادات هذا الشهر with delta vs last month, إجمالي المحصّل, المستحق حالياً, إجمالي الفواتير هذا العام, **صافي الربح** — collected − expenses for selected period, green if positive / red if negative), revenue bar chart (الإيرادات شهر بشهر — Recharts, 3 bars per month: الفواتير المُصدرة gray, المحصّل indigo, المصروفات red/rose; tooltip shows all three; summary below: إجمالي المحصّل \| إجمالي المصروفات \| صافي الربح), **AR aging** (`AgingReportSection` — buckets current, 1–30, 31–60, 61–90, 90+ days), two columns (أفضل العملاء إيراداً — top 5 by paid, آخر الفواتير — last 8), outstanding table (الفواتير المستحقة — pending only, مع "تحديد كمدفوعة" inline). **Productivity tab:** (1) KPI cards: المشاريع النشطة (status=active), مشاريع مكتملة هذا العام, المهام المتأخرة (red), معدل إنجاز المهام (percentage + mini progress bar); (2) two charts: توزيع المشاريع حسب الحالة (donut — نشط/متوقف/مراجعة/مكتمل/ملغي/عميل محتمل with colors), المهام المنجزة أسبوعياً (bar, last 8 weeks, indigo); (3) table "حالة المشاريع الحالية" (non-cancelled, non-completed): المشروع (link), العميل (avatar+name), الحالة, الموعد النهائي (red if passed), الميزانية, تقدم المهام (bar + fraction), الأيام المتبقية (red/amber/green); (4) "المهام المتأخرة" list with "تحديد كمكتملة" button (marks task done, revalidates); empty state "🎉 لا توجد مهام متأخرة!"; (5) "العملاء الجدد هذا العام": big count, 12-month bar chart, last 5 clients with name, status, date. |
+| Reports | `app/dashboard/reports/page.tsx` | **`getFinancialSummary`**, **`getMonthlyRevenue(dateRange)`**, **`getMonthlyComparison`**, **`getRecentInvoices`**, productivity loaders, **`getTeamCostBreakdownThisMonth`**, SAR→EGP rate. Tabs: **Financial** = **`ReportsFinancialTab`** (`app/dashboard/reports/reports-financial-tab.tsx`); **Projects & productivity** = **`ProductivityReportsTab`**. **Financial tab (mounted today):** KPI cards, **SAR/EGP** toggle, **`RevenueChartSection`**, **`MonthlyComparisonChart`**, inline **recent invoices** list, **`ProfitabilityVisualization`** (client-side fetch of **`getProjectProfitability` / `getClientProfitability` / `getServiceProfitability`**; bar / pie / treemap; **Download PDF** for the active profitability mode). Date range chips: `this_month` … `all`. |
 
-**Server Actions** (`actions/reports.ts`):
+**Composable report sections (same module):** **`ProfitLossSection`**, **`CashFlowForecastSection`**, **`AgingReportSection`**, **`ProjectProfitabilitySection`**, **`ClientProfitabilitySection`**, **`TopProfitableProjectsWidget`**, and **`reports-financial-subtabs.tsx`** (**`ReportsProfitabilitySubtabs`**, **`ReportsFinancialDetailsSubtabs`**) — pair with the matching **`actions/reports.ts`** loaders when composing extended report layouts.
 
-| Action | Purpose |
-|--------|---------|
-| **Financial** | |
-| `getFinancialSummary()` | Returns revenueThisMonth, revenueLastMonth, totalCollectedAllTime, outstandingTotal, invoicedThisYear. |
-| `getMonthlyRevenue(dateRange)` | Last 12 months (or Jan–Dec for this_year) with Arabic month labels; **invoiced** (sum of invoice total by created_at), **collected** (sum of paid invoice total by paid_at), **expenses** (sum of expenses by date) per month. |
-| `getTopClientsByRevenue(limit)` | Top N clients by total paid (all time). |
-| `getRecentInvoices(limit)` | Last N invoices by created_at DESC. |
-| `getOutstandingInvoices()` | All pending invoices with client/project, days since issue. |
-| **Productivity** | |
-| `getProjectsSummary()` | activeProjectsCount, completedThisYearCount, overdueTasksCount, taskCompletionRate, totalTasks, doneTasks. |
-| `getProjectsByStatus()` | Count per project status for donut (Arabic labels). |
-| `getWeeklyTaskCompletion()` | Last 8 weeks: count of tasks with status=done (by week of createdAt). |
-| `getOverdueTasks()` | Tasks where due_date &lt; today and status ≠ done, ordered by due_date ASC. |
-| `getActiveProjectsWithProgress()` | Non-cancelled, non-completed projects with client, task counts, days remaining. |
-| `getNewClientsPerMonth(year)` | Total new clients in year, byMonth (12 rows), recent (last 5). |
+**Server Actions** (`actions/reports.ts`): See **[`docs/server-actions.md`](./server-actions.md)** — financial core, profitability, **`getAgingReport`**, productivity getters, **`getClientSpendByService`**, **`getServicesProfitability`** vs **`getServiceProfitability`**.
+
+**API:**
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/reports/pdf` | Query `type`: `profit-loss`, `project-profitability`, `client-profitability`, `service-profitability` (+ params as implemented). Returns PDF buffer. |
 
 **Components:**
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| RevenueChart | `components/reports/revenue-chart.tsx` | Client; Recharts BarChart, 3 bars: الفواتير المُصدرة (gray), المحصّل (indigo), المصروفات (red); Arabic tooltips with all three values; Legend. |
-| OutstandingInvoicesTable | `components/reports/outstanding-invoices-table.tsx` | Client; RTL table, "تحديد كمدفوعة" button and dialog. |
-| ProductivityReportsTab | `components/reports/productivity-reports-tab.tsx` | Client; KPI cards, donut (project status), bar (weekly task completion), projects table, overdue tasks table with "تحديد كمكتملة" (calls `updateTask`), **تكاليف الفريق هذا الشهر** (table: الاسم \| الدور \| إجمالي الرواتب ر.س — from `getTeamCostBreakdownThisMonth()`), new clients section; RTL, Arabic tooltips, Western numerals. |
+| ReportsFinancialTab | `app/dashboard/reports/reports-financial-tab.tsx` | Currency toggle, KPIs, **`RevenueChartSection`**, **`MonthlyComparisonChart`**, recent invoices, **`ProfitabilityVisualization`** |
+| RevenueChartSection | `components/reports/revenue-chart-section.tsx` | Revenue / expenses chart wrapper |
+| MonthlyComparisonChart | `components/reports/monthly-comparison-chart.tsx` | Month-over-month comparison |
+| **ProfitabilityVisualization** | `components/reports/profitability-visualization.tsx` | Charts + **Download PDF** for combined profitability views |
+| **ProfitLossSection** | `components/reports/profit-loss-section.tsx` | **`getProfitLossStatement`** UI + period selector + **PDF** |
+| **CashFlowForecastSection** | `components/reports/cash-flow-forecast-section.tsx` | **`getCashFlowForecast`** outlook UI |
+| AgingReportSection | `components/reports/aging-report-section.tsx` | **`getAgingReport`** buckets + table |
+| ReportsProfitabilitySubtabs (and related) | `components/reports/reports-financial-subtabs.tsx` | Project vs client **Profitability** subtabs; financial **Details** subtabs (recent invoices, outstanding, etc.) |
+| ProjectProfitabilitySection / ClientProfitabilitySection | `components/reports/project-profitability-section.tsx`, `client-profitability-section.tsx` | Tables + **PDF** per section |
+| TopProfitableProjectsWidget | `components/reports/top-profitable-projects-widget.tsx` | Highlight widget |
+| RevenueChart | `components/reports/revenue-chart.tsx` | Shared Recharts bar helper |
+| OutstandingInvoicesTable | `components/reports/outstanding-invoices-table.tsx` | Outstanding balances; mark paid flow |
+| ProductivityReportsTab | `components/reports/productivity-reports-tab.tsx` | Productivity + **team cost** table |
 
 ---
 
@@ -519,4 +537,4 @@ Labels: `types/index.ts` — `INVOICE_STATUS_LABELS` / `INVOICE_STATUS_BADGE_CLA
   - assignee selector at create time (when team members are passed)
 - Task delete is soft delete via `deleteTask(id)` and is now exposed from Workspace task detail panel.
 
-<!-- OUTDATED: some narrative sections above still describe earlier Arabic-only labels and pre-calendar workspace scope -->
+<!-- Finance modules (Invoices, Expenses, Reports) use English + LTR where documented above; CRM modules may remain Arabic/RTL. -->

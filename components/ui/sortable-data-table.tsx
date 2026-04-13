@@ -25,8 +25,10 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type Column,
   type ColumnDef,
   type ColumnFiltersState,
+  type PaginationState,
   type Row,
   type SortingState,
   type VisibilityState,
@@ -39,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { GripVertical } from "lucide-react";
+import { Columns3, GripVertical } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -47,10 +49,67 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { listSavedViews, removeSavedView, upsertSavedView } from "@/lib/table-views";
 
 const ROW_ORDER_KEY = "sortable-table-row-order";
+
+/** Declarative per-column filters (second header row). */
+export type TableColumnFilterMeta =
+  | { variant: "text"; placeholder?: string }
+  | {
+      variant: "select";
+      options: { value: string; label: string }[];
+      allValue?: string;
+      allLabel?: string;
+    };
+
+function TableColumnFilterCell<T>({ column }: { column: Column<T> }) {
+  const meta = column.columnDef.meta as { columnFilter?: TableColumnFilterMeta } | undefined;
+  const filter = meta?.columnFilter;
+  if (!filter) {
+    return <div className="h-8" />;
+  }
+  const raw = column.getFilterValue();
+  if (filter.variant === "text") {
+    return (
+      <Input
+        className="h-8 text-sm"
+        placeholder={filter.placeholder ?? "…"}
+        value={(raw as string) ?? ""}
+        onChange={(e) => column.setFilterValue(e.target.value.trim() ? e.target.value : undefined)}
+      />
+    );
+  }
+  const allVal = filter.allValue ?? "__all__";
+  const val = raw === undefined || raw === "" ? allVal : String(raw);
+  return (
+    <Select
+      value={val}
+      onValueChange={(v) => column.setFilterValue(v === allVal ? undefined : v)}
+    >
+      <SelectTrigger className="h-8 text-xs">
+        <SelectValue placeholder={filter.allLabel ?? "All"} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={allVal}>{filter.allLabel ?? "All"}</SelectItem>
+        {filter.options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function reorderRowsById<T>(rows: Row<T>[], rowOrder: string[], getRowId: (row: T) => string): Row<T>[] {
   const validRows = rows.filter((r) => r.original != null);
@@ -114,7 +173,7 @@ function SortableTableRow<T>({
             {...attributes}
             {...listeners}
           >
-            <div className="flex justify-end">
+            <div className={cn("flex", uiVariant === "clients" ? "justify-start" : "justify-end")}>
               <GripVertical className="h-4 w-4" />
             </div>
           </TableCell>
@@ -154,6 +213,15 @@ export type SortableDataTableProps<T> = {
   enableSavedViews?: boolean;
   getViewStateSnapshot?: () => Record<string, string>;
   applyViewStateSnapshot?: (snapshot: Record<string, string>) => void;
+  /** Second header row driven by `columnDef.meta.columnFilter`. */
+  enableColumnFilterRow?: boolean;
+  /** Columns dropdown + optional localStorage persistence (`table-columns-${tableId}`). */
+  enableColumnVisibilityControl?: boolean;
+  persistColumnVisibility?: boolean;
+  /** When set with `enablePagination`, show page size control and persist size to localStorage. */
+  pageSizeOptions?: number[];
+  /** Row shown when the table has no rows (after filters). */
+  emptyStateMessage?: string;
 };
 
 export function SortableDataTable<T>({
@@ -173,9 +241,18 @@ export function SortableDataTable<T>({
   applyViewStateSnapshot,
   columnFilters: controlledColumnFilters,
   onColumnFiltersChange: controlledOnColumnFiltersChange,
+  enableColumnFilterRow = false,
+  enableColumnVisibilityControl = false,
+  persistColumnVisibility = false,
+  pageSizeOptions,
+  emptyStateMessage = "No data.",
 }: SortableDataTableProps<T>) {
   const storageKeySort = `sort-${tableId}`;
   const storageKeyRowOrder = `${ROW_ORDER_KEY}-${tableId}`;
+  const storageKeyColumns = `table-columns-${tableId}`;
+  const storageKeyPageSize = `table-pageSize-${tableId}`;
+  const resolvedPageSizes = pageSizeOptions?.length ? pageSizeOptions : null;
+  const defaultPageSize = resolvedPageSizes?.[0] ?? 10;
 
   const [sorting, setSorting] = React.useState<SortingState>(() => {
     if (typeof window === "undefined") return [];
@@ -210,9 +287,44 @@ export function SortableDataTable<T>({
     },
     [setColumnFilters]
   );
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
-    initialState.columnVisibility ?? {}
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => {
+    if (persistColumnVisibility && typeof window !== "undefined") {
+      try {
+        const s = localStorage.getItem(storageKeyColumns);
+        if (s) return JSON.parse(s) as VisibilityState;
+      } catch {
+        /* ignore */
+      }
+    }
+    return initialState.columnVisibility ?? {};
+  });
+
+  const [pagination, setPagination] = React.useState<PaginationState>(() => {
+    if (!enablePagination) return { pageIndex: 0, pageSize: defaultPageSize };
+    if (typeof window === "undefined") return { pageIndex: 0, pageSize: defaultPageSize };
+    if (resolvedPageSizes) {
+      try {
+        const raw = localStorage.getItem(storageKeyPageSize);
+        const n = raw ? parseInt(raw, 10) : defaultPageSize;
+        const size = resolvedPageSizes.includes(n) ? n : defaultPageSize;
+        return { pageIndex: 0, pageSize: size };
+      } catch {
+        return { pageIndex: 0, pageSize: defaultPageSize };
+      }
+    }
+    return { pageIndex: 0, pageSize: 10 };
+  });
+
+  const dataIdentityKey = React.useMemo(
+    () => data.map((row) => getRowId(row as T)).join("\0"),
+    [data, getRowId]
   );
+
+  React.useEffect(() => {
+    if (!enablePagination) return;
+    setPagination((p) => ({ ...p, pageIndex: 0 }));
+  }, [dataIdentityKey, enablePagination]);
+
   const [rowSelection, setRowSelection] = React.useState({});
   const [savedViews, setSavedViews] = React.useState(() => listSavedViews(tableId));
   const [selectedViewId, setSelectedViewId] = React.useState<string>("none");
@@ -235,6 +347,30 @@ export function SortableDataTable<T>({
     }
   }, [rowOrder, storageKeyRowOrder, enableRowOrderPersistence]);
 
+  React.useEffect(() => {
+    if (!persistColumnVisibility || typeof window === "undefined") return;
+    try {
+      localStorage.setItem(storageKeyColumns, JSON.stringify(columnVisibility));
+    } catch {
+      /* ignore */
+    }
+  }, [columnVisibility, persistColumnVisibility, storageKeyColumns]);
+
+  React.useEffect(() => {
+    if (!enablePagination || !resolvedPageSizes || typeof window === "undefined") return;
+    try {
+      localStorage.setItem(storageKeyPageSize, String(pagination.pageSize));
+    } catch {
+      /* ignore */
+    }
+  }, [enablePagination, pagination.pageSize, resolvedPageSizes, storageKeyPageSize]);
+
+  const columnFiltersKey = JSON.stringify(columnFilters);
+  React.useEffect(() => {
+    if (!enablePagination) return;
+    setPagination((p) => ({ ...p, pageIndex: 0 }));
+  }, [columnFiltersKey, enablePagination]);
+
   const table = useReactTable({
     data,
     columns,
@@ -243,17 +379,29 @@ export function SortableDataTable<T>({
       columnFilters,
       columnVisibility,
       rowSelection,
+      ...(enablePagination ? { pagination } : {}),
     },
     onSortingChange: setSorting,
     onColumnFiltersChange,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
+    ...(enablePagination ? { onPaginationChange: setPagination } : {}),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: enablePagination ? getPaginationRowModel() : undefined,
     getRowId: (row) => getRowId(row as T),
   });
+
+  const filteredRowCount = table.getFilteredRowModel().rows.length;
+  React.useEffect(() => {
+    if (!enablePagination) return;
+    setPagination((p) => {
+      const maxIdx = Math.max(0, Math.ceil(filteredRowCount / p.pageSize) - 1);
+      if (p.pageIndex > maxIdx) return { ...p, pageIndex: maxIdx };
+      return p;
+    });
+  }, [enablePagination, filteredRowCount, pagination.pageSize]);
 
   const sortedRows = table.getRowModel().rows;
   const displayRows = React.useMemo(
@@ -355,6 +503,32 @@ export function SortableDataTable<T>({
             </button>
           </>
         )}
+        {enableColumnVisibilityControl && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" type="button">
+                <Columns3 className="h-4 w-4" />
+                Columns
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              {table
+                .getAllColumns()
+                .filter((c) => c.getCanHide())
+                .map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    className="text-sm"
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(v) => column.toggleVisibility(!!v)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {getColumnLabel(column.id)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {sorting.length > 0 && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <span>Sorted by:</span>
@@ -419,27 +593,50 @@ export function SortableDataTable<T>({
           >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow
-                key={headerGroup.id}
-                className={cn(uiVariant === "clients" && "border-b border-neutral-100 bg-neutral-50")}
-              >
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
+              <React.Fragment key={headerGroup.id}>
+                <TableRow
+                  className={cn(uiVariant === "clients" && "border-b border-neutral-100 bg-neutral-50")}
+                >
+                  {headerGroup.headers.map((header) => (
+                    <TableHead
+                      key={header.id}
+                      className={cn(
+                        uiVariant === "clients"
+                          ? "px-4 py-2.5 text-xs font-medium text-neutral-400 text-left"
+                          : "text-right",
+                        header.column.id === "actions" && "w-10",
+                        header.column.id === dragColumnId && "w-8 pr-1"
+                      )}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
+                  ))}
+                </TableRow>
+                {enableColumnFilterRow ? (
+                  <TableRow
                     className={cn(
-                      uiVariant === "clients"
-                        ? "px-4 py-2.5 text-xs font-medium text-neutral-400 text-left"
-                        : "text-right",
-                      header.column.id === "actions" && "w-10",
-                      header.column.id === dragColumnId && "w-8 pr-1"
+                      "border-b hover:bg-transparent",
+                      uiVariant === "clients" ? "bg-neutral-50/80" : "bg-muted/40"
                     )}
                   >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead
+                        key={`filter-${header.id}`}
+                        className={cn(
+                          "p-2 align-top",
+                          uiVariant === "clients" ? "px-4 text-left" : "text-right",
+                          header.column.id === "actions" && "w-10",
+                          header.column.id === dragColumnId && "w-8 pr-1"
+                        )}
+                      >
+                        <TableColumnFilterCell column={header.column} />
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ) : null}
+              </React.Fragment>
             ))}
           </TableHeader>
           <TableBody>
@@ -464,7 +661,7 @@ export function SortableDataTable<T>({
                     uiVariant === "clients" ? "text-left" : "text-right"
                   )}
                 >
-                  No data.
+                  {emptyStateMessage}
                 </TableCell>
               </TableRow>
             )}
@@ -473,40 +670,92 @@ export function SortableDataTable<T>({
         </div>
       </DndContext>
 
-      {enablePagination && table.getPageCount() > 1 && (
+      {enablePagination && (
         <div
           className={cn(
-            "flex items-center gap-2 pt-4",
-            uiVariant === "clients" ? "flex-row justify-between text-left" : "flex-row-reverse justify-end text-right"
+            "flex flex-col gap-3 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between",
+            uiVariant === "clients" ? "text-left" : "text-right"
           )}
         >
           <div
             className={cn(
-              "text-muted-foreground flex-1 text-sm",
+              "text-muted-foreground text-sm",
               uiVariant === "clients" ? "text-left" : "text-right"
             )}
           >
-            {table.getFilteredSelectedRowModel().rows.length} of{" "}
-            {table.getFilteredRowModel().rows.length} selected rows.
+            {(() => {
+              const filtered = table.getFilteredRowModel().rows.length;
+              const { pageIndex, pageSize } = table.getState().pagination;
+              const from = filtered === 0 ? 0 : pageIndex * pageSize + 1;
+              const to = Math.min((pageIndex + 1) * pageSize, filtered);
+              return (
+                <>
+                  Showing {from}
+                  {from !== 0 ? `–${to}` : ""} of {filtered}
+                  {table.getFilteredSelectedRowModel().rows.length > 0 ? (
+                    <span className="ms-1">
+                      ({table.getFilteredSelectedRowModel().rows.length} selected)
+                    </span>
+                  ) : null}
+                </>
+              );
+            })()}
           </div>
-          <div className={cn("flex gap-2", uiVariant === "clients" ? "flex-row" : "flex-row-reverse")}
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-2",
+              uiVariant === "clients" ? "justify-start sm:justify-end" : "justify-end"
+            )}
           >
-            <button
-              type="button"
-              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              Next
-            </button>
+            {resolvedPageSizes ? (
+              <Select
+                value={String(table.getState().pagination.pageSize)}
+                onValueChange={(v) => {
+                  const size = parseInt(v, 10);
+                  table.setPageSize(size);
+                }}
+              >
+                <SelectTrigger
+                  className={cn(
+                    "h-8 w-[100px]",
+                    uiVariant === "clients" ? "text-left" : "text-right"
+                  )}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {resolvedPageSizes.map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n} / page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            <div className={cn("flex items-center gap-2", uiVariant === "clients" ? "flex-row" : "flex-row-reverse")}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
+                Previous
+              </Button>
+              <span className="text-muted-foreground min-w-[5.5rem] text-center text-sm tabular-nums">
+                Page {table.getState().pagination.pageIndex + 1} of{" "}
+                {Math.max(1, table.getPageCount())}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </div>
       )}

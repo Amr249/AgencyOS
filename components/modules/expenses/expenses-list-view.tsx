@@ -49,6 +49,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { ChevronDown, Download, MoreHorizontal, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { stringifyCsv, triggerTextDownload, type CsvColumn } from "@/lib/export-tabular";
+import { ClientSelectOptionRow, ProjectSelectOptionRow } from "@/components/entity-select-option";
 
 const categoryValues: ExpenseCategory[] = [
   "software",
@@ -66,7 +67,7 @@ type Summary = {
   topCategory: { category: ExpenseCategory; total: number } | null;
 };
 
-type TeamMemberOption = { id: string; name: string; role: string | null };
+type TeamMemberOption = { id: string; name: string; role: string | null; avatarUrl?: string | null };
 
 type ExpensesListViewProps = {
   initialExpenses: ExpenseRow[];
@@ -638,8 +639,12 @@ export function ExpensesListView({
           <SelectContent>
             <SelectItem value="all">All projects</SelectItem>
             {projects.map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
+              <SelectItem key={project.id} value={project.id} textValue={project.name}>
+                <ProjectSelectOptionRow
+                  coverImageUrl={project.coverImageUrl}
+                  clientLogoUrl={project.clientLogoUrl}
+                  name={project.name}
+                />
               </SelectItem>
             ))}
           </SelectContent>
@@ -650,11 +655,14 @@ export function ExpensesListView({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All clients</SelectItem>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.companyName?.trim() ? client.companyName : "Unnamed client"}
-              </SelectItem>
-            ))}
+            {clients.map((client) => {
+              const label = client.companyName?.trim() ? client.companyName : "Unnamed client";
+              return (
+                <SelectItem key={client.id} value={client.id} textValue={label}>
+                  <ClientSelectOptionRow logoUrl={client.logoUrl} label={label} />
+                </SelectItem>
+              );
+            })}
           </SelectContent>
         </Select>
         <DatePickerAr

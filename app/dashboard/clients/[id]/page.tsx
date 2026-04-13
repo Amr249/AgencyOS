@@ -120,7 +120,7 @@ export default async function ClientDetailPage({ params }: Props) {
     else totalOutstanding += t;
   }
 
-  const clientsForDialog = [{ id: client.id, companyName: client.companyName }];
+  const clientsForDialog = [{ id: client.id, companyName: client.companyName, logoUrl: client.logoUrl }];
   const defaultCurrency = settings?.defaultCurrency ?? "SAR";
   const initialFiles = filesResult.ok ? filesResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
@@ -132,6 +132,8 @@ export default async function ClientDetailPage({ params }: Props) {
     id: p.id,
     name: p.name,
     clientId: p.clientId,
+    coverImageUrl: p.coverImageUrl,
+    clientLogoUrl: p.clientLogoUrl,
   }));
 
   return (

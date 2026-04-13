@@ -69,7 +69,7 @@ type InvoiceRow = {
 
 type Stats = { totalInvoiced: number; collected: number; outstanding: number };
 
-type ClientsOption = { id: string; companyName: string | null };
+type ClientsOption = { id: string; companyName: string | null; logoUrl?: string | null };
 type SettingsData = {
   invoicePrefix: string | null;
   invoiceNextNumber: number | null;
@@ -859,7 +859,13 @@ export function InvoicesListView({
                     </span>
                   </div>
                 )}
-                <p className="text-sm">{inv.clientName ?? "—"}</p>
+                <div className="flex items-center gap-2">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarImage src={inv.clientLogoUrl ?? undefined} alt="" />
+                    <AvatarFallback className="text-xs">{(inv.clientName ?? "?").slice(0, 1)}</AvatarFallback>
+                  </Avatar>
+                  <p className="text-sm">{inv.clientName ?? "—"}</p>
+                </div>
                 <div className="flex gap-2 pt-1">
                   <Button variant="outline" size="sm" asChild className="flex-1">
                     <Link href={`/dashboard/invoices/${inv.id}`}>View</Link>

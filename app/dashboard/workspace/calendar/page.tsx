@@ -6,7 +6,7 @@ import { WorkspaceCalendarView } from "@/components/modules/workspace/workspace-
 export default async function WorkspaceCalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; view?: string; week?: string }>;
 }) {
   const params = await searchParams;
 
@@ -24,13 +24,24 @@ export default async function WorkspaceCalendarPage({
   const teamMembers = membersRes.ok ? membersRes.data : [];
   const tasks = calendarRes.ok ? calendarRes.data : [];
 
+  const weekAnchor =
+    typeof params.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(params.week) ? params.week : undefined;
+  const viewMode = params.view === "week" ? "week" : "month";
+
   return (
     <div dir="ltr" lang="en" className="h-full">
       <WorkspaceCalendarView
         tasks={tasks}
         month={month}
+        viewMode={viewMode}
+        weekAnchor={weekAnchor}
         teamMembers={teamMembers}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          coverImageUrl: p.coverImageUrl,
+          clientLogoUrl: p.clientLogoUrl,
+        }))}
       />
     </div>
   );

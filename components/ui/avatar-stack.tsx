@@ -1,6 +1,7 @@
 "use client";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
 
 type Member = { id: string; name: string; avatarUrl?: string | null };
 
@@ -8,15 +9,28 @@ type AvatarStackProps = {
   members: Member[];
   max?: number;
   className?: string;
+  /** Stack direction; default `rtl` matches Arabic-first layouts. */
+  direction?: "ltr" | "rtl";
 };
 
-export function AvatarStack({ members, max = 3, className = "" }: AvatarStackProps) {
+export function AvatarStack({
+  members,
+  max = 3,
+  className = "",
+  direction = "rtl",
+}: AvatarStackProps) {
   if (members.length === 0) return null;
   const show = members.slice(0, max);
   const rest = members.length - max;
 
   return (
-    <div className={`flex -space-x-2 flex-row-reverse ${className}`}>
+    <div
+      className={cn(
+        "flex -space-x-2",
+        direction === "rtl" ? "flex-row-reverse" : "flex-row",
+        className
+      )}
+    >
       {show.map((m) => (
         <Avatar
           key={m.id}

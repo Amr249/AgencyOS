@@ -360,6 +360,8 @@ export async function createExpense(input: z.input<typeof createExpenseSchema>) 
     revalidatePath("/dashboard/expenses");
     revalidatePath(`/dashboard/expenses/${row.id}`);
     revalidatePath("/dashboard/reports");
+    revalidatePath("/dashboard");
+    if (row.projectId) revalidatePath(`/dashboard/projects/${row.projectId}`);
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createExpense", e);
@@ -391,11 +393,20 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
     return { ok: false as const, error: "No fields to update" };
   }
   try {
+    const previous = await db.query.expenses.findFirst({
+      where: eq(expenses.id, id),
+      columns: { projectId: true },
+    });
     const [row] = await db.update(expenses).set(payload).where(eq(expenses.id, id)).returning();
     if (!row) return { ok: false as const, error: "Expense not found" };
     revalidatePath("/dashboard/expenses");
     revalidatePath(`/dashboard/expenses/${id}`);
     revalidatePath("/dashboard/reports");
+    revalidatePath("/dashboard");
+    const prevPid = previous?.projectId ?? null;
+    const nextPid = row.projectId ?? null;
+    if (prevPid && prevPid !== nextPid) revalidatePath(`/dashboard/projects/${prevPid}`);
+    if (nextPid) revalidatePath(`/dashboard/projects/${nextPid}`);
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateExpense", e);
@@ -415,6 +426,8 @@ export async function deleteExpense(id: string) {
     revalidatePath("/dashboard/expenses");
     revalidatePath(`/dashboard/expenses/${parsed.data}`);
     revalidatePath("/dashboard/reports");
+    revalidatePath("/dashboard");
+    if (row.projectId) revalidatePath(`/dashboard/projects/${row.projectId}`);
     return { ok: true as const };
   } catch (e) {
     console.error("deleteExpense", e);
@@ -431,6 +444,7 @@ export async function deleteExpenses(ids: string[]) {
   try {
     const deleted = await db.delete(expenses).where(inArray(expenses.id, parsed.data)).returning({
       id: expenses.id,
+      projectId: expenses.projectId,
     });
     if (deleted.length === 0) return { ok: false as const, error: "No expenses found" };
     revalidatePath("/dashboard/expenses");
@@ -438,6 +452,13 @@ export async function deleteExpenses(ids: string[]) {
       revalidatePath(`/dashboard/expenses/${r.id}`);
     }
     revalidatePath("/dashboard/reports");
+    revalidatePath("/dashboard");
+    const projectIds = new Set(
+      deleted.map((r) => r.projectId).filter((pid): pid is string => pid != null)
+    );
+    for (const pid of projectIds) {
+      revalidatePath(`/dashboard/projects/${pid}`);
+    }
     return { ok: true as const, count: deleted.length };
   } catch (e) {
     console.error("deleteExpenses", e);
@@ -653,11 +674,45 @@ export async function getProjectCostSummary(projectId: string) {
       },
     };
   } catch (error) {
+    if (isDbConnectionError(error)) {
+      console.warn("[getProjectCostSummary] Database unreachable:", getDbErrorKey(error));
+      return { ok: false as const, error: getDbErrorKey(error) };
+    }
     console.error("Error fetching project cost summary:", error);
+    return { ok: false as const, error: "unknown" };
+  }
+}
+
+/** Sum of expense amounts per project id (missing ids → 0). */
+export async function getExpenseTotalsByProjectIds(projectIds: string[]) {
+  const parsed = z.array(z.string().uuid()).safeParse(projectIds);
+  if (!parsed.success || parsed.data.length === 0) {
+    return { ok: true as const, data: {} as Record<string, number> };
+  }
+  try {
+    const rows = await db
+      .select({
+        projectId: expenses.projectId,
+        total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)`,
+      })
+      .from(expenses)
+      .where(inArray(expenses.projectId, parsed.data))
+      .groupBy(expenses.projectId);
+
+    const map: Record<string, number> = {};
+    for (const id of parsed.data) map[id] = 0;
+    for (const r of rows) {
+      if (r.projectId) {
+        map[r.projectId] = Math.round((Number(r.total) || 0) * 100) / 100;
+      }
+    }
+    return { ok: true as const, data: map };
+  } catch (error) {
+    console.error("getExpenseTotalsByProjectIds", error);
     if (isDbConnectionError(error)) {
       return { ok: false as const, error: getDbErrorKey(error) };
     }
-    return { ok: false as const, error: "unknown" };
+    return { ok: false as const, error: "unknown" as const };
   }
 }
 

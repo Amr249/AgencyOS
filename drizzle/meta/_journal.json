@@ -15,6 +15,20 @@
       "when": 1773689264789,
       "tag": "0001_add_project_members_task_assignments",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774000000000,
+      "tag": "0017_task_assignments_team_member",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774100000000,
+      "tag": "0018_milestones_dates_team",
+      "breakpoints": true
     }
   ]
 }

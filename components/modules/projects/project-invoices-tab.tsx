@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlusCircledIcon } from "@radix-ui/react-icons";
 import { INVOICE_STATUS_LABELS, INVOICE_STATUS_BADGE_CLASS } from "@/types";
 import { SarMoney } from "@/components/ui/sar-money";
+import { isSarCurrency } from "@/lib/utils";
 
 type InvoiceRow = {
   id: string;
@@ -23,7 +24,7 @@ type ProjectInvoicesTabProps = {
 
 function AmountCell({ value, currency, defaultCurrency }: { value: string; currency: string; defaultCurrency: string }) {
   const c = currency || defaultCurrency;
-  if (c === "SAR" || c === "ر.س") {
+  if (isSarCurrency(c)) {
     return <SarMoney value={value} iconClassName="h-3 w-3" />;
   }
   const n = Number(value);
@@ -37,7 +38,7 @@ export function ProjectInvoicesTab({
   defaultCurrency,
 }: ProjectInvoicesTabProps) {
   return (
-    <Card>
+    <Card dir="ltr" lang="en">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Invoices</CardTitle>
         <Button asChild variant="secondary" size="sm">

@@ -4,6 +4,24 @@ Short-form release notes. For the detailed append-only history through 2026-03-0
 
 ## [Unreleased]
 
+### Reports — Financial analytics (Phase 3)
+
+- **Profitability actions:** `getProjectProfitability`, `getClientProfitability`, `getServiceProfitability` (expense-aware allocation); legacy `getServicesProfitability` (revenue-only) retained.
+- **P&L:** `getProfitLossStatement(period)` with comparison windows; PDF via **`/api/reports/pdf?type=profit-loss`** (`ProfitLossSection` component).
+- **Cash flow:** `getCashFlowForecast()` — current net, 3-month outlook (AR + recurring + historical spend); UI `cash-flow-forecast-section.tsx`.
+- **AR aging:** `getAgingReport()` — buckets and invoice detail with **amount due** after payments; UI `aging-report-section.tsx`.
+- **Reports page (Financial tab):** English + LTR; **SAR / EGP** toggle; KPI row; **`RevenueChartSection`**, **`MonthlyComparisonChart`**, recent invoices; **`ProfitabilityVisualization`** (bar / pie / treemap, PDF per mode).
+- **Composable sections:** `project-profitability-section`, `client-profitability-section`, `top-profitable-projects-widget`, `reports-financial-subtabs` (profitability + financial details), `outstanding-invoices-table`.
+- **Dashboard:** `getDashboardData` extended with **YTD profit**, **profit margin**, **top profitable project/client** (uses profitability actions).
+- **Exports:** Report **PDFs** (`lib/reports-pdf-download.ts`, `components/reports/reports-pdf-document.tsx`); invoice list **CSV/XLSX**; expenses list **CSV/XLSX**.
+
+### Expenses — Cost tracking (Phase 2)
+
+- **Schema:** `expenses.project_id`, `expenses.client_id`, `expenses.is_billable`; new **`recurring_expenses`** + **`recurrence_frequency`** enum; **`files.expense_id`** for attachments.
+- **Actions:** filters on `getExpenses`; `getExpensesByProjectId`, `getExpensesByClientId`, `getProjectCostSummary`, `getClientCostSummary`, `getExpenseById`, `getExpensesExportData`; **`actions/recurring-expenses.ts`** (full CRUD + `processRecurringExpenses`, `getDueRecurringExpenses`, toggle active).
+- **UI:** English LTR list with project/client filters and **billable** filter; **bulk delete**; **CSV/XLSX**; **`/dashboard/expenses/[id]`** detail with **`ExpenseAttachments`**; **`/dashboard/expenses/recurring`**; **`ProjectExpensesTab`** / **`ClientExpensesTab`** on detail pages.
+- **Labels:** `RECURRENCE_FREQUENCY_LABELS` in `types/index.ts` (Weekly, Monthly, Quarterly, Yearly).
+
 ### Invoices — Partial payments system (Phase 1 complete)
 
 - **Payments table:** New `payments` rows track individual payments per invoice (`amount`, `payment_date`, `payment_method`, `reference`, `notes`). Mutations recalculate parent invoice **`status`** (`pending` → **`partial`** → **`paid`**).

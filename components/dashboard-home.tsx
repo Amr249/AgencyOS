@@ -32,6 +32,8 @@ import {
   PlusCircle,
 } from "lucide-react";
 import type { DashboardData } from "@/actions/dashboard";
+import { UpcomingMilestonesCard } from "@/components/dashboard/upcoming-milestones-card";
+import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_BADGE_CLASS, INVOICE_STATUS_LABELS } from "@/types";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
@@ -86,11 +88,14 @@ export function DashboardHome({ data }: { data: DashboardData }) {
     projectStatusCounts,
     overdueTasks,
     upcomingProjects,
+    upcomingMilestones,
+    recentActivity,
     recentInvoices,
     totalProfit,
     profitMargin,
     topProfitableProject,
     topProfitableClient,
+    budgetWarnings,
   } = data;
 
   const revenueDelta =
@@ -321,8 +326,45 @@ export function DashboardHome({ data }: { data: DashboardData }) {
         </Card>
       </div>
 
-      {/* Row 3 — Three columns */}
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* Row 3 — Lists (overdue tasks, deadlines, milestones, invoices) */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {budgetWarnings.length > 0 ? (
+          <Card className="border-amber-200/80 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/20">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Budget warnings</CardTitle>
+              <CardDescription className="text-xs">
+                Spend (expenses + billable time) vs. project budget
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2">
+                {budgetWarnings.map((p) => (
+                  <li key={p.id} className="flex flex-col gap-0.5 text-sm">
+                    <Link
+                      href={`/dashboard/projects/${p.id}`}
+                      className="font-medium text-primary hover:underline truncate"
+                    >
+                      {p.name}
+                    </Link>
+                    <span className="text-muted-foreground text-xs">
+                      {p.clientName ?? "—"} ·{" "}
+                      <span
+                        className={
+                          p.level === "danger" ? "text-red-600 font-medium" : "text-amber-700 dark:text-amber-400"
+                        }
+                      >
+                        {p.percentUsed}% used
+                        {p.remaining < 0
+                          ? ` · ${formatCurrency(Math.abs(p.remaining), currency)} over`
+                          : ` · ${formatCurrency(p.remaining, currency)} left`}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardHeader>
             <CardTitle>المهام المتأخرة</CardTitle>
@@ -386,6 +428,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
             )}
           </CardContent>
         </Card>
+        <UpcomingMilestonesCard items={upcomingMilestones} />
         <Card>
           <CardHeader>
             <CardTitle>أحدث الفواتير</CardTitle>
@@ -415,6 +458,8 @@ export function DashboardHome({ data }: { data: DashboardData }) {
           </CardContent>
         </Card>
       </div>
+
+      <RecentActivity items={recentActivity} />
 
       {/* Row 4 — Quick Actions */}
       <Card>

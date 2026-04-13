@@ -34,6 +34,26 @@ export const PROJECT_STATUS_LABELS: Record<string, string> = {
   cancelled: "ملغي",
 };
 
+/** English project status labels (Projects list & detail LTR surfaces). */
+export const PROJECT_STATUS_LABELS_EN: Record<string, string> = {
+  lead: "Lead",
+  active: "Active",
+  on_hold: "On Hold",
+  review: "Review",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+/** Soft pill styling aligned with `projects-list-view` status popover. */
+export const PROJECT_STATUS_PILL_CLASS: Record<string, string> = {
+  active: "bg-blue-50 text-blue-700",
+  completed: "bg-green-50 text-green-700",
+  lead: "bg-blue-50 text-blue-700",
+  on_hold: "bg-amber-50 text-amber-700",
+  review: "bg-purple-50 text-purple-700",
+  cancelled: "bg-red-50 text-red-700",
+};
+
 // Project status badge colors: Lead=blue, Active=green, On Hold=amber, Review=purple, Completed=gray, Cancelled=red
 export const PROJECT_STATUS_BADGE_CLASS: Record<string, string> = {
   lead: "border-transparent bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
@@ -47,6 +67,14 @@ export const PROJECT_STATUS_BADGE_CLASS: Record<string, string> = {
     "border-transparent bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
   cancelled:
     "border-transparent bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+};
+
+/** English task priority (LTR task surfaces, e.g. project detail Kanban). */
+export const TASK_PRIORITY_LABELS_EN: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
 };
 
 // Task priority for display (Arabic)
@@ -65,6 +93,15 @@ export const TASK_PRIORITY_BADGE_CLASS: Record<string, string> = {
     "border-transparent bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
   urgent:
     "border-transparent bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+};
+
+/** English task / Kanban column titles (project detail, etc.). */
+export const TASK_STATUS_LABELS_EN: Record<string, string> = {
+  todo: "To Do",
+  in_progress: "In Progress",
+  in_review: "In Review",
+  done: "Done",
+  blocked: "Blocked",
 };
 
 // Task status for Kanban columns (Arabic)
@@ -129,6 +166,7 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+/** English UI labels for `recurrence_frequency` enum (`weekly` … `yearly`). See `docs/types/index.md`. */
 export const RECURRENCE_FREQUENCY_LABELS: Record<string, string> = {
   weekly: "Weekly",
   monthly: "Monthly",

@@ -48,9 +48,9 @@ Uses **`isDbConnectionError`** only and returns **hard-coded Arabic** strings fo
 | Module | Behavior |
 |--------|----------|
 | **`actions/dashboard.ts`** | `getDashboardData()` — errors **throw**; no keyed error return. |
-| **`actions/reports.ts`** | Report loaders **throw** on failure. |
+| **`actions/reports.ts`** | **Mixed:** profitability, P&L, cash flow, aging, and related helpers often return **`{ ok: false, error: DbErrorKey }`**; older productivity/financial getters may still **throw** on DB failure. Call sites should use **`ok`** checks or try/catch as appropriate. |
 
-**TODO:** Consider try/catch wrappers returning `{ ok: false, error: DbErrorKey }` or a typed `Result` so report pages can show friendly Arabic messages when Neon is cold.
+**TODO:** Normalize remaining report loaders to a single `Result` style and surface keyed errors in the UI (reports are mostly English today).
 
 ## UI patterns
 
@@ -63,4 +63,4 @@ Uses **`isDbConnectionError`** only and returns **hard-coded Arabic** strings fo
 
 - `actions/workspace.ts` uses `isDbConnectionError` + `getDbErrorKey` consistently for DB/network errors.
 - `actions/assignments.ts` still returns inline Arabic messages for several failure cases and is not fully normalized to `DbErrorKey`.
-- `actions/dashboard.ts` and `actions/reports.ts` continue to throw on failure rather than returning `{ ok: false, error }`.
+- `actions/dashboard.ts` still throws on failure. `actions/reports.ts` is partially migrated to `{ ok, error }` for newer finance actions; some loaders still throw.

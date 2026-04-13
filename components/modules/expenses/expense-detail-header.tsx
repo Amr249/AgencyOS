@@ -11,7 +11,7 @@ import {
   type ExpenseDialogProject,
 } from "./new-expense-dialog";
 
-type TeamMemberOption = { id: string; name: string; role: string | null };
+type TeamMemberOption = { id: string; name: string; role: string | null; avatarUrl?: string | null };
 
 type ExpenseDetailHeaderProps = {
   expense: ExpenseRow;

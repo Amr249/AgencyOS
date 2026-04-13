@@ -33,9 +33,11 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { enUS } from "date-fns/locale";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
+import { ClientSelectOptionRow } from "@/components/entity-select-option";
 
 const projectStatusOptions = [
   { value: "lead", label: "Lead" },
@@ -59,7 +61,7 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-type ClientOption = { id: string; companyName: string | null };
+type ClientOption = { id: string; companyName: string | null; logoUrl?: string | null };
 type ServiceOption = { id: string; name: string; status: string };
 
 type ProjectData = {
@@ -178,8 +180,8 @@ export function EditProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto" dir="ltr" lang="en">
+        <DialogHeader className="text-left">
           <DialogTitle>Edit Project</DialogTitle>
           <DialogDescription>Update project details below.</DialogDescription>
         </DialogHeader>
@@ -241,11 +243,14 @@ export function EditProjectDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.companyName || c.id}
-                        </SelectItem>
-                      ))}
+                      {clients.map((c) => {
+                        const label = c.companyName || c.id;
+                        return (
+                          <SelectItem key={c.id} value={c.id} textValue={label}>
+                            <ClientSelectOptionRow logoUrl={c.logoUrl} label={label} />
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -348,6 +353,8 @@ export function EditProjectDialog({
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
                         placeholder="Select a date"
+                        locale={enUS}
+                        direction="ltr"
                       />
                     </FormControl>
                     <FormMessage />
@@ -365,6 +372,8 @@ export function EditProjectDialog({
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
                         placeholder="Select a date"
+                        locale={enUS}
+                        direction="ltr"
                       />
                     </FormControl>
                     <FormMessage />

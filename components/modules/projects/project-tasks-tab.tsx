@@ -16,16 +16,20 @@ import {
   createTask,
   updateTask,
 } from "@/actions/tasks";
-import { TASK_STATUS_LABELS, TASK_PRIORITY_LABELS, TASK_PRIORITY_BADGE_CLASS } from "@/types";
+import {
+  TASK_STATUS_LABELS_EN,
+  TASK_PRIORITY_LABELS_EN,
+  TASK_PRIORITY_BADGE_CLASS,
+} from "@/types";
 import { cn, formatDate } from "@/lib/utils";
 import { PlusIcon } from "@radix-ui/react-icons";
 
 const KANBAN_COLUMNS: { id: "todo" | "in_progress" | "in_review" | "done" | "blocked"; label: string }[] = [
-  { id: "todo", label: "قيد الانتظار" },
-  { id: "in_progress", label: "قيد التنفيذ" },
-  { id: "in_review", label: "قيد المراجعة" },
-  { id: "done", label: "مكتمل" },
-  { id: "blocked", label: "موقوف" },
+  { id: "todo", label: TASK_STATUS_LABELS_EN.todo },
+  { id: "in_progress", label: TASK_STATUS_LABELS_EN.in_progress },
+  { id: "in_review", label: TASK_STATUS_LABELS_EN.in_review },
+  { id: "done", label: TASK_STATUS_LABELS_EN.done },
+  { id: "blocked", label: TASK_STATUS_LABELS_EN.blocked },
 ];
 
 type TaskRow = {
@@ -35,27 +39,45 @@ type TaskRow = {
   status: string;
   priority: string;
   dueDate: string | null;
+  milestoneId: string | null;
 };
+
+type MilestoneFilterOption = { id: string; name: string };
 
 type ProjectTasksTabProps = {
   projectId: string;
   initialTasks: TaskRow[];
+  milestones?: MilestoneFilterOption[];
 };
 
-export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProps) {
+export function ProjectTasksTab({
+  projectId,
+  initialTasks,
+  milestones = [],
+}: ProjectTasksTabProps) {
   const router = useRouter();
   const [tasks, setTasks] = React.useState(initialTasks);
+  React.useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
   const [addingColumn, setAddingColumn] = React.useState<string | null>(null);
   const [newTitle, setNewTitle] = React.useState("");
+  const [milestoneFilter, setMilestoneFilter] = React.useState<string>("all");
+
+  const filteredTasks = React.useMemo(() => {
+    if (milestoneFilter === "all") return tasks;
+    if (milestoneFilter === "none") return tasks.filter((t) => !t.milestoneId);
+    return tasks.filter((t) => t.milestoneId === milestoneFilter);
+  }, [tasks, milestoneFilter]);
 
   const tasksByStatus = React.useMemo(() => {
     const m: Record<string, TaskRow[]> = {};
     for (const col of KANBAN_COLUMNS) m[col.id] = [];
-    for (const t of tasks) {
+    for (const t of filteredTasks) {
       if (m[t.status]) m[t.status].push(t);
     }
     return m;
-  }, [tasks]);
+  }, [filteredTasks]);
 
   const handleAddTask = async (status: string) => {
     const title = newTitle.trim();
@@ -67,7 +89,18 @@ export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProp
       priority: "medium",
     });
     if (result.ok) {
-      setTasks((prev) => [...prev, result.data]);
+      setTasks((prev) => [
+        ...prev,
+        {
+          id: result.data.id,
+          projectId: result.data.projectId,
+          title: result.data.title,
+          status: result.data.status,
+          priority: result.data.priority,
+          dueDate: result.data.dueDate,
+          milestoneId: result.data.milestoneId ?? null,
+        },
+      ]);
       setNewTitle("");
       setAddingColumn(null);
       router.refresh();
@@ -78,25 +111,54 @@ export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProp
     const result = await updateTask({ id: taskId, status: newStatus as "todo" | "in_progress" | "in_review" | "done" | "blocked" });
     if (result.ok) {
       setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
+        prev.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                status: newStatus,
+                milestoneId: result.data.milestoneId ?? t.milestoneId,
+              }
+            : t
+        )
       );
       router.refresh();
     }
   };
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
+    <div className="space-y-3" dir="ltr" lang="en">
+      {milestones.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground text-sm font-medium">Milestone</span>
+          <Select value={milestoneFilter} onValueChange={setMilestoneFilter}>
+            <SelectTrigger className="h-9 w-[220px]">
+              <SelectValue placeholder="Filter by milestone" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All tasks</SelectItem>
+              <SelectItem value="none">No milestone</SelectItem>
+              {milestones.map((ms) => (
+                <SelectItem key={ms.id} value={ms.id}>
+                  {ms.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      <div className="flex gap-4 overflow-x-auto pb-4">
       {KANBAN_COLUMNS.map((col) => (
         <Card key={col.id} className="min-w-[260px] flex-1 shrink-0">
           <CardHeader className="flex flex-row items-center justify-between py-3">
-            <h3 className="font-semibold">{col.label}</h3>
+            <h3 className="text-left font-semibold">{col.label}</h3>
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-8 gap-1 px-2"
               onClick={() => setAddingColumn(addingColumn === col.id ? null : col.id)}
             >
               <PlusIcon className="h-4 w-4" />
+              <span className="text-xs font-medium">Add Task</span>
             </Button>
           </CardHeader>
           <CardContent className="space-y-2 pt-0">
@@ -104,7 +166,7 @@ export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProp
               <div className="flex gap-2">
                 <input
                   className="border-input bg-background flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  placeholder="عنوان المهمة"
+                  placeholder="Task title"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   onKeyDown={(e) => {
@@ -113,7 +175,7 @@ export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProp
                   }}
                 />
                 <Button size="sm" onClick={() => handleAddTask(col.id)}>
-                  إضافة
+                  Add
                 </Button>
               </div>
             )}
@@ -122,7 +184,7 @@ export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProp
                 key={task.id}
                 className="rounded-lg border bg-card p-3 shadow-sm"
               >
-                <p className="font-medium leading-tight">{task.title}</p>
+                <p className="text-left font-medium leading-tight">{task.title}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span
                     className={cn(
@@ -130,10 +192,10 @@ export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProp
                       TASK_PRIORITY_BADGE_CLASS[task.priority] ?? "bg-muted"
                     )}
                   >
-                    {TASK_PRIORITY_LABELS[task.priority] ?? task.priority}
+                    {TASK_PRIORITY_LABELS_EN[task.priority] ?? task.priority}
                   </span>
                   <span className="text-muted-foreground text-xs">
-                    استحقاق {formatDate(task.dueDate)}
+                    Due {formatDate(task.dueDate)}
                   </span>
                 </div>
                 <Select
@@ -153,9 +215,14 @@ export function ProjectTasksTab({ projectId, initialTasks }: ProjectTasksTabProp
                 </Select>
               </div>
             ))}
+            {(!tasksByStatus[col.id] || tasksByStatus[col.id].length === 0) &&
+              addingColumn !== col.id && (
+                <p className="text-muted-foreground py-2 text-center text-xs">No tasks yet.</p>
+              )}
           </CardContent>
         </Card>
       ))}
+      </div>
     </div>
   );
 }

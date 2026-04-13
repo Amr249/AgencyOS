@@ -21,12 +21,12 @@ export function UserNav() {
     (session.user as { role?: string }).role === "admin" ? t("admin") : t("member");
 
   return (
-    <div className="flex items-center gap-3 border-t border-border px-3 py-3">
+    <div className="flex items-center gap-3 border-t border-border px-3 py-3 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-1 group-data-[collapsible=icon]:px-2">
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarImage src={(session.user as { avatarUrl?: string | null }).avatarUrl ?? undefined} />
         <AvatarFallback className="text-xs">{initials}</AvatarFallback>
       </Avatar>
-      <div className="min-w-0 flex-1 text-end">
+      <div className="min-w-0 flex-1 text-end group-data-[collapsible=icon]:hidden">
         <p className="truncate text-sm font-medium">{name}</p>
         <p className="text-xs text-muted-foreground">{roleLabel}</p>
       </div>

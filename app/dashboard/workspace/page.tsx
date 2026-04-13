@@ -13,9 +13,25 @@ export default async function WorkspacePage() {
   return (
     <div dir="ltr" lang="en" className="h-full">
       <WorkspaceMyTasksView
-        groups={tasksRes.ok ? tasksRes.data : { today: [], this_week: [], later: [], no_date: [] }}
+        groups={
+          tasksRes.ok
+            ? tasksRes.data
+            : {
+                overdue: [],
+                today: [],
+                tomorrow: [],
+                this_week: [],
+                later: [],
+                no_date: [],
+              }
+        }
         teamMembers={membersRes.ok ? membersRes.data : []}
-        projects={(projectsRes.ok ? projectsRes.data : []).map((p) => ({ id: p.id, name: p.name }))}
+        projects={(projectsRes.ok ? projectsRes.data : []).map((p) => ({
+          id: p.id,
+          name: p.name,
+          coverImageUrl: p.coverImageUrl,
+          clientLogoUrl: p.clientLogoUrl,
+        }))}
       />
     </div>
   );

@@ -29,13 +29,15 @@ export type ProjectCostSummary = {
   expenseCount: number;
 };
 
-type TeamMemberOption = { id: string; name: string; role: string | null };
+type TeamMemberOption = { id: string; name: string; role: string | null; avatarUrl?: string | null };
 
 type ProjectExpensesTabProps = {
   projectId: string;
   projectName: string;
+  projectCoverImageUrl?: string | null;
   clientId: string;
   clientCompanyName: string;
+  clientLogoUrl?: string | null;
   expenses: ExpenseRow[];
   costSummary: ProjectCostSummary | null;
   teamMembers: TeamMemberOption[];
@@ -44,8 +46,10 @@ type ProjectExpensesTabProps = {
 export function ProjectExpensesTab({
   projectId,
   projectName,
+  projectCoverImageUrl,
   clientId,
   clientCompanyName,
+  clientLogoUrl,
   expenses,
   costSummary,
   teamMembers,
@@ -58,16 +62,24 @@ export function ProjectExpensesTab({
   };
 
   const dialogProjects = React.useMemo(
-    () => [{ id: projectId, name: projectName, clientId }],
-    [projectId, projectName, clientId]
+    () => [
+      {
+        id: projectId,
+        name: projectName,
+        clientId,
+        coverImageUrl: projectCoverImageUrl ?? null,
+        clientLogoUrl: clientLogoUrl ?? null,
+      },
+    ],
+    [projectId, projectName, clientId, projectCoverImageUrl, clientLogoUrl]
   );
   const dialogClients = React.useMemo(
-    () => [{ id: clientId, companyName: clientCompanyName || "Client" }],
-    [clientId, clientCompanyName]
+    () => [{ id: clientId, companyName: clientCompanyName || "Client", logoUrl: clientLogoUrl ?? null }],
+    [clientId, clientCompanyName, clientLogoUrl]
   );
 
   return (
-    <div className="space-y-6" dir="ltr">
+    <div className="space-y-6" dir="ltr" lang="en">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">

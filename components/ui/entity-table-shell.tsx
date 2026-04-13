@@ -34,10 +34,14 @@ export function EntityTableShell({
 }: EntityTableShellProps) {
   return (
     <div className="space-y-5" dir={dir}>
-      <div className="mb-7 flex items-center justify-between">
-        <h1 className="text-2xl font-medium text-neutral-900">{title}</h1>
-        {topRight}
-      </div>
+      {title ? (
+        <div className="mb-7 flex items-center justify-between">
+          <h1 className="text-2xl font-medium text-neutral-900">{title}</h1>
+          {topRight}
+        </div>
+      ) : topRight ? (
+        <div className="mb-7 flex items-center justify-end">{topRight}</div>
+      ) : null}
 
       {metrics}
       {toolbar}

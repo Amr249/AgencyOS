@@ -7,6 +7,8 @@ import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TaskCommentInput } from "@/components/modules/tasks/task-comment-input";
+import { TaskCommentBody } from "@/components/modules/tasks/task-comment-body";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -35,6 +37,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { createSubtask, deleteTask, getTaskById, toggleSubtask, updateTask } from "@/actions/tasks";
+import { TeamMemberSelectOptionRow } from "@/components/entity-select-option";
 import {
   assignTask,
   createTaskComment,
@@ -46,11 +49,11 @@ import {
 } from "@/actions/workspace";
 
 type TeamMember = { id: string; name: string; avatarUrl: string | null; role: string | null };
-type WorkspaceTask = {
+export type WorkspaceTask = {
   id: string;
   title: string;
-  status: "todo" | "in_progress" | "in_review" | "done" | "blocked";
-  priority: "low" | "medium" | "high" | "urgent";
+  status: string;
+  priority: string;
   dueDate: string | null;
   estimatedHours: string | null;
   actualHours?: string | null;
@@ -189,7 +192,9 @@ export function TaskDetailPanel({
               <SelectContent>
                 <SelectItem value="none">None</SelectItem>
                 {teamMembers.map((member) => (
-                  <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
+                  <SelectItem key={member.id} value={member.id} textValue={member.name}>
+                    <TeamMemberSelectOptionRow avatarUrl={member.avatarUrl} name={member.name} />
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -305,11 +310,16 @@ export function TaskDetailPanel({
                       if (res.ok) setComments(res.data);
                     }}>Delete</Button>
                   </div>
-                  <p className="text-sm" dir="auto">{comment.body}</p>
+                  <TaskCommentBody body={comment.body} />
                 </div>
               ))}
             </div>
-            <Textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a comment..." />
+            <TaskCommentInput
+              value={newComment}
+              onChange={setNewComment}
+              teamMembers={teamMembers.map((m) => ({ id: m.id, name: m.name }))}
+              placeholder="Write a comment… Use @ to mention someone"
+            />
             <Button
               onClick={async () => {
                 const res = await createTaskComment(localTask.id, newComment);

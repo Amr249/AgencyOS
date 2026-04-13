@@ -135,6 +135,13 @@
   body {
     @apply bg-background text-foreground text-right text-sm min-[480px]:text-base;
   }
+  /* Portaled modals inherit body text-right; dir=ltr shells must reset alignment */
+  [data-slot="dialog-content"][dir="ltr"],
+  [data-slot="alert-dialog-content"][dir="ltr"],
+  [data-slot="select-content"][dir="ltr"],
+  [data-slot="popover-content"][dir="ltr"] {
+    text-align: start;
+  }
   [dir="rtl"] [data-sidebar="trigger"] svg {
     transform: scaleX(-1);
   }
@@ -146,4 +153,44 @@
   a[href] {
     cursor: pointer;
   }
+}
+
+@layer utilities {
+  /* Hide scrollbar but keep overflow scroll (wheel / touch still works) */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
+  }
+  .scrollbar-none::-webkit-scrollbar-thumb {
+    background: transparent;
+  }
+}
+
+/*
+ * Sidebar nav scroll: force-hide scrollbars (utility class alone can lose to layer order).
+ * Keeps overflow/scroll behavior on [data-slot="sidebar-content"].
+ */
+[data-slot="sidebar-content"] {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+  scrollbar-color: transparent transparent !important;
+}
+[data-slot="sidebar-content"]::-webkit-scrollbar,
+[data-slot="sidebar-content"]::-webkit-scrollbar-corner {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+[data-slot="sidebar-content"]::-webkit-scrollbar-thumb,
+[data-slot="sidebar-content"]::-webkit-scrollbar-track {
+  display: none !important;
+  background: transparent !important;
 }

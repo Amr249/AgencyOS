@@ -57,10 +57,20 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const expenses = expensesResult.ok ? expensesResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
   const projects = projectsResult.ok
-    ? projectsResult.data.map((p) => ({ id: p.id, name: p.name, clientId: p.clientId }))
+    ? projectsResult.data.map((p) => ({
+        id: p.id,
+        name: p.name,
+        clientId: p.clientId,
+        coverImageUrl: p.coverImageUrl,
+        clientLogoUrl: p.clientLogoUrl,
+      }))
     : [];
   const clients = clientsResult.ok
-    ? clientsResult.data.map((c) => ({ id: c.id, companyName: c.companyName }))
+    ? clientsResult.data.map((c) => ({
+        id: c.id,
+        companyName: c.companyName,
+        logoUrl: c.logoUrl,
+      }))
     : [];
 
   return (

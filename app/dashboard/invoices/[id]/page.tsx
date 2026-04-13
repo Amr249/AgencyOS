@@ -66,7 +66,6 @@ export default async function InvoiceDetailPage({ params }: Props) {
   const agencyAddress = settings?.agencyAddress ?? null;
   const clientName = invoice.client?.companyName ?? "—";
   const clientAddress = invoice.client?.address ?? null;
-
   return (
     <div className="space-y-6">
       <Breadcrumb dir="ltr">

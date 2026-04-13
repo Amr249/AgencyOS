@@ -23,24 +23,24 @@ export function ProjectNotesTab({ projectId, initialNotes }: ProjectNotesTabProp
     const result = await updateProjectNotes(projectId, notes.trim() || null);
     setSaving(false);
     if (result.ok) {
-      toast.success("تم حفظ الملاحظات");
+      toast.success("Notes saved");
       router.refresh();
     } else {
-      toast.error(result.error ?? "فشل حفظ الملاحظات");
+      toast.error(result.error ?? "Failed to save notes");
     }
   };
 
   return (
-    <Card>
+    <Card dir="ltr" lang="en">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>ملاحظات</CardTitle>
+        <CardTitle>Notes</CardTitle>
         <Button size="sm" onClick={handleSave} disabled={saving}>
-          {saving ? "جاري الحفظ…" : "حفظ"}
+          {saving ? "Saving…" : "Save"}
         </Button>
       </CardHeader>
       <CardContent>
         <Textarea
-          placeholder="ملاحظات خاصة بهذا المشروع..."
+          placeholder="Add your notes here…"
           className="min-h-[200px] resize-y"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}

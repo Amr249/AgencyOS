@@ -1,11 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { differenceInCalendarDays, parseISO, startOfDay } from "date-fns";
 import { z } from "zod";
-import { eq, isNull, and, sql, asc, desc, inArray } from "drizzle-orm";
-import { db, projects, clients, phases, tasks, projectMembers } from "@/lib/db";
+import { eq, isNull, and, sql, asc, desc, inArray, gt } from "drizzle-orm";
+import { db, projects, clients, phases, tasks, projectMembers, expenses, timeLogs } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { syncProjectServices } from "@/actions/project-services";
+import { logActivityWithActor } from "@/actions/activity-log";
+import {
+  createProjectSchema,
+  updateProjectSchema,
+  type CreateProjectInput,
+  type UpdateProjectInput,
+} from "@/lib/project-schemas";
+
+export type { CreateProjectInput, UpdateProjectInput } from "@/lib/project-schemas";
 
 const DEFAULT_PHASES = [
   { name: "Discovery", order: 0 },
@@ -14,35 +24,6 @@ const DEFAULT_PHASES = [
   { name: "Review", order: 3 },
   { name: "Launch", order: 4 },
 ];
-
-const projectStatusValues = [
-  "lead",
-  "active",
-  "on_hold",
-  "review",
-  "completed",
-  "cancelled",
-] as const;
-
-const createProjectSchema = z.object({
-  name: z.string().min(1, "Project name is required"),
-  clientId: z.string().uuid("Select a client"),
-  status: z.enum(projectStatusValues).default("lead"),
-  coverImageUrl: z.string().url().optional().or(z.literal("")),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  budget: z.coerce.number().min(0).optional(),
-  description: z.string().optional(),
-  teamMemberIds: z.array(z.string().uuid()).optional(),
-  serviceIds: z.array(z.string().uuid()).optional(),
-});
-
-const updateProjectSchema = createProjectSchema.partial().extend({
-  id: z.string().uuid(),
-});
-
-export type CreateProjectInput = z.infer<typeof createProjectSchema>;
-export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
 export async function createProject(input: CreateProjectInput) {
   const parsed = createProjectSchema.safeParse(input);
@@ -86,6 +67,12 @@ export async function createProject(input: CreateProjectInput) {
     if (!syncCreate.ok) {
       return { ok: false as const, error: { _form: [syncCreate.error] } };
     }
+    await logActivityWithActor({
+      entityType: "project",
+      entityId: row.id,
+      action: "created",
+      metadata: { name: row.name, clientId: row.clientId },
+    });
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${row.id}`);
     revalidatePath("/dashboard");
@@ -132,6 +119,12 @@ export async function updateProject(input: UpdateProjectInput) {
     if (!syncUpdate.ok) {
       return { ok: false as const, error: { _form: [syncUpdate.error] } };
     }
+    await logActivityWithActor({
+      entityType: "project",
+      entityId: id,
+      action: "updated",
+      metadata: { name: row.name },
+    });
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${id}`);
     revalidatePath("/dashboard");
@@ -177,7 +170,21 @@ export async function deleteProject(id: string) {
     return { ok: false as const, error: "Invalid project id" };
   }
   try {
+    const [existing] = await db
+      .select({ name: projects.name })
+      .from(projects)
+      .where(eq(projects.id, parsed.data))
+      .limit(1);
+    if (!existing) {
+      return { ok: false as const, error: "Project not found" };
+    }
     await db.delete(projects).where(eq(projects.id, parsed.data));
+    await logActivityWithActor({
+      entityType: "project",
+      entityId: parsed.data,
+      action: "deleted",
+      metadata: { name: existing.name },
+    });
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
     return { ok: true as const };
@@ -365,6 +372,189 @@ export async function getProjectById(id: string) {
       return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load project" };
+  }
+}
+
+/** Green: ratio under 0.9. Yellow: 0.9–1.1. Red: above 1.1 (projected ÷ budget). */
+export type BudgetBurnProjectionTone = "positive" | "caution" | "critical";
+
+export type ProjectBudgetBurnRate = {
+  /** Total spent ÷ days elapsed since start (min 1 day). */
+  dailyBurnSar: number;
+  daysElapsed: number;
+  /** Inclusive calendar days from start → end; null if dates missing. */
+  projectDurationDays: number | null;
+  /** dailyBurn × project duration; null without end date. */
+  projectedTotalSar: number | null;
+  /** max(0, projected − budget); null if no projection or under budget. */
+  projectedOverspendSar: number | null;
+  /** Remaining ÷ daily burn (floored whole days); null if burn is 0 and still under budget. */
+  daysUntilBudgetRunsOut: number | null;
+  projectionTone: BudgetBurnProjectionTone | null;
+};
+
+export type ProjectBudgetSummaryData = {
+  budget: number;
+  expensesTotal: number;
+  timeCost: number;
+  totalSpent: number;
+  remaining: number;
+  percentUsed: number;
+  /** Null when project has no start date, or start is in the future. */
+  burnRate: ProjectBudgetBurnRate | null;
+};
+
+function parsePositiveBudget(raw: string | null | undefined): number | null {
+  if (raw == null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function parseProjectDate(raw: string | Date | null | undefined): Date | null {
+  if (raw == null) return null;
+  if (raw instanceof Date) {
+    const t = raw.getTime();
+    return Number.isNaN(t) ? null : startOfDay(raw);
+  }
+  const s = String(raw).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = parseISO(s);
+  return Number.isNaN(d.getTime()) ? null : startOfDay(d);
+}
+
+function deriveBurnProjectionTone(
+  projectedTotal: number | null,
+  budget: number
+): BudgetBurnProjectionTone | null {
+  if (projectedTotal == null || budget <= 0) return null;
+  const ratio = projectedTotal / budget;
+  if (ratio > 1.1) return "critical";
+  if (ratio >= 0.9) return "caution";
+  return "positive";
+}
+
+/**
+ * Budget health: expenses on the project + time cost (hours × hourly_rate per log, or
+ * DEFAULT_INTERNAL_HOURLY_RATE_SAR when a log has no rate).
+ * Returns `data: null` when the project has no positive budget (widget hidden).
+ */
+export async function getProjectBudgetSummary(projectId: string) {
+  const parsed = z.string().uuid().safeParse(projectId);
+  if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
+  try {
+    const [proj] = await db
+      .select({
+        budget: projects.budget,
+        startDate: projects.startDate,
+        endDate: projects.endDate,
+      })
+      .from(projects)
+      .where(eq(projects.id, parsed.data))
+      .limit(1);
+    if (!proj) return { ok: false as const, error: "Project not found" };
+
+    const budgetNum = parsePositiveBudget(proj.budget ?? undefined);
+    if (budgetNum == null) {
+      return { ok: true as const, data: null };
+    }
+
+    const [expRow] = await db
+      .select({ total: sql<string>`COALESCE(SUM(${expenses.amount}), 0)` })
+      .from(expenses)
+      .where(eq(expenses.projectId, parsed.data));
+    const expensesTotal = Math.round(parseFloat(expRow?.total || "0") * 100) / 100;
+
+    const logs = await db
+      .select({ hours: timeLogs.hours, hourlyRate: timeLogs.hourlyRate })
+      .from(timeLogs)
+      .where(and(eq(timeLogs.projectId, parsed.data), gt(timeLogs.hours, "0")));
+
+    const envRaw = process.env.DEFAULT_INTERNAL_HOURLY_RATE_SAR;
+    const parsedDefault =
+      envRaw != null && envRaw !== "" ? Number(envRaw) : NaN;
+    const defaultHourly =
+      Number.isFinite(parsedDefault) && parsedDefault >= 0 ? parsedDefault : 0;
+
+    let timeCost = 0;
+    for (const row of logs) {
+      const h = Number(row.hours) || 0;
+      const rateRaw = row.hourlyRate;
+      const hasRate = rateRaw != null && String(rateRaw).trim() !== "";
+      const r = hasRate ? Number(rateRaw) : defaultHourly;
+      const effective = Number.isFinite(r) ? r : 0;
+      timeCost += h * effective;
+    }
+    timeCost = Math.round(timeCost * 100) / 100;
+
+    const totalSpent = Math.round((expensesTotal + timeCost) * 100) / 100;
+    const remaining = Math.round((budgetNum - totalSpent) * 100) / 100;
+    const percentUsed =
+      budgetNum > 0 ? Math.round((totalSpent / budgetNum) * 1000) / 10 : 0;
+
+    const today = startOfDay(new Date());
+    const startD = parseProjectDate(proj.startDate);
+    const endD = parseProjectDate(proj.endDate);
+
+    let burnRate: ProjectBudgetBurnRate | null = null;
+    if (startD && startD <= today) {
+      const daysElapsed = Math.max(1, differenceInCalendarDays(today, startD) + 1);
+      const dailyBurnRaw = totalSpent / daysElapsed;
+      const dailyBurnSar = Math.round(dailyBurnRaw * 100) / 100;
+
+      let projectDurationDays: number | null = null;
+      if (endD && startD && endD >= startD) {
+        projectDurationDays = Math.max(1, differenceInCalendarDays(endD, startD) + 1);
+      }
+
+      const projectedTotalSar =
+        projectDurationDays != null
+          ? Math.round(dailyBurnRaw * projectDurationDays * 100) / 100
+          : null;
+
+      const projectionTone = deriveBurnProjectionTone(projectedTotalSar, budgetNum);
+
+      let projectedOverspendSar: number | null = null;
+      if (projectedTotalSar != null && projectedTotalSar > budgetNum) {
+        projectedOverspendSar = Math.round((projectedTotalSar - budgetNum) * 100) / 100;
+      }
+
+      let daysUntilBudgetRunsOut: number | null = null;
+      if (dailyBurnRaw > 0) {
+        daysUntilBudgetRunsOut = Math.max(0, Math.floor(remaining / dailyBurnRaw));
+      } else if (remaining > 0) {
+        daysUntilBudgetRunsOut = null;
+      } else {
+        daysUntilBudgetRunsOut = 0;
+      }
+
+      burnRate = {
+        dailyBurnSar,
+        daysElapsed,
+        projectDurationDays,
+        projectedTotalSar,
+        projectedOverspendSar,
+        daysUntilBudgetRunsOut,
+        projectionTone,
+      };
+    }
+
+    const data: ProjectBudgetSummaryData = {
+      budget: budgetNum,
+      expensesTotal,
+      timeCost,
+      totalSpent,
+      remaining,
+      percentUsed,
+      burnRate,
+    };
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("getProjectBudgetSummary", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: "Failed to load budget summary" };
   }
 }
 

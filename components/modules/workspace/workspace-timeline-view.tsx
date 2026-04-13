@@ -5,6 +5,7 @@ import { addDays, differenceInDays, format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WorkspaceNav } from "@/components/modules/workspace/workspace-nav";
+import type { ProjectPickerOption } from "@/components/entity-select-option";
 
 const statusColor: Record<string, string> = {
   todo: "bg-gray-400",
@@ -19,7 +20,7 @@ export function WorkspaceTimelineView({
   projects,
 }: {
   tasks: any[];
-  projects: { id: string; name: string }[];
+  projects: ProjectPickerOption[];
 }) {
   const [mode, setMode] = React.useState<"week" | "month">("month");
   const today = new Date();

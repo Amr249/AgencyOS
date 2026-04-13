@@ -1,6 +1,6 @@
 /**
  * AgencyOS v2 Solo — Database schema (PRD v2.0)
- * Single-user dashboard. No users table, no RBAC, no activity_log.
+ * Single-user dashboard. No RBAC. Optional `activity_logs` for audit trail.
  */
 import {
   pgTable,
@@ -17,6 +17,7 @@ import {
   index,
   primaryKey,
   boolean,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -63,6 +64,12 @@ export const recurrenceFrequencyEnum = pgEnum("recurrence_frequency", [
   "monthly",
   "quarterly",
   "yearly",
+]);
+export const milestoneStatusEnum = pgEnum("milestone_status", [
+  "pending",
+  "in_progress",
+  "completed",
+  "cancelled",
 ]);
 export const teamMemberStatusEnum = pgEnum("team_member_status", ["active", "inactive"]);
 export const proposalStatusEnum = pgEnum("proposal_status", [
@@ -138,6 +145,40 @@ export const phases = pgTable("phases", {
   status: phaseStatusEnum("status").notNull().default("pending"),
 });
 
+/** Reusable project blueprints (phases + task templates). */
+export const projectTemplates = pgTable("project_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  defaultPhases: jsonb("default_phases").$type<string[]>().notNull().default([]),
+  defaultBudget: numeric("default_budget", { precision: 12, scale: 2 }),
+  sourceProjectId: uuid("source_project_id").references(() => projects.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const taskTemplates = pgTable(
+  "task_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectTemplateId: uuid("project_template_id")
+      .notNull()
+      .references(() => projectTemplates.id, { onDelete: "cascade" }),
+    parentTaskTemplateId: uuid("parent_task_template_id").references((): any => taskTemplates.id, {
+      onDelete: "cascade",
+    }),
+    title: text("title").notNull(),
+    description: text("description"),
+    estimatedHours: numeric("estimated_hours", { precision: 6, scale: 2 }),
+    priority: taskPriorityEnum("priority").notNull().default("medium"),
+    phaseIndex: integer("phase_index").notNull().default(0),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => [
+    index("task_templates_project_template_id_idx").on(table.projectTemplateId),
+    index("task_templates_parent_task_template_id_idx").on(table.parentTaskTemplateId),
+  ]
+);
+
 // tasks
 export const tasks = pgTable("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -152,6 +193,7 @@ export const tasks = pgTable("tasks", {
   priority: taskPriorityEnum("priority").notNull().default("medium"),
   sortOrder: integer("sort_order").notNull().default(0),
   assigneeId: uuid("assignee_id").references(() => teamMembers.id, { onDelete: "set null" }),
+  milestoneId: uuid("milestone_id").references((): any => milestones.id, { onDelete: "set null" }),
   startDate: date("start_date"),
   dueDate: date("due_date"),
   estimatedHours: numeric("estimated_hours", { precision: 6, scale: 2 }),
@@ -163,6 +205,7 @@ export const tasks = pgTable("tasks", {
   index("tasks_project_id_idx").on(table.projectId),
   index("tasks_status_idx").on(table.status),
   index("tasks_parent_task_id_idx").on(table.parentTaskId),
+  index("tasks_milestone_id_idx").on(table.milestoneId),
 ]);
 
 // invoices
@@ -268,6 +311,26 @@ export const teamMembers = pgTable("team_members", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Time off / holidays — used to reduce workload capacity for weekdays in range. */
+export const teamAvailability = pgTable(
+  "team_availability",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    teamMemberId: uuid("team_member_id")
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: "cascade" }),
+    date: date("date", { mode: "string" }).notNull(),
+    type: text("type").notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("team_availability_member_date_unique").on(table.teamMemberId, table.date),
+    index("team_availability_member_idx").on(table.teamMemberId),
+    index("team_availability_date_idx").on(table.date),
+  ]
+);
+
 // services
 export const services = pgTable("services", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -340,18 +403,24 @@ export const projectUserMembers = pgTable("project_user_members", {
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
 });
 
-// task_assignments (junction: task ↔ user)
-export const taskAssignments = pgTable("task_assignments", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  taskId: uuid("task_id")
-    .notNull()
-    .references(() => tasks.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
-  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
-});
+// task_assignments (junction: task ↔ team member; no login required)
+export const taskAssignments = pgTable(
+  "task_assignments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    teamMemberId: uuid("team_member_id")
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: "cascade" }),
+    assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("task_assignments_task_team_unique").on(table.taskId, table.teamMemberId),
+  ]
+);
 
 // proposals (Mostaql job proposals)
 export const proposals = pgTable("proposals", {
@@ -411,19 +480,28 @@ export const recurringExpenses = pgTable("recurring_expenses", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const timeLogs = pgTable("time_logs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  taskId: uuid("task_id")
-    .notNull()
-    .references(() => tasks.id, { onDelete: "cascade" }),
-  teamMemberId: uuid("team_member_id").references(() => teamMembers.id, { onDelete: "set null" }),
-  description: text("description"),
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  endedAt: timestamp("ended_at", { withTimezone: true }),
-  hours: numeric("hours", { precision: 6, scale: 2 }).notNull(),
-  loggedAt: timestamp("logged_at", { withTimezone: true }).notNull().defaultNow(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const timeLogs = pgTable(
+  "time_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    /** Denormalized for faster project-level queries */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    teamMemberId: uuid("team_member_id").references(() => teamMembers.id, { onDelete: "set null" }),
+    description: text("description"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    hours: numeric("hours", { precision: 6, scale: 2 }).notNull(),
+    loggedAt: timestamp("logged_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    isBillable: boolean("is_billable").notNull().default(true),
+    /** Optional rate override for this entry (e.g. billing) */
+    hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
+  },
+  (table) => [index("time_logs_project_id_idx").on(table.projectId)]
+);
 
 export const taskComments = pgTable("task_comments", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -435,6 +513,90 @@ export const taskComments = pgTable("task_comments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const taskDependencies = pgTable(
+  "task_dependencies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The blocked task */
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    /** The blocking task */
+    dependsOnTaskId: uuid("depends_on_task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    type: text("type").notNull().default("finish_to_start"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("task_dependencies_task_id_idx").on(table.taskId),
+    index("task_dependencies_depends_on_task_id_idx").on(table.dependsOnTaskId),
+  ]
+);
+
+export const milestones = pgTable(
+  "milestones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    /** Milestone window start */
+    startDate: date("start_date").notNull(),
+    /** Milestone window end (same column name as before; was “due” in UI) */
+    dueDate: date("due_date").notNull(),
+    status: milestoneStatusEnum("status").notNull().default("pending"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("milestones_project_id_idx").on(table.projectId),
+    index("milestones_start_date_idx").on(table.startDate),
+    index("milestones_due_date_idx").on(table.dueDate),
+    index("milestones_status_idx").on(table.status),
+  ]
+);
+
+/** Team members assigned to work on a milestone (subset of project team). */
+export const milestoneTeamMembers = pgTable(
+  "milestone_team_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    milestoneId: uuid("milestone_id")
+      .notNull()
+      .references(() => milestones.id, { onDelete: "cascade" }),
+    teamMemberId: uuid("team_member_id")
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("milestone_team_members_milestone_team_unique").on(table.milestoneId, table.teamMemberId),
+    index("milestone_team_members_milestone_id_idx").on(table.milestoneId),
+  ]
+);
+
+export const activityLogs = pgTable(
+  "activity_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    action: text("action").notNull(),
+    actorName: text("actor_name"),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("activity_logs_entity_type_entity_id_idx").on(table.entityType, table.entityId),
+    index("activity_logs_created_at_idx").on(table.createdAt),
+  ]
+);
 
 // settings — single row (id always 1)
 export const settings = pgTable("settings", {
@@ -464,10 +626,33 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   recurringExpenses: many(recurringExpenses),
 }));
 
+export const projectTemplatesRelations = relations(projectTemplates, ({ one, many }) => ({
+  taskTemplates: many(taskTemplates),
+  sourceProject: one(projects, {
+    fields: [projectTemplates.sourceProjectId],
+    references: [projects.id],
+  }),
+}));
+
+export const taskTemplatesRelations = relations(taskTemplates, ({ one, many }) => ({
+  projectTemplate: one(projectTemplates, {
+    fields: [taskTemplates.projectTemplateId],
+    references: [projectTemplates.id],
+  }),
+  parent: one(taskTemplates, {
+    fields: [taskTemplates.parentTaskTemplateId],
+    references: [taskTemplates.id],
+    relationName: "taskTemplateTree",
+  }),
+  children: many(taskTemplates, { relationName: "taskTemplateTree" }),
+}));
+
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   client: one(clients, { fields: [projects.clientId], references: [clients.id] }),
   phases: many(phases),
   tasks: many(tasks),
+  templatesSavedFrom: many(projectTemplates),
+  milestones: many(milestones),
   invoices: many(invoices),
   invoiceProjects: many(invoiceProjects),
   files: many(files),
@@ -477,6 +662,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   proposals: many(proposals),
   expenses: many(expenses),
   recurringExpenses: many(recurringExpenses),
+  timeLogs: many(timeLogs),
 }));
 
 export const teamMembersRelations = relations(teamMembers, ({ many }) => ({
@@ -484,6 +670,15 @@ export const teamMembersRelations = relations(teamMembers, ({ many }) => ({
   tasks: many(tasks),
   timeLogs: many(timeLogs),
   recurringExpenses: many(recurringExpenses),
+  availability: many(teamAvailability),
+  milestoneAssignments: many(milestoneTeamMembers),
+}));
+
+export const teamAvailabilityRelations = relations(teamAvailability, ({ one }) => ({
+  teamMember: one(teamMembers, {
+    fields: [teamAvailability.teamMemberId],
+    references: [teamMembers.id],
+  }),
 }));
 
 export const servicesRelations = relations(services, ({ many }) => ({
@@ -513,7 +708,10 @@ export const projectUserMembersRelations = relations(projectUserMembers, ({ one 
 
 export const taskAssignmentsRelations = relations(taskAssignments, ({ one }) => ({
   task: one(tasks, { fields: [taskAssignments.taskId], references: [tasks.id] }),
-  user: one(users, { fields: [taskAssignments.userId], references: [users.id] }),
+  teamMember: one(teamMembers, {
+    fields: [taskAssignments.teamMemberId],
+    references: [teamMembers.id],
+  }),
   assignedByUser: one(users, { fields: [taskAssignments.assignedBy], references: [users.id] }),
 }));
 
@@ -526,12 +724,15 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
   phase: one(phases, { fields: [tasks.phaseId], references: [phases.id] }),
   parentTask: one(tasks, { fields: [tasks.parentTaskId], references: [tasks.id] }),
+  milestone: one(milestones, { fields: [tasks.milestoneId], references: [milestones.id] }),
   assignee: one(teamMembers, { fields: [tasks.assigneeId], references: [teamMembers.id] }),
   subtasks: many(tasks),
   files: many(files),
   taskAssignments: many(taskAssignments),
   timeLogs: many(timeLogs),
   comments: many(taskComments),
+  blockedByDependencies: many(taskDependencies, { relationName: "taskBlockedBy" }),
+  blockingDependencies: many(taskDependencies, { relationName: "taskBlocking" }),
 }));
 
 export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => ({
@@ -596,11 +797,42 @@ export const recurringExpensesRelations = relations(recurringExpenses, ({ one })
 
 export const timeLogsRelations = relations(timeLogs, ({ one }) => ({
   task: one(tasks, { fields: [timeLogs.taskId], references: [tasks.id] }),
+  project: one(projects, { fields: [timeLogs.projectId], references: [projects.id] }),
   teamMember: one(teamMembers, { fields: [timeLogs.teamMemberId], references: [teamMembers.id] }),
 }));
 
 export const taskCommentsRelations = relations(taskComments, ({ one }) => ({
   task: one(tasks, { fields: [taskComments.taskId], references: [tasks.id] }),
+}));
+
+export const taskDependenciesRelations = relations(taskDependencies, ({ one }) => ({
+  task: one(tasks, {
+    fields: [taskDependencies.taskId],
+    references: [tasks.id],
+    relationName: "taskBlockedBy",
+  }),
+  dependsOnTask: one(tasks, {
+    fields: [taskDependencies.dependsOnTaskId],
+    references: [tasks.id],
+    relationName: "taskBlocking",
+  }),
+}));
+
+export const milestonesRelations = relations(milestones, ({ one, many }) => ({
+  project: one(projects, { fields: [milestones.projectId], references: [projects.id] }),
+  tasks: many(tasks),
+  assignees: many(milestoneTeamMembers),
+}));
+
+export const milestoneTeamMembersRelations = relations(milestoneTeamMembers, ({ one }) => ({
+  milestone: one(milestones, {
+    fields: [milestoneTeamMembers.milestoneId],
+    references: [milestones.id],
+  }),
+  teamMember: one(teamMembers, {
+    fields: [milestoneTeamMembers.teamMemberId],
+    references: [teamMembers.id],
+  }),
 }));
 
 export type ProjectMember = typeof projectUserMembers.$inferSelect;

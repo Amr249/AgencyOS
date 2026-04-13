@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useLocale, useTranslations } from "next-intl";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -35,10 +34,18 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
+import { TASK_STATUS_LABELS_EN, TASK_PRIORITY_LABELS_EN } from "@/types";
+import {
+  ProjectSelectOptionRow,
+  TeamMemberSelectOptionRow,
+} from "@/components/entity-select-option";
+
+/** Radix Select reserves empty string; use a sentinel for "no assignee". */
+const ASSIGNEE_NONE = "__none__";
 
 const formSchema = z.object({
-  title: z.string().min(1, "عنوان المهمة مطلوب"),
-  projectId: z.string().uuid("اختر المشروع"),
+  title: z.string().min(1, "Task title is required"),
+  projectId: z.string().uuid("Select a project"),
   description: z.string().optional(),
   status: z.enum(["todo", "in_progress", "in_review", "done", "blocked"]),
   priority: z.enum(["low", "medium", "high", "urgent"]),
@@ -50,8 +57,13 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-type ProjectOption = { id: string; name: string };
-type TeamMemberOption = { id: string; name: string };
+type ProjectOption = {
+  id: string;
+  name: string;
+  coverImageUrl?: string | null;
+  clientLogoUrl?: string | null;
+};
+type TeamMemberOption = { id: string; name: string; avatarUrl?: string | null };
 
 type NewTaskModalProps = {
   open: boolean;
@@ -72,9 +84,6 @@ export function NewTaskModal({
   defaultDueDate,
   onSuccess,
 }: NewTaskModalProps) {
-  const t = useTranslations("newTaskModal");
-  const ts = useTranslations("tasks");
-  const locale = useLocale();
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -119,24 +128,24 @@ export function NewTaskModal({
       estimatedHours: values.estimatedHours,
     });
     if (result.ok) {
-      toast.success("تم إنشاء المهمة");
+      toast.success("Task created");
       onOpenChange(false);
       onSuccess();
     } else {
       const err = result.error as Record<string, string[] | undefined>;
       const msg =
         (err._form?.[0] ?? Object.values(err).flat().filter(Boolean).join(", ")) ||
-        t("errors.createFailed");
+        "Could not create task";
       toast.error(msg);
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" dir={locale === "ar" ? "rtl" : "ltr"}>
+      <DialogContent className="text-start sm:max-w-md" dir="ltr" lang="en">
         <DialogHeader>
-          <DialogTitle>{t("title")}</DialogTitle>
-          <DialogDescription>{t("description")}</DialogDescription>
+          <DialogTitle>New task</DialogTitle>
+          <DialogDescription>Add a task to a project. Fields marked by validation must be filled.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -145,9 +154,9 @@ export function NewTaskModal({
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("taskTitleLabel")}</FormLabel>
+                  <FormLabel>Title</FormLabel>
                   <FormControl>
-                    <Input placeholder={t("taskTitlePlaceholder")} {...field} />
+                    <Input placeholder="Task title" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -158,17 +167,21 @@ export function NewTaskModal({
               name="projectId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("projectLabel")}</FormLabel>
+                  <FormLabel>Project</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={t("projectPlaceholder")} />
+                        <SelectValue placeholder="Select project" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent dir="ltr">
                       {projects.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
+                        <SelectItem key={p.id} value={p.id} textValue={p.name}>
+                          <ProjectSelectOptionRow
+                            coverImageUrl={p.coverImageUrl}
+                            clientLogoUrl={p.clientLogoUrl}
+                            name={p.name}
+                          />
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -182,9 +195,9 @@ export function NewTaskModal({
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("descriptionLabel")}</FormLabel>
+                  <FormLabel>Description</FormLabel>
                   <FormControl>
-                    <Textarea placeholder={t("descriptionPlaceholder")} className="resize-none" {...field} />
+                    <Textarea placeholder="Optional details" className="resize-none" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -196,29 +209,19 @@ export function NewTaskModal({
                 name="status"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("statusLabel")}</FormLabel>
+                    <FormLabel>Status</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
-                        {(["todo", "in_progress", "in_review", "done", "blocked"] as const).map(
-                          (s) => (
-                            <SelectItem key={s} value={s}>
-                              {s === "todo"
-                                ? ts("taskStatusTodo")
-                                : s === "in_progress"
-                                  ? ts("taskStatusInProgress")
-                                  : s === "in_review"
-                                    ? ts("taskStatusInReview")
-                                    : s === "done"
-                                      ? ts("taskStatusDone")
-                                      : ts("taskStatusBlocked")}
-                            </SelectItem>
-                          )
-                        )}
+                      <SelectContent dir="ltr">
+                        {(["todo", "in_progress", "in_review", "done", "blocked"] as const).map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {TASK_STATUS_LABELS_EN[s]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -230,23 +233,17 @@ export function NewTaskModal({
                 name="priority"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("priorityLabel")}</FormLabel>
+                    <FormLabel>Priority</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent dir="ltr">
                         {(["low", "medium", "high", "urgent"] as const).map((p) => (
                           <SelectItem key={p} value={p}>
-                            {p === "low"
-                              ? ts("taskPrioLow")
-                              : p === "medium"
-                                ? ts("taskPrioMedium")
-                                : p === "high"
-                                  ? ts("taskPrioHigh")
-                                  : ts("taskPrioUrgent")}
+                            {TASK_PRIORITY_LABELS_EN[p]}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -262,18 +259,23 @@ export function NewTaskModal({
                 name="assigneeId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("assigneeLabel")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <FormLabel>Assignee</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v === ASSIGNEE_NONE ? "" : v)}
+                      value={field.value ? field.value : ASSIGNEE_NONE}
+                    >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder={t("assigneePlaceholder")} />
+                          <SelectValue placeholder="Unassigned" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value="">{t("unassigned")}</SelectItem>
+                      <SelectContent dir="ltr">
+                        <SelectItem value={ASSIGNEE_NONE} textValue="Unassigned">
+                          Unassigned
+                        </SelectItem>
                         {teamMembers.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name}
+                          <SelectItem key={m.id} value={m.id} textValue={m.name}>
+                            <TeamMemberSelectOptionRow avatarUrl={m.avatarUrl} name={m.name} />
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -289,12 +291,12 @@ export function NewTaskModal({
                 name="startDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("startDateLabel")}</FormLabel>
+                    <FormLabel>Start date</FormLabel>
                     <FormControl>
                       <DatePickerAr
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder={t("startDatePlaceholder")}
+                        placeholder="Pick date"
                       />
                     </FormControl>
                     <FormMessage />
@@ -306,12 +308,12 @@ export function NewTaskModal({
                 name="dueDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("dueDateLabel")}</FormLabel>
+                    <FormLabel>Due date</FormLabel>
                     <FormControl>
                       <DatePickerAr
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder={t("dueDatePlaceholder")}
+                        placeholder="Pick date"
                       />
                     </FormControl>
                     <FormMessage />
@@ -324,7 +326,7 @@ export function NewTaskModal({
               name="estimatedHours"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("estimatedHoursLabel")}</FormLabel>
+                  <FormLabel>Estimated hours</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -341,10 +343,10 @@ export function NewTaskModal({
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                {t("cancel")}
+                Cancel
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? t("submitting") : t("submit")}
+                {form.formState.isSubmitting ? "Creating…" : "Create task"}
               </Button>
             </DialogFooter>
           </form>

@@ -26,6 +26,14 @@ export function formatAmount(value: string | null | undefined): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+/** SAR code or legacy DB value (Arabic riyal abbreviation). */
+const LEGACY_SAR_CODE = "\u0631.\u0633";
+
+export function isSarCurrency(currency: string | null | undefined): boolean {
+  const c = (currency ?? "").trim();
+  return c === "SAR" || c === LEGACY_SAR_CODE;
+}
+
 /** Format date as DD/MM/YYYY (Western numerals). */
 export function formatDate(dateStr: string | null | undefined): string {
   if (dateStr == null || dateStr === "") return "—";

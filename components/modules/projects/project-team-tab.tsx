@@ -64,7 +64,7 @@ export function ProjectTeamTab({
 
   const handleAssign = async () => {
     if (!selectedMemberId) {
-      toast.error("اختر عضو الفريق");
+      toast.error("Select a team member");
       return;
     }
     setAssigning(true);
@@ -75,7 +75,7 @@ export function ProjectTeamTab({
     );
     setAssigning(false);
     if (result.ok) {
-      toast.success("تم تعيين العضو");
+      toast.success("Member assigned");
       setAssignOpen(false);
       setSelectedMemberId("");
       setRoleOnProject("");
@@ -92,7 +92,7 @@ export function ProjectTeamTab({
     setRemoving(false);
     setRemoveTarget(null);
     if (result.ok) {
-      toast.success("تم إزالة العضو");
+      toast.success("Member removed");
       router.refresh();
     } else {
       toast.error(result.error);
@@ -100,68 +100,82 @@ export function ProjectTeamTab({
   };
 
   return (
-    <div className="space-y-4" dir="rtl">
-      <div className="flex items-center justify-between">
-        <p className="text-muted-foreground text-sm">أعضاء الفريق المعينون لهذا المشروع</p>
+    <div className="space-y-4" dir="ltr" lang="en">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Team</h2>
+          <p className="text-muted-foreground text-sm">Members assigned to this project</p>
+        </div>
         <Button onClick={() => setAssignOpen(true)} disabled={availableMembers.length === 0}>
-          + تعيين عضو
+          + Assign Member
         </Button>
       </div>
 
       {members.length === 0 ? (
         <div className="rounded-lg border border-dashed bg-muted/30 py-12 text-center text-muted-foreground">
-          لا يوجد أعضاء معينون بعد. اضغط &quot;تعيين عضو&quot; لإضافة عضو الفريق.
+          No members assigned yet. Click &quot;Assign Member&quot; to add a team member.
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {members.map((m) => (
-            <div
-              key={m.id}
-              className="flex items-center gap-3 rounded-lg border bg-card p-4"
-            >
-              <Avatar className="h-10 w-10 shrink-0">
-                <AvatarImage src={m.memberAvatarUrl ?? undefined} />
-                <AvatarFallback className="text-sm">
-                  {(m.memberName ?? "?").slice(0, 1)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1 text-right">
-                <p className="font-medium truncate">{m.memberName}</p>
-                <p className="text-muted-foreground text-xs">
-                  {m.memberRole ?? "—"}
-                  {m.roleOnProject ? ` · ${m.roleOnProject}` : ""}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setRemoveTarget(m)}
-              >
-                إزالة
-              </Button>
-            </div>
-          ))}
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40 text-left text-muted-foreground">
+                <th className="px-4 py-3 font-medium">Name</th>
+                <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">Role on Project</th>
+                <th className="px-4 py-3 font-medium w-[100px]" />
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((m) => (
+                <tr key={m.id} className="border-b last:border-0">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-9 w-9 shrink-0">
+                        <AvatarImage src={m.memberAvatarUrl ?? undefined} />
+                        <AvatarFallback className="text-sm">
+                          {(m.memberName ?? "?").slice(0, 1)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="font-medium">{m.memberName}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{m.memberRole ?? "—"}</td>
+                  <td className="px-4 py-3">{m.roleOnProject ?? "—"}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setRemoveTarget(m)}
+                    >
+                      Remove
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Assign member modal */}
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
-        <DialogContent className="sm:max-w-md" dir="rtl">
-          <DialogHeader>
-            <DialogTitle>تعيين عضو فريق</DialogTitle>
+        <DialogContent className="sm:max-w-md" dir="ltr" lang="en">
+          <DialogHeader className="text-left">
+            <DialogTitle>Assign team member</DialogTitle>
             <DialogDescription>
-              اختر عضواً من الفريق وأضفه للمشروع. يمكنك تحديد دوره في المشروع اختيارياً.
+              Choose a team member and add them to this project. You can optionally set their role on
+              the project.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <label className="text-right block text-sm font-medium">عضو الفريق</label>
+              <label className="block text-sm font-medium">Team member</label>
               <Select value={selectedMemberId} onValueChange={setSelectedMemberId}>
-                <SelectTrigger dir="rtl">
-                  <SelectValue placeholder="اختر العضو" />
+                <SelectTrigger>
+                  <SelectValue placeholder="Select member" />
                 </SelectTrigger>
-                <SelectContent dir="rtl">
+                <SelectContent>
                   {availableMembers.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       {m.name} — {m.role ?? "—"}
@@ -171,43 +185,41 @@ export function ProjectTeamTab({
               </Select>
             </div>
             <div className="space-y-2">
-              <label className="text-right block text-sm font-medium">الدور في المشروع (اختياري)</label>
+              <label className="block text-sm font-medium">Role on project (optional)</label>
               <Input
-                placeholder="مثال: مطور أمامي"
+                placeholder="e.g. Frontend developer"
                 value={roleOnProject}
                 onChange={(e) => setRoleOnProject(e.target.value)}
-                dir="rtl"
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setAssignOpen(false)}>
-              إلغاء
+              Cancel
             </Button>
             <Button onClick={handleAssign} disabled={assigning || !selectedMemberId}>
-              {assigning ? "جاري التعيين…" : "تعيين"}
+              {assigning ? "Assigning…" : "Assign"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Remove confirmation */}
       <AlertDialog open={!!removeTarget} onOpenChange={() => setRemoveTarget(null)}>
-        <AlertDialogContent dir="rtl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>إزالة عضو من المشروع</AlertDialogTitle>
+        <AlertDialogContent dir="ltr" lang="en">
+          <AlertDialogHeader className="text-left">
+            <AlertDialogTitle>Remove member from project</AlertDialogTitle>
             <AlertDialogDescription>
-              هل أنت متأكد من إزالة {removeTarget?.memberName} من هذا المشروع؟
+              Remove {removeTarget?.memberName} from this project? They can be reassigned later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleRemove}
               disabled={removing}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {removing ? "جاري الإزالة…" : "إزالة"}
+              {removing ? "Removing…" : "Remove"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

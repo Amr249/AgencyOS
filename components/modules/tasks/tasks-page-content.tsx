@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,18 +21,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getTasks, deleteTask } from "@/actions/tasks";
+import { getTasks, deleteTask, updateTaskStatus } from "@/actions/tasks";
 import { toast } from "sonner";
 import type { TaskWithProject, GetTasksFilters } from "@/actions/tasks";
-import { TasksKanban } from "./tasks-kanban";
+import { TasksKanban, type KanbanStatus } from "./tasks-kanban";
 import { TasksListView } from "./tasks-list-view";
 import { NewTaskModal } from "./new-task-modal";
 import { TaskDetailModal } from "./task-detail-modal";
 import { LayoutGrid, List, Plus } from "lucide-react";
 import { useTranslateActionError } from "@/hooks/use-translate-action-error";
 import { isDbErrorKey } from "@/lib/i18n-errors";
+import { TASK_STATUS_LABELS_EN, TASK_PRIORITY_LABELS_EN } from "@/types";
+import {
+  ProjectSelectOptionRow,
+  type ProjectPickerOption,
+} from "@/components/entity-select-option";
 
-type ProjectOption = { id: string; name: string };
+type ProjectOption = ProjectPickerOption;
 
 type TeamMember = {
   id: string;
@@ -56,6 +60,23 @@ type TasksPageContentProps = {
   assigneesByTaskId: Record<string, AssigneeForCard[]>;
 };
 
+const PRIORITY_OPTIONS = [
+  { value: "all", label: "All priorities" },
+  { value: "low", label: TASK_PRIORITY_LABELS_EN.low },
+  { value: "medium", label: TASK_PRIORITY_LABELS_EN.medium },
+  { value: "high", label: TASK_PRIORITY_LABELS_EN.high },
+  { value: "urgent", label: TASK_PRIORITY_LABELS_EN.urgent },
+] as const;
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "All statuses" },
+  { value: "todo", label: TASK_STATUS_LABELS_EN.todo },
+  { value: "in_progress", label: TASK_STATUS_LABELS_EN.in_progress },
+  { value: "in_review", label: TASK_STATUS_LABELS_EN.in_review },
+  { value: "done", label: TASK_STATUS_LABELS_EN.done },
+  { value: "blocked", label: TASK_STATUS_LABELS_EN.blocked },
+] as const;
+
 export function TasksPageContent({
   initialTasks,
   projects,
@@ -63,34 +84,7 @@ export function TasksPageContent({
   assigneesByTaskId,
 }: TasksPageContentProps) {
   const router = useRouter();
-  const locale = useLocale();
-  const t = useTranslations("tasks");
-  const tc = useTranslations("common");
   const translateErr = useTranslateActionError();
-  const dialogDir = locale === "ar" ? "rtl" : "ltr";
-
-  const PRIORITY_OPTIONS = React.useMemo(
-    () => [
-      { value: "all", label: t("allPriorities") },
-      { value: "low", label: t("taskPrioLow") },
-      { value: "medium", label: t("taskPrioMedium") },
-      { value: "high", label: t("taskPrioHigh") },
-      { value: "urgent", label: t("taskPrioUrgent") },
-    ],
-    [t]
-  );
-
-  const STATUS_OPTIONS = React.useMemo(
-    () => [
-      { value: "all", label: t("allStatuses") },
-      { value: "todo", label: t("taskStatusTodo") },
-      { value: "in_progress", label: t("taskStatusInProgress") },
-      { value: "in_review", label: t("taskStatusInReview") },
-      { value: "done", label: t("taskStatusDone") },
-      { value: "blocked", label: t("taskStatusBlocked") },
-    ],
-    [t]
-  );
 
   const [tasks, setTasks] = React.useState<TaskWithProject[]>(initialTasks);
   const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
@@ -146,12 +140,30 @@ export function TasksPageContent({
     setTaskIdToDelete(id);
   };
 
+  const handleTaskStatusMove = React.useCallback(
+    async (taskId: string, newStatus: KanbanStatus) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task || task.status === newStatus) return;
+      const previousStatus = task.status;
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
+      const res = await updateTaskStatus(taskId, newStatus);
+      if (!res.ok) {
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: previousStatus } : t)));
+        const err = typeof res.error === "string" ? res.error : "";
+        toast.error(isDbErrorKey(err) ? translateErr(err) : err || "Could not update status");
+        return;
+      }
+      toast.success("Status updated");
+    },
+    [tasks, translateErr]
+  );
+
   const confirmDelete = () => {
     if (!taskIdToDelete) return;
     deleteTask(taskIdToDelete).then((res) => {
       if (res.ok) {
         setTaskIdToDelete(null);
-        toast.success(t("deleteSuccess"));
+        toast.success("Task deleted");
         refetch();
       } else {
         const err = typeof res.error === "string" ? res.error : "";
@@ -163,106 +175,115 @@ export function TasksPageContent({
   const filteredTasksForList = tasks;
 
   return (
-    <>
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-          <div className="flex items-center gap-2">
-            <Button
-              variant={viewMode === "kanban" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("kanban")}
-              title={t("kanban")}
-            >
-              <LayoutGrid className="me-1 h-4 w-4" />
-              {t("kanban")}
-            </Button>
-            <Button
-              variant={viewMode === "list" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("list")}
-              title={t("list")}
-            >
-              <List className="me-1 h-4 w-4" />
-              {t("list")}
-            </Button>
-            <Button onClick={() => handleAddTask()}>
-              <Plus className="me-1 h-4 w-4" />
-              {t("newTask")}
-            </Button>
-          </div>
+    <div dir="ltr" lang="en" className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={viewMode === "kanban" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("kanban")}
+            title="Kanban"
+          >
+            <LayoutGrid className="me-1 h-4 w-4" />
+            Kanban
+          </Button>
+          <Button
+            variant={viewMode === "list" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("list")}
+            title="List"
+          >
+            <List className="me-1 h-4 w-4" />
+            List
+          </Button>
+          <Button onClick={() => handleAddTask()}>
+            <Plus className="me-1 h-4 w-4" />
+            New task
+          </Button>
         </div>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <Input
-            placeholder={t("searchPlaceholder")}
-            className="w-full sm:max-w-xs"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <Select value={projectFilter} onValueChange={setProjectFilter}>
-            <SelectTrigger className="w-full sm:w-[180px]">
-              <SelectValue placeholder={t("allProjects")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("allProjects")}</SelectItem>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Input
+          placeholder="Search by task name"
+          className="w-full sm:max-w-xs"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <Select value={projectFilter} onValueChange={setProjectFilter}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="All projects" />
+          </SelectTrigger>
+          <SelectContent dir="ltr">
+            <SelectItem value="all">All projects</SelectItem>
+            {projects.map((p) => (
+              <SelectItem key={p.id} value={p.id} textValue={p.name}>
+                <ProjectSelectOptionRow
+                  coverImageUrl={p.coverImageUrl}
+                  clientLogoUrl={p.clientLogoUrl}
+                  name={p.name}
+                />
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+          <SelectTrigger className="w-full sm:w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent dir="ltr">
+            {PRIORITY_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {viewMode === "list" && (
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              {PRIORITY_OPTIONS.map((o) => (
+            <SelectContent dir="ltr">
+              {STATUS_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {viewMode === "list" && (
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-
-        {viewMode === "kanban" ? (
-          <TasksKanban
-            tasks={tasks}
-            assigneesByTaskId={assigneesByTaskId}
-            onAddTask={handleAddTask}
-            onOpenTask={setTaskDetailId}
-            onDeleteTask={handleDeleteTask}
-          />
-        ) : (
-          <TasksListView
-            tasks={filteredTasksForList}
-            assigneesByTaskId={assigneesByTaskId}
-            onOpenTask={setTaskDetailId}
-            onDeleteTask={handleDeleteTask}
-          />
         )}
       </div>
+
+      {viewMode === "kanban" ? (
+        <TasksKanban
+          tasks={tasks}
+          assigneesByTaskId={assigneesByTaskId}
+          onAddTask={handleAddTask}
+          onOpenTask={setTaskDetailId}
+          onDeleteTask={handleDeleteTask}
+          onTaskStatusChange={handleTaskStatusMove}
+        />
+      ) : (
+        <TasksListView
+          tasks={filteredTasksForList}
+          assigneesByTaskId={assigneesByTaskId}
+          projectOptions={projects}
+          onOpenTask={setTaskDetailId}
+          onDeleteTask={handleDeleteTask}
+        />
+      )}
 
       <NewTaskModal
         open={newTaskOpen}
         onOpenChange={setNewTaskOpen}
         projects={projects}
+        teamMembers={teamMembers.map((m) => ({
+          id: m.id,
+          name: m.name,
+          avatarUrl: m.avatarUrl,
+        }))}
         defaultStatus={newTaskDefaultStatus}
         onSuccess={refetch}
       />
@@ -275,18 +296,20 @@ export function TasksPageContent({
       />
 
       <AlertDialog open={!!taskIdToDelete} onOpenChange={(o) => !o && setTaskIdToDelete(null)}>
-        <AlertDialogContent dir={dialogDir}>
+        <AlertDialogContent dir="ltr" lang="en" className="text-start">
           <AlertDialogHeader>
-            <AlertDialogTitle>{tc("areYouSure")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("deleteTaskConfirm")}</AlertDialogDescription>
+            <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the task. This action cannot be undone.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{tc("cancel")}</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-destructive text-destructive-foreground"
             >
-              {tc("delete")}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -294,12 +317,12 @@ export function TasksPageContent({
 
       <button
         type="button"
-        className="fixed bottom-24 start-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-primary-foreground shadow-lg md:hidden"
-        aria-label={t("fabNewTask")}
+        className="fixed bottom-24 inset-s-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-primary-foreground shadow-lg md:hidden"
+        aria-label="New task"
         onClick={() => handleAddTask()}
       >
         +
       </button>
-    </>
+    </div>
   );
 }

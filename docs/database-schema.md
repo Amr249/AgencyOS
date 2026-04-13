@@ -14,6 +14,7 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | `task_priority` | `low`, `medium`, `high`, `urgent` |
 | `invoice_status` | `pending`, `partial`, `paid` |
 | `expense_category` | `software`, `hosting`, `marketing`, `salaries`, `equipment`, `office`, `other` |
+| `recurrence_frequency` | `weekly`, `monthly`, `quarterly`, `yearly` |
 | `team_member_status` | `active`, `inactive` |
 | `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
 | `service_status` | `active`, `inactive` |
@@ -114,8 +115,9 @@ Indexes: `tasks_project_id_idx`, `tasks_status_idx`, `tasks_parent_task_id_idx`.
 | `due_date` | date | **nullable** |
 | `subtotal`, `tax_amount`, `total` | numeric(12,2) | tax default 0 |
 | `currency` | char(3) | NOT NULL, default `SAR` |
-| `notes`, `payment_method` | text | optional |
-| `paid_at` | timestamptz | optional |
+| `notes` | text | optional |
+| `payment_method` | text | optional (invoice-level hint; per-payment method lives on **`payments`**) |
+| `paid_at` | timestamptz | optional — set when status becomes **`paid`** |
 | `created_at` | timestamptz | NOT NULL |
 
 ### `payments`
@@ -127,11 +129,15 @@ Indexes: `tasks_project_id_idx`, `tasks_status_idx`, `tasks_parent_task_id_idx`.
 | `amount` | numeric(12,2) | NOT NULL |
 | `payment_date` | date | NOT NULL |
 | `payment_method` | text | optional (`bank_transfer`, `cash`, `credit_card`, `cheque`, `other`) |
-| `reference` | text | optional |
+| `reference` | text | optional (e.g. bank ref) |
 | `notes` | text | optional |
 | `created_at` | timestamptz | NOT NULL, default now |
 
 Indexes: `payments_invoice_id_idx`, `payments_date_idx`.
+
+### Invoice attachments (no separate table)
+
+Invoice attachments are **`files`** rows with **`invoice_id`** set (ImageKit URL in `imagekit_url`, size in `size_bytes`, `mime_type`, `name`, `created_at`). This matches the logical shape of an `invoice_attachments` entity without a dedicated table.
 
 ### `invoice_projects`
 
@@ -164,8 +170,11 @@ Index: `invoice_projects_project_id_idx` on `project_id`.
 | `size_bytes` | bigint | optional |
 | `client_id`, `project_id`, `task_id` | UUID | optional FKs with **CASCADE** |
 | `invoice_id` | UUID | optional → `invoices.id` **CASCADE** (invoice attachments) |
+| `expense_id` | UUID | optional → `expenses.id` **CASCADE** (expense attachments) |
 | `created_at` | timestamptz | NOT NULL |
 | `deleted_at` | timestamptz | optional |
+
+Indexes: `files_invoice_id_idx`, `files_expense_id_idx`.
 
 ### `team_members`
 
@@ -268,8 +277,31 @@ Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
 | `category` | expense_category | NOT NULL |
 | `date` | date | NOT NULL |
 | `notes`, `receipt_url` | text | optional |
-| `team_member_id` | UUID | → `team_members` **SET NULL** |
+| `team_member_id` | UUID | → `team_members` **SET NULL** (e.g. salaries) |
+| `project_id` | UUID | optional → `projects.id` **SET NULL** |
+| `client_id` | UUID | optional → `clients.id` **SET NULL** |
+| `is_billable` | boolean | NOT NULL, default **false** |
 | `created_at` | timestamptz | NOT NULL |
+
+### `recurring_expenses`
+
+| Column | Type | Notes |
+|--------|------|--------|
+| `id` | UUID | PK |
+| `title` | text | NOT NULL |
+| `amount` | numeric(12,2) | NOT NULL |
+| `category` | expense_category | NOT NULL |
+| `frequency` | recurrence_frequency | NOT NULL |
+| `next_due_date` | date | NOT NULL |
+| `notes` | text | optional |
+| `project_id` | UUID | optional → `projects` **SET NULL** |
+| `client_id` | UUID | optional → `clients` **SET NULL** |
+| `team_member_id` | UUID | optional → `team_members` **SET NULL** |
+| `is_billable` | boolean | NOT NULL, default false |
+| `is_active` | boolean | NOT NULL, default true |
+| `vendor_logo_url` | text | optional (e.g. software vendor logo) |
+| `created_at` | timestamptz | NOT NULL |
+| `updated_at` | timestamptz | NOT NULL |
 
 ### `settings` (singleton row)
 
@@ -310,18 +342,19 @@ Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
 
 ## Relationships (summary)
 
-- **clients** → many **projects**, **invoices**, **files**, **proposals**, **client_services**
-- **projects** → many **phases**, **tasks**, **invoices** (and **invoice_projects**), **files**, **project_members**, **project_services**, **project_user_members**, **proposals**
+- **clients** → many **projects**, **invoices**, **files**, **proposals**, **client_services**, **expenses**, **recurring_expenses**
+- **projects** → many **phases**, **tasks**, **invoices** (and **invoice_projects**), **files**, **project_members**, **project_services**, **project_user_members**, **proposals**, **expenses**, **recurring_expenses**
 - **phases** → many **tasks**
 - **tasks** → self-referential subtasks; many **files**; many **task_assignments** (users)
 - **tasks** → optional **team_members** assignee; many **time_logs**; many **task_comments**
-- **invoices** → many **invoice_items**, many **payments**, many **files**; many **projects** via **invoice_projects**
-- **team_members** → **project_members**, **expenses**
+- **invoices** → many **invoice_items**, many **payments**, many **files** (attachments); many **projects** via **invoice_projects**
+- **team_members** → **project_members**, **expenses**, **recurring_expenses**
+- **expenses** → optional **files** (`expense_id`)
 - **services** ↔ **projects** / **clients** via junction tables
 
 Drizzle `relations()` definitions at the bottom of `schema.ts` mirror the above for query API.
 
 ## Migrations status
 
-- Additional SQL migrations exist beyond the initial set (e.g. invoice **`due_date`**, **`payments`**, **`files.invoice_id`**, **`invoice_projects`**). See `/drizzle/*.sql` and align your database with [`lib/db/schema.ts`](../lib/db/schema.ts).
+- Additional SQL migrations exist beyond the initial set (e.g. invoice **`due_date`**, **`payments`**, **`files.invoice_id`** / **`files.expense_id`**, **`invoice_projects`**, **`expenses.project_id` / `client_id` / `is_billable`**, **`recurring_expenses`**, **`recurrence_frequency`**). See `/drizzle/*.sql` and align your database with [`lib/db/schema.ts`](../lib/db/schema.ts).
 - `drizzle/meta/_journal.json` may not enumerate every file; verify applied state in your environment.

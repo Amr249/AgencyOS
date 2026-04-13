@@ -1,13 +1,9 @@
-'use client';
-import { useState, useTransition, useEffect } from 'react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import { assignTask, unassignTask } from '@/actions/assignments';
+"use client";
+import { useState, useTransition, useEffect } from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { assignTask, unassignTask } from "@/actions/assignments";
 
 type Member = {
   id: string;
@@ -42,18 +38,20 @@ export function AssigneePicker({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Sync from server when task or assignees change (eslint: intentional sync, not cascading UI)
     queueMicrotask(() => {
       setLocalAssignees(currentAssignees);
       setError(null);
     });
   }, [taskId, currentAssignees]);
 
-  const isAssigned = (userId: string) =>
-    localAssignees.some((a) => a.userId === userId);
+  const isAssigned = (userId: string) => localAssignees.some((a) => a.userId === userId);
 
   function getInitials(name: string) {
-    return name.split(' ').map((n) => n[0]).join('').slice(0, 2);
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2);
   }
 
   function handleToggle(member: Member) {
@@ -89,26 +87,31 @@ export function AssigneePicker({
   }
 
   return (
-    <div className="space-y-2" dir="rtl">
-      <p className="text-sm font-medium">المُعيَّنون</p>
+    <div className="space-y-2" dir="ltr" lang="en">
+      <p className="text-sm font-medium">Assignees</p>
 
-      {/* Current assignees row */}
-      <div className="flex items-center gap-2 flex-wrap min-h-[32px]">
+      <div className="flex min-h-[32px] flex-wrap items-center gap-2">
         {localAssignees.length === 0 ? (
-          <span className="text-sm text-muted-foreground">لم يتم التعيين بعد</span>
+          <span className="text-muted-foreground text-sm">No one assigned yet</span>
         ) : (
           localAssignees.map((a) => (
-            <div key={a.userId} className="flex items-center gap-1.5 bg-secondary rounded-full pl-3 pr-1 py-1">
+            <div
+              key={a.userId}
+              className="flex items-center gap-1.5 rounded-full bg-secondary py-1 ps-1 pe-3"
+            >
               <Avatar className="h-5 w-5">
                 <AvatarImage src={a.avatarUrl ?? undefined} />
                 <AvatarFallback className="text-[10px]">{getInitials(a.name)}</AvatarFallback>
               </Avatar>
               <span className="text-xs">{a.name}</span>
               <button
-                onClick={() => handleToggle({ id: a.userId, name: a.name, email: a.email, avatarUrl: a.avatarUrl })}
-                className="text-muted-foreground hover:text-destructive transition-colors text-xs mr-1"
+                type="button"
+                onClick={() =>
+                  handleToggle({ id: a.userId, name: a.name, email: a.email, avatarUrl: a.avatarUrl })
+                }
+                className="text-muted-foreground me-1 text-xs transition-colors hover:text-destructive"
                 disabled={isPending}
-                title="إزالة"
+                title="Remove"
               >
                 ✕
               </button>
@@ -117,53 +120,65 @@ export function AssigneePicker({
         )}
       </div>
 
-      {/* Picker popover */}
-      <Popover open={open} onOpenChange={setOpen}>
+      {/* modal={false}: required when this popover is inside a Dialog so content is not clipped / focus-trapped */}
+      <Popover open={open} onOpenChange={setOpen} modal={false}>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="text-xs h-8" disabled={isPending}>
-            {isPending ? 'جاري الحفظ...' : '+ تعيين عضو'}
+          <Button variant="outline" size="sm" className="h-8 text-xs" disabled={isPending}>
+            {isPending ? "Saving…" : "+ Assign member"}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-64 p-2" align="start" dir="rtl">
-          <p className="text-xs text-muted-foreground px-2 pb-2 border-b border-border mb-2">
-            اختر عضواً من الفريق
+        <PopoverContent
+          className="z-200 w-72 p-2 text-start"
+          align="start"
+          side="bottom"
+          sideOffset={6}
+          collisionPadding={12}
+          dir="ltr"
+          lang="en"
+        >
+          <p className="text-muted-foreground mb-2 border-b border-border px-2 pb-2 text-xs">
+            Choose a team member
           </p>
-          <div className="space-y-1 max-h-56 overflow-y-auto">
-            {teamMembers.map((member) => {
-              const assigned = isAssigned(member.id);
-              return (
-                <button
-                  key={member.id}
-                  onClick={() => handleToggle(member)}
-                  disabled={isPending}
-                  className={`w-full flex items-center gap-3 px-2 py-2 rounded-md text-right transition-colors
-                    ${assigned
-                      ? 'bg-primary/10 text-primary'
-                      : 'hover:bg-secondary text-foreground'
+          {teamMembers.length === 0 ? (
+            <p className="text-muted-foreground px-2 py-6 text-center text-sm">
+              No team members available. Add people under Team, or ensure login users match team emails.
+            </p>
+          ) : (
+            <div className="max-h-56 min-h-10 space-y-1 overflow-y-auto">
+              {teamMembers.map((member) => {
+                const assigned = isAssigned(member.id);
+                return (
+                  <button
+                    key={member.id}
+                    type="button"
+                    onClick={() => handleToggle(member)}
+                    disabled={isPending}
+                    className={`flex w-full min-h-11 items-center gap-3 rounded-md px-2 py-2 text-start transition-colors ${
+                      assigned
+                        ? "bg-primary/10 text-primary"
+                        : "text-foreground hover:bg-secondary"
                     }`}
-                >
-                  <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarImage src={member.avatarUrl ?? undefined} />
-                    <AvatarFallback className="text-xs">{getInitials(member.name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{member.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{member.email}</p>
-                  </div>
-                  {assigned && (
-                    <span className="text-xs text-primary shrink-0">✓</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                  >
+                    <Avatar className="h-7 w-7 shrink-0">
+                      <AvatarImage src={member.avatarUrl ?? undefined} alt="" />
+                      <AvatarFallback className="text-xs">{getInitials(member.name || "?")}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{member.name || "—"}</p>
+                      <p className="text-muted-foreground truncate text-xs">
+                        {member.email?.trim() ? member.email : "No email"}
+                      </p>
+                    </div>
+                    {assigned ? <span className="shrink-0 text-xs text-primary">✓</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </PopoverContent>
       </Popover>
 
-      {/* Error */}
-      {error && (
-        <p className="text-xs text-destructive">{error}</p>
-      )}
+      {error ? <p className="text-destructive text-xs">{error}</p> : null}
     </div>
   );
 }
