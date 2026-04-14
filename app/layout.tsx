@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
@@ -17,7 +17,13 @@ const ibmPlexSans = IBM_Plex_Sans({
   variable: "--font-latin",
 });
 
+/** Production site URL for metadata and absolute asset resolution (Vercel sets VERCEL_URL). */
+const siteUrl =
+  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "") : undefined);
+
 export const metadata: Metadata = {
+  ...(siteUrl ? { metadataBase: new URL(`${siteUrl}/`) } : {}),
   title: {
     default: "AgencyOS",
     template: "%s | AgencyOS",
@@ -33,6 +39,15 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "AgencyOS",
   },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#000000",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default async function RootLayout({
@@ -47,16 +62,6 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} dir={isRTL ? "rtl" : "ltr"} suppressHydrationWarning>
-      <head>
-        <link rel="icon" href="/Logo1.png" />
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="AgencyOS" />
-        <link rel="apple-touch-icon" href="/Logo1.png" />
-        <meta name="theme-color" content="#000000" />
-      </head>
       <body className={fontClass} dir={isRTL ? "rtl" : "ltr"}>
         <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>{children}</Providers>
