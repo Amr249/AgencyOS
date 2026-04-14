@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import "./globals.css";
 import { IBM_Plex_Sans, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
-import "./globals.css";
 import Providers from "@/components/providers";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +62,21 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // #region agent log
+  fetch("http://127.0.0.1:7586/ingest/f36359f2-dfc4-4756-b665-25acb344ba34", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "ddf37f" },
+    body: JSON.stringify({
+      sessionId: "ddf37f",
+      location: "app/layout.tsx:RootLayout",
+      message: "RootLayout entered (globals.css imported at module top)",
+      data: { nodeEnv: process.env.NODE_ENV },
+      timestamp: Date.now(),
+      runId: "css-debug",
+      hypothesisId: "H2-H3",
+    }),
+  }).catch(() => {});
+  // #endregion
   const locale = await getLocale();
   const messages = await getMessages();
   const isRTL = locale === "ar";

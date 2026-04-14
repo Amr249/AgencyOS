@@ -224,3 +224,17 @@
   display: none !important;
   background: transparent !important;
 }
+
+/* CSS Loading Test - Remove after debugging */
+body::before {
+  content: "CSS LOADED";
+  position: fixed;
+  top: 0;
+  left: 0;
+  background: lime;
+  color: black;
+  padding: 10px 20px;
+  font-size: 20px;
+  font-weight: bold;
+  z-index: 99999;
+}
