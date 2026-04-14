@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Explicit content paths — production builds (e.g. Vercel + Turbopack) can miss auto-detection. */
+@source "../components/**/*.{js,ts,jsx,tsx,mdx}";
+@source "./**/*.{js,ts,jsx,tsx,mdx}";
+@source "../lib/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../hooks/**/*.{js,ts,jsx,tsx,mdx}";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -223,18 +229,4 @@
 [data-slot="sidebar-content"]::-webkit-scrollbar-track {
   display: none !important;
   background: transparent !important;
-}
-
-/* CSS Loading Test - Remove after debugging */
-body::before {
-  content: "CSS LOADED";
-  position: fixed;
-  top: 0;
-  left: 0;
-  background: lime;
-  color: black;
-  padding: 10px 20px;
-  font-size: 20px;
-  font-weight: bold;
-  z-index: 99999;
 }
