@@ -159,6 +159,32 @@
   a[href] {
     cursor: pointer;
   }
+
+  /*
+   * Command palette (cmdk) — use plain selectors + @apply so production Lightning CSS
+   * never sees Tailwind [&_[cmdk-*]] arbitrary variants (can corrupt with ** or complex nesting).
+   */
+  [data-slot="command"] [cmdk-group-heading] {
+    @apply text-muted-foreground px-2 font-medium;
+  }
+  [data-slot="command"] [cmdk-group] {
+    @apply px-2;
+  }
+  [data-slot="command"] [cmdk-group]:not([hidden]) ~ [cmdk-group] {
+    @apply pt-0;
+  }
+  [data-slot="command"] [cmdk-item] {
+    @apply px-2 py-3;
+  }
+  [data-slot="command"] [cmdk-item] svg {
+    @apply h-5 w-5 shrink-0;
+  }
+  [data-slot="command-group"] {
+    @apply text-foreground overflow-hidden p-1;
+  }
+  [data-slot="command-group"] [cmdk-group-heading] {
+    @apply text-muted-foreground px-2 py-1.5 text-xs font-medium;
+  }
 }
 
 @layer utilities {
