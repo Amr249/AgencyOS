@@ -37,11 +37,11 @@ import { EditProposalDialog } from "./edit-proposal-dialog";
 import { ConvertToClientDialog } from "./convert-to-client-dialog";
 import { ProposalStatusBadge } from "./proposal-status-badge";
 import { ProposalsWinRateChart } from "./proposals-win-rate-chart";
-import { ProposalsStatusDonut } from "./proposals-status-donut";
+import { ProposalsStatusChart } from "./proposals-status-donut";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 import { SarMoney } from "@/components/ui/sar-money";
-import { CirclePlus, MoreHorizontal, Pencil, UserPlus, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, UserPlus, Trash2 } from "lucide-react";
 
 type ProposalRow = {
   id: string;
@@ -57,6 +57,8 @@ type ProposalRow = {
   status: string;
   appliedAt: string;
   notes: string | null;
+  skillsTags: string | null;
+  services: { id: string; name: string }[];
   clientId: string | null;
   projectId: string | null;
   createdAt: Date | string;
@@ -76,34 +78,43 @@ type ChartData = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "all", label: "الكل" },
-  { value: "applied", label: "مُقدَّم" },
-  { value: "viewed", label: "تمت المشاهدة" },
-  { value: "shortlisted", label: "في القائمة المختصرة" },
-  { value: "won", label: "تم الفوز" },
-  { value: "lost", label: "لم يُكسب" },
-  { value: "cancelled", label: "ملغي" },
+  { value: "all", label: "All" },
+  { value: "applied", label: "Applied" },
+  { value: "viewed", label: "Viewed" },
+  { value: "shortlisted", label: "Shortlisted" },
+  { value: "won", label: "Won" },
+  { value: "lost", label: "Lost" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 const DATE_RANGE_OPTIONS = [
-  { value: "all", label: "الكل" },
-  { value: "this_month", label: "هذا الشهر" },
-  { value: "last_month", label: "الشهر الماضي" },
-  { value: "this_year", label: "هذه السنة" },
+  { value: "all", label: "All" },
+  { value: "this_month", label: "This month" },
+  { value: "last_month", label: "Last month" },
+  { value: "this_year", label: "This year" },
 ];
 
-function BudgetRangeDisplay({ min, max }: { min: string | null; max: string | null }) {
+function BudgetRangeDisplay({
+  min,
+  max,
+  currency,
+}: {
+  min: string | null;
+  max: string | null;
+  currency: string;
+}) {
+  const c = currency === "USD" ? "USD" : "SAR";
   if (min != null && min !== "" && max != null && max !== "") {
     return (
       <span className="inline-flex flex-wrap items-center gap-1">
-        <SarMoney value={min} iconClassName="h-3 w-3" />
+        <SarMoney value={min} iconClassName="h-3 w-3" currency={c} />
         <span>–</span>
-        <SarMoney value={max} iconClassName="h-3 w-3" />
+        <SarMoney value={max} iconClassName="h-3 w-3" currency={c} />
       </span>
     );
   }
-  if (min != null && min !== "") return <SarMoney value={min} iconClassName="h-3 w-3" />;
-  if (max != null && max !== "") return <SarMoney value={max} iconClassName="h-3 w-3" />;
+  if (min != null && min !== "") return <SarMoney value={min} iconClassName="h-3 w-3" currency={c} />;
+  if (max != null && max !== "") return <SarMoney value={max} iconClassName="h-3 w-3" currency={c} />;
   return "—";
 }
 
@@ -111,12 +122,14 @@ type ProposalsListViewProps = {
   proposals: ProposalRow[];
   stats: Stats;
   chartData: ChartData;
+  serviceOptions: { id: string; name: string }[];
 };
 
 export function ProposalsListView({
   proposals,
   stats,
   chartData,
+  serviceOptions,
 }: ProposalsListViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -138,8 +151,8 @@ export function ProposalsListView({
         accessorKey: "title",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">العنوان {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full items-center justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Title {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) =>
@@ -152,44 +165,78 @@ export function ProposalsListView({
           ),
       },
       {
-        accessorKey: "category",
+        id: "services",
+        accessorFn: (row) =>
+          row.services.length > 0
+            ? row.services.map((s) => s.name).sort().join(", ")
+            : row.category ?? "",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">الفئة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full items-center justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Services {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
-        cell: ({ row }) =>
-          row.original.category ? (
-            <span className="rounded-full border bg-muted px-2 py-0.5 text-xs">{row.original.category}</span>
-          ) : (
-            "—"
-          ),
+        cell: ({ row }) => {
+          const svcs = row.original.services;
+          if (svcs.length > 0) {
+            return (
+              <span className="flex flex-wrap gap-1">
+                {svcs.map((s) => (
+                  <span key={s.id} className="rounded-full border bg-muted px-2 py-0.5 text-xs">
+                    {s.name}
+                  </span>
+                ))}
+              </span>
+            );
+          }
+          if (row.original.category) {
+            return (
+              <span className="text-muted-foreground rounded-full border border-dashed px-2 py-0.5 text-xs">
+                {row.original.category}
+              </span>
+            );
+          }
+          return "—";
+        },
       },
       {
         id: "budget",
         enableSorting: false,
-        header: () => <span className="text-right">الميزانية</span>,
+        meta: {
+          headerClassName: "min-w-[210px]",
+          cellClassName: "min-w-[210px]",
+        },
+        header: () => <span className="text-left">Budget</span>,
         cell: ({ row }) => (
-          <BudgetRangeDisplay min={row.original.budgetMin} max={row.original.budgetMax} />
+          <BudgetRangeDisplay
+            min={row.original.budgetMin}
+            max={row.original.budgetMax}
+            currency={row.original.currency}
+          />
         ),
       },
       {
         accessorKey: "myBid",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">عرضي {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full items-center justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">My bid {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
-        cell: ({ row }) => <SarMoney value={row.original.myBid} iconClassName="h-3 w-3" />,
+        cell: ({ row }) => (
+          <SarMoney
+            value={row.original.myBid}
+            iconClassName="h-3 w-3"
+            currency={row.original.currency === "USD" ? "USD" : "SAR"}
+          />
+        ),
       },
       {
         accessorKey: "status",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">الحالة {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full items-center justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Status {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -204,8 +251,8 @@ export function ProposalsListView({
         accessorKey: "appliedAt",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">تاريخ التقديم {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button variant="ghost" className="-ms-3 flex w-full items-center justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-left">Applied {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => formatDate(row.original.appliedAt),
@@ -225,16 +272,19 @@ export function ProposalsListView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => setProposalToEdit({ ...p, appliedAt: p.appliedAt })}>
-                  <Pencil className="me-2 h-4 w-4" />تعديل
+                  <Pencil className="me-2 h-4 w-4" />
+                  Edit
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setConvertProposal({ id: p.id, title: p.title })}>
-                  <UserPlus className="me-2 h-4 w-4" />تحويل لعميل
+                  <UserPlus className="me-2 h-4 w-4" />
+                  Convert to client
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onSelect={() => setProposalToDelete({ id: p.id, title: p.title })}
                 >
-                  <Trash2 className="me-2 h-4 w-4" />حذف
+                  <Trash2 className="me-2 h-4 w-4" />
+                  Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -274,73 +324,62 @@ export function ProposalsListView({
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
-      <div className="flex flex-col gap-4 sm:flex-row-reverse sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">العروض المقدمة</h1>
+    <div className="space-y-6" dir="ltr">
+      <div className="mb-7 flex items-center justify-between">
+        <h1 className="text-2xl font-medium text-neutral-900">Proposals</h1>
         <NewProposalDialog
           open={newOpen}
           onOpenChange={setNewOpen}
           onSuccess={() => router.refresh()}
+          serviceOptions={serviceOptions}
           trigger={
-            <Button variant="secondary" className="w-full sm:w-auto">
-              <CirclePlus className="me-2 h-4 w-4" />
-              إضافة عرض
-            </Button>
+            <button
+              type="button"
+              className="hidden items-center gap-1 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 sm:inline-flex"
+            >
+              + New proposal
+            </button>
           }
         />
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">إجمالي العروض</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">تم الفوز</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {stats.won} · %{stats.wonPercent}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">قيد الانتظار</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.pending}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">إجمالي قيمة المشاريع المكسوبة</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              <SarMoney value={String(stats.totalWonValue)} iconClassName="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-neutral-100 bg-[rgba(164,254,25,1)] p-4 text-left">
+          <p className="mb-1 text-xs font-semibold text-black">Total proposals</p>
+          <p className="text-2xl font-bold text-black">{stats.total}</p>
+          <p className="mt-1 text-xs text-black">All submitted proposals</p>
+        </div>
+        <div className="rounded-xl border border-[#bababa] bg-[#fafafa] p-4 text-left">
+          <p className="mb-1 text-xs text-neutral-400">Win rate</p>
+          <p className="text-2xl font-bold text-black">{stats.won} · {stats.wonPercent}%</p>
+          <p className="mt-1 text-xs text-neutral-400">Won proposals</p>
+        </div>
+        <div className="rounded-xl border border-black bg-black p-4 text-left">
+          <p className="mb-1 text-xs font-semibold text-white">Pending</p>
+          <p className="text-2xl font-semibold text-white">{stats.pending}</p>
+          <p className="mt-1 text-xs text-white">Awaiting response</p>
+        </div>
+        <div className="rounded-xl border border-[#bababa] bg-[#fafafa] p-4 text-left">
+          <p className="mb-1 text-xs text-neutral-400">Total won value</p>
+          <p className="text-2xl font-medium text-neutral-900">
+            <SarMoney value={String(stats.totalWonValue)} iconClassName="h-5 w-5" />
+          </p>
+          <p className="mt-1 text-xs text-neutral-400">Revenue from won proposals</p>
+        </div>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row-reverse sm:flex-wrap sm:items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <form onSubmit={handleSearchSubmit} className="flex gap-2">
           <Input
             name="search"
-            placeholder="البحث بالعنوان..."
+            placeholder="Search by title…"
             defaultValue={searchParam}
             className="w-40 sm:w-48"
           />
           <Button type="submit" variant="secondary" size="sm">
-            بحث
+            Search
           </Button>
         </form>
         <Select
@@ -383,12 +422,13 @@ export function ProposalsListView({
             data={proposals}
             tableId="proposals-table"
             getRowId={(p) => p.id}
+            uiVariant="clients"
             columnLabels={{
-              title: "العنوان",
-              category: "الفئة",
-              myBid: "عرضي",
-              status: "الحالة",
-              appliedAt: "تاريخ التقديم",
+              title: "Title",
+              services: "Services",
+              myBid: "My bid",
+              status: "Status",
+              appliedAt: "Applied",
             }}
             enablePagination={false}
           />
@@ -399,7 +439,7 @@ export function ProposalsListView({
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">نسبة الفوز شهرياً</CardTitle>
+            <CardTitle className="text-base">Monthly win rate</CardTitle>
           </CardHeader>
           <CardContent>
             <ProposalsWinRateChart data={chartData.byMonth} />
@@ -407,10 +447,10 @@ export function ProposalsListView({
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">توزيع العروض حسب الحالة</CardTitle>
+            <CardTitle className="text-base">Proposals by status</CardTitle>
           </CardHeader>
           <CardContent>
-            <ProposalsStatusDonut data={chartData.statusDistribution} />
+            <ProposalsStatusChart data={chartData.statusDistribution} />
           </CardContent>
         </Card>
       </div>
@@ -419,17 +459,17 @@ export function ProposalsListView({
         open={!!proposalToDelete}
         onOpenChange={(open) => !open && setProposalToDelete(null)}
       >
-        <AlertDialogContent dir="rtl">
+        <AlertDialogContent dir="ltr">
           <AlertDialogHeader>
-            <AlertDialogTitle>هل أنت متأكد؟</AlertDialogTitle>
+            <AlertDialogTitle>Delete proposal?</AlertDialogTitle>
             <AlertDialogDescription>
               {proposalToDelete
-                ? `سيتم حذف العرض "${proposalToDelete.title}" نهائياً.`
+                ? `This will permanently delete "${proposalToDelete.title}".`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -439,14 +479,14 @@ export function ProposalsListView({
                 setProposalToDelete(null);
                 const res = await deleteProposal(id);
                 if (res.ok) {
-                  toast.success("تم حذف العرض");
+                  toast.success("Proposal deleted");
                   router.refresh();
                 } else {
                   toast.error(res.error);
                 }
               }}
             >
-              حذف
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -457,6 +497,7 @@ export function ProposalsListView({
         open={!!proposalToEdit}
         onOpenChange={(open) => !open && setProposalToEdit(null)}
         onSuccess={() => router.refresh()}
+        serviceOptions={serviceOptions}
       />
 
       <ConvertToClientDialog

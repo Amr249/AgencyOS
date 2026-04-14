@@ -190,8 +190,11 @@ export async function getProjectsHealthMap(
 
     return { ok: true as const, data };
   } catch (e) {
+    if (isDbConnectionError(e)) {
+      console.warn("getProjectsHealthMap: database unreachable (timeout or network)");
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
     console.error("getProjectsHealthMap", e);
-    if (isDbConnectionError(e)) return { ok: false as const, error: getDbErrorKey(e) };
     return { ok: false as const, error: "Failed to compute project health" };
   }
 }

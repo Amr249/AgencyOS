@@ -38,31 +38,31 @@ export function ConvertToClientDialog({
     setLoading(false);
     onOpenChange(false);
     if (result.ok && result.data?.clientId) {
-      toast.success("🎉 تم إنشاء العميل والمشروع بنجاح!");
+      toast.success("Client and project created successfully.");
       router.push(`/dashboard/clients/${result.data.clientId}`);
     } else {
-      toast.error(result.error ?? "فشل إنشاء العميل");
+      toast.error(result.error ?? "Could not create client");
     }
   };
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent dir="rtl">
+      <AlertDialogContent dir="ltr">
         <AlertDialogHeader>
-          <AlertDialogTitle>تحويل العرض إلى عميل</AlertDialogTitle>
+          <AlertDialogTitle>Convert proposal to client</AlertDialogTitle>
           <AlertDialogDescription>
-            هل تريد إنشاء عميل جديد من هذا العرض؟ سيتم إنشاء عميل ومشروع مرتبط به.
+            Create a new client from this proposal? A linked project will be created as well.
             {proposalTitle && (
               <span className="mt-2 block font-medium text-foreground">
-                الاسم: {proposalTitle}
+                Name: {proposalTitle}
               </span>
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>إلغاء</AlertDialogCancel>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction onClick={handleConfirm} disabled={loading}>
-            {loading ? "جاري الإنشاء..." : "تأكيد"}
+            {loading ? "Creating…" : "Confirm"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

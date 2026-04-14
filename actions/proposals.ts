@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { format } from "date-fns";
 import { z } from "zod";
-import { eq, and, gte, lte, ilike, desc } from "drizzle-orm";
-import { db, proposals } from "@/lib/db";
+import { eq, and, gte, lte, ilike, desc, inArray, asc } from "drizzle-orm";
+import { db, proposals, proposalServices, services } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { createClient } from "@/actions/clients";
 import { createProject } from "@/actions/projects";
+import { logActivityWithActor } from "@/actions/activity-log";
 
 const proposalStatusValues = [
   "applied",
@@ -45,17 +47,19 @@ function getDateRange(range: string): { start: Date; end: Date } | null {
 }
 
 const createProposalSchema = z.object({
-  title: z.string().min(1, "العنوان مطلوب"),
+  title: z.string().min(1, "Title is required"),
   url: z.string().url().optional().or(z.literal("")),
   platform: z.string().default("mostaql"),
   budgetMin: z.coerce.number().min(0).optional().nullable(),
   budgetMax: z.coerce.number().min(0).optional().nullable(),
   currency: z.string().default("SAR"),
   category: z.string().optional().nullable(),
+  serviceIds: z.array(z.string().uuid()).optional().default([]),
+  skillsTags: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
-  myBid: z.coerce.number().min(0, "عرضي مطلوب"),
+  myBid: z.coerce.number().min(0, "Your bid is required"),
   status: z.enum(proposalStatusValues).default("applied"),
-  appliedAt: z.string().min(1, "تاريخ التقديم مطلوب"),
+  appliedAt: z.string().min(1, "Application date is required"),
   notes: z.string().optional().nullable(),
 });
 
@@ -77,6 +81,15 @@ export type ProposalFilters = {
   search?: string;
 };
 
+async function syncProposalServices(proposalId: string, serviceIds: string[]) {
+  const unique = [...new Set(serviceIds)];
+  await db.delete(proposalServices).where(eq(proposalServices.proposalId, proposalId));
+  if (unique.length === 0) return;
+  await db.insert(proposalServices).values(
+    unique.map((serviceId) => ({ proposalId, serviceId }))
+  );
+}
+
 export async function getProposals(filters?: ProposalFilters) {
   try {
     const conditions = [];
@@ -88,12 +101,8 @@ export async function getProposals(filters?: ProposalFilters) {
     if (filters?.dateRange) {
       const range = getDateRange(filters.dateRange);
       if (range) {
-        conditions.push(
-          gte(proposals.appliedAt, range.start.toISOString().slice(0, 10))
-        );
-        conditions.push(
-          lte(proposals.appliedAt, range.end.toISOString().slice(0, 10))
-        );
+        conditions.push(gte(proposals.appliedAt, format(range.start, "yyyy-MM-dd")));
+        conditions.push(lte(proposals.appliedAt, format(range.end, "yyyy-MM-dd")));
       }
     }
     if (filters?.search?.trim()) {
@@ -110,6 +119,7 @@ export async function getProposals(filters?: ProposalFilters) {
         budgetMax: proposals.budgetMax,
         currency: proposals.currency,
         category: proposals.category,
+        skillsTags: proposals.skillsTags,
         description: proposals.description,
         myBid: proposals.myBid,
         status: proposals.status,
@@ -122,7 +132,32 @@ export async function getProposals(filters?: ProposalFilters) {
       .from(proposals)
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(proposals.appliedAt), desc(proposals.createdAt));
-    return { ok: true as const, data: rows };
+
+    const ids = rows.map((r) => r.id);
+    const serviceByProposal = new Map<string, { id: string; name: string }[]>();
+    if (ids.length > 0) {
+      const links = await db
+        .select({
+          proposalId: proposalServices.proposalId,
+          serviceId: services.id,
+          serviceName: services.name,
+        })
+        .from(proposalServices)
+        .innerJoin(services, eq(proposalServices.serviceId, services.id))
+        .where(inArray(proposalServices.proposalId, ids))
+        .orderBy(asc(services.name));
+      for (const l of links) {
+        const list = serviceByProposal.get(l.proposalId) ?? [];
+        list.push({ id: l.serviceId, name: l.serviceName });
+        serviceByProposal.set(l.proposalId, list);
+      }
+    }
+
+    const data = rows.map((r) => ({
+      ...r,
+      services: serviceByProposal.get(r.id) ?? [],
+    }));
+    return { ok: true as const, data };
   } catch (e) {
     console.error("getProposals", e);
     if (isDbConnectionError(e)) {
@@ -175,7 +210,7 @@ export async function getProposalStatsForCharts() {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const monthLabel = d.toLocaleDateString("ar-SA", { month: "short", year: "numeric" });
+      const monthLabel = d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
       const start = monthKey + "-01";
       const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
       const end =
@@ -237,6 +272,7 @@ export async function createProposal(input: CreateProposalInput) {
         budgetMax: data.budgetMax != null ? String(data.budgetMax) : null,
         currency: data.currency,
         category: data.category ?? null,
+        skillsTags: data.skillsTags ?? null,
         description: data.description ?? null,
         myBid: data.myBid != null ? String(data.myBid) : null,
         status: data.status,
@@ -246,6 +282,9 @@ export async function createProposal(input: CreateProposalInput) {
       .returning();
     if (!row) {
       return { ok: false as const, error: { _form: ["Failed to create proposal"] } };
+    }
+    if (data.serviceIds?.length) {
+      await syncProposalServices(row.id, data.serviceIds);
     }
     revalidatePath("/dashboard/proposals");
     revalidatePath("/dashboard");
@@ -257,7 +296,7 @@ export async function createProposal(input: CreateProposalInput) {
     }
     return {
       ok: false as const,
-      error: { _form: [e instanceof Error ? e.message : "حدث خطأ غير متوقع."] },
+      error: { _form: [e instanceof Error ? e.message : "An unexpected error occurred."] },
     };
   }
 }
@@ -279,6 +318,7 @@ export async function updateProposal(input: UpdateProposalInput) {
       updatePayload.budgetMax = data.budgetMax != null ? String(data.budgetMax) : null;
     if (data.currency !== undefined) updatePayload.currency = data.currency;
     if (data.category !== undefined) updatePayload.category = data.category ?? null;
+    if (data.skillsTags !== undefined) updatePayload.skillsTags = data.skillsTags ?? null;
     if (data.description !== undefined) updatePayload.description = data.description ?? null;
     if (data.myBid !== undefined)
       updatePayload.myBid = data.myBid != null ? String(data.myBid) : null;
@@ -286,6 +326,9 @@ export async function updateProposal(input: UpdateProposalInput) {
     if (data.appliedAt !== undefined) updatePayload.appliedAt = data.appliedAt;
     if (data.notes !== undefined) updatePayload.notes = data.notes ?? null;
     await db.update(proposals).set(updatePayload).where(eq(proposals.id, id));
+    if (data.serviceIds !== undefined) {
+      await syncProposalServices(id, data.serviceIds);
+    }
     revalidatePath("/dashboard/proposals");
     revalidatePath("/dashboard");
     return { ok: true as const };
@@ -364,17 +407,23 @@ export async function convertToClient(proposalId: string) {
     if (!proposal) {
       return { ok: false as const, error: "Proposal not found" };
     }
-    const clientName = proposal.title?.trim() || "عميل من عرض";
+    const clientName = proposal.title?.trim() || "Client from proposal";
+    const linkedServiceRows = await db
+      .select({ serviceId: proposalServices.serviceId })
+      .from(proposalServices)
+      .where(eq(proposalServices.proposalId, proposal.id));
+    const serviceIdsFromProposal = linkedServiceRows.map((r) => r.serviceId);
     const createClientResult = await createClient({
       companyName: clientName,
       status: "lead",
       contactPhone: "—",
+      serviceIds: serviceIdsFromProposal.length ? serviceIdsFromProposal : undefined,
     });
     if (!createClientResult.ok) {
       return { ok: false as const, error: "Failed to create client" };
     }
     const newClient = createClientResult.data!;
-    const projectName = proposal.title?.trim() || "مشروع من عرض";
+    const projectName = proposal.title?.trim() || "Project from proposal";
     const budget =
       proposal.myBid != null ? Number(proposal.myBid) : undefined;
     const createProjectResult = await createProject({
@@ -395,6 +444,16 @@ export async function convertToClient(proposalId: string) {
         status: "won",
       })
       .where(eq(proposals.id, parsed.data));
+    await logActivityWithActor({
+      entityType: "client",
+      entityId: newClient.id,
+      action: "proposal_converted",
+      metadata: {
+        proposalTitle: proposal.title?.trim() || "Proposal",
+        proposalId: proposal.id,
+        projectId: newProject.id,
+      },
+    });
     revalidatePath("/dashboard/proposals");
     revalidatePath("/dashboard/clients");
     revalidatePath(`/dashboard/clients/${newClient.id}`);

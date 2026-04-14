@@ -40,6 +40,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ThemeSelector } from "@/components/theme-selector";
+import { ClientTagLibrarySettings } from "@/components/modules/clients/client-tag-library-settings";
+import type { clientTags } from "@/lib/db/schema";
 
 type AgencyProfileValues = z.infer<typeof agencyProfileSchema>;
 type InvoiceDefaultsValues = z.infer<typeof invoiceDefaultsSchema>;
@@ -58,9 +60,15 @@ type SettingsContentProps = {
   initial: SettingsRow | null;
   adminEmail: string;
   isAdmin?: boolean;
+  initialClientTags?: (typeof clientTags.$inferSelect)[];
 };
 
-export function SettingsContent({ initial, adminEmail, isAdmin = false }: SettingsContentProps) {
+export function SettingsContent({
+  initial,
+  adminEmail,
+  isAdmin = false,
+  initialClientTags = [],
+}: SettingsContentProps) {
   const s = initial;
 
   // Section 1 — Agency Profile
@@ -183,6 +191,8 @@ export function SettingsContent({ initial, adminEmail, isAdmin = false }: Settin
 
   return (
     <div className="space-y-8">
+      <ClientTagLibrarySettings initialTags={initialClientTags} />
+
       {/* Section 0 — Appearance (Theme) */}
       <section>
         <div className="space-y-4">

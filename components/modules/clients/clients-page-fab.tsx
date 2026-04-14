@@ -5,14 +5,17 @@ import { ClientFormSheet } from "./client-form-sheet";
 
 export function ClientsPageFAB({
   serviceOptions,
+  tagOptions = [],
 }: {
   serviceOptions: { id: string; name: string; status: string }[];
+  tagOptions?: { id: string; name: string; color: string }[];
 }) {
   const t = useTranslations("clients");
   return (
     <ClientFormSheet
       asChild
       serviceOptions={serviceOptions}
+      tagOptions={tagOptions}
       trigger={
         <button
           type="button"

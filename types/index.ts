@@ -8,7 +8,7 @@ export const CLIENT_STATUS_LABELS: Record<string, string> = {
   active: "نشط",
   on_hold: "متوقف",
   completed: "مكتمل",
-  closed: "مغلق",
+  closed: "خسارة",
 } as const;
 
 // Tailwind classes for colored status badges (Lead=blue, Active=green, On Hold=amber, Completed=gray, Closed=red)
@@ -177,14 +177,14 @@ export const RECURRENCE_FREQUENCY_LABELS: Record<string, string> = {
 /** @deprecated Use PAYMENT_METHOD_LABELS (same values). */
 export const PAYMENT_METHOD_LABELS_EN = PAYMENT_METHOD_LABELS;
 
-// Proposal status (Arabic) — applied | viewed | shortlisted | won | lost | cancelled
+// Proposal status — applied | viewed | shortlisted | won | lost | cancelled
 export const PROPOSAL_STATUS_LABELS: Record<string, string> = {
-  applied: "مُقدَّم",
-  viewed: "تمت المشاهدة",
-  shortlisted: "في القائمة المختصرة",
-  won: "تم الفوز",
-  lost: "لم يُكسب",
-  cancelled: "ملغي",
+  applied: "Applied",
+  viewed: "Viewed",
+  shortlisted: "Shortlisted",
+  won: "Won",
+  lost: "Lost",
+  cancelled: "Cancelled",
 };
 
 export const PROPOSAL_STATUS_BADGE_CLASS: Record<string, string> = {

@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { getLocale, getTranslations } from "next-intl/server";
-import { getClientById, getClientServiceIds } from "@/actions/clients";
+import { getClientById, getClientRevenueStats, getClientServiceIds } from "@/actions/clients";
+import { getTags, getClientTags } from "@/actions/client-tags";
 import { getProjectsByClientId, getProjectTaskCounts } from "@/actions/projects";
 import { getInvoicesByClientId, getNextInvoiceNumber } from "@/actions/invoices";
 import { getSettings } from "@/actions/settings";
@@ -25,12 +26,18 @@ import {
 } from "@/components/ui/breadcrumb";
 import { CLIENT_STATUS_LABELS, CLIENT_STATUS_BADGE_CLASS } from "@/types";
 import { EditClientButton } from "@/components/modules/clients/edit-client-button";
+import { ClientTagsEditor } from "@/components/modules/clients/client-tags-editor";
 import { ClientOverview } from "@/components/modules/clients/client-overview";
 import { ClientProjectsTab } from "@/components/modules/clients/client-projects-tab";
 import { ClientInvoicesTab } from "@/components/modules/clients/client-invoices-tab";
 import { ClientExpensesTab } from "@/components/modules/clients/client-expenses-tab";
 import { FileManager } from "@/components/modules/files/file-manager";
+import { ClientDocumentsTab } from "@/components/modules/clients/client-documents-tab";
 import { getServices } from "@/actions/services";
+import { getClientTimeline } from "@/actions/activity-log";
+import { getClientUsers } from "@/actions/client-portal";
+import { ClientActivityTimeline } from "@/components/modules/clients/client-activity-timeline";
+import { ClientPortalAccess } from "@/components/modules/clients/client-portal-access";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -55,24 +62,36 @@ export default async function ClientDetailPage({ params }: Props) {
     invoicesResult,
     settingsResult,
     nextNumResult,
-    filesResult,
+    filesGeneralResult,
+    filesDocumentsResult,
     teamMembersResult,
     servicesResult,
     clientServicesResult,
     clientExpensesResult,
     clientCostSummaryResult,
+    clientRevenueResult,
+    tagsLibraryResult,
+    clientTagsResult,
+    clientTimelineResult,
+    portalUsersResult,
   ] = await Promise.all([
     getClientById(id),
     getProjectsByClientId(id),
     getInvoicesByClientId(id),
     getSettings(),
     getNextInvoiceNumber(),
-    getFiles({ clientId: id }),
+    getFiles({ clientId: id, clientFileScope: "general" }),
+    getFiles({ clientId: id, clientFileScope: "documents" }),
     getTeamMembers(),
     getServices(),
     getClientServiceIds(id),
     getExpensesByClientId(id),
     getClientCostSummary(id),
+    getClientRevenueStats(id),
+    getTags(),
+    getClientTags(id),
+    getClientTimeline(id, 150),
+    getClientUsers(id),
   ]);
 
   if (!clientResult.ok) {
@@ -110,24 +129,29 @@ export default async function ClientDetailPage({ params }: Props) {
       ? "فاتورة-001"
       : "INV-001";
 
-  let totalInvoiced = 0;
-  let totalPaid = 0;
-  let totalOutstanding = 0;
-  for (const inv of invoices) {
-    const t = Number(inv.total);
-    totalInvoiced += t;
-    if (inv.status === "paid") totalPaid += t;
-    else totalOutstanding += t;
-  }
+  const revenueStats = clientRevenueResult.ok ? clientRevenueResult.data : null;
+  const totalInvoiced = revenueStats?.totalInvoiced ?? 0;
+  const totalPaid = revenueStats?.totalPaid ?? 0;
+  const totalOutstanding = revenueStats?.totalOutstanding ?? 0;
 
   const clientsForDialog = [{ id: client.id, companyName: client.companyName, logoUrl: client.logoUrl }];
   const defaultCurrency = settings?.defaultCurrency ?? "SAR";
-  const initialFiles = filesResult.ok ? filesResult.data : [];
+  const initialFiles = filesGeneralResult.ok ? filesGeneralResult.data : [];
+  const initialDocuments = filesDocumentsResult.ok ? filesDocumentsResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
   const serviceOptions = servicesResult.ok ? servicesResult.data : [];
   const initialServiceIds = clientServicesResult.ok ? clientServicesResult.data : [];
   const clientExpenses = clientExpensesResult.ok ? clientExpensesResult.data : [];
   const clientCostSummary = clientCostSummaryResult.ok ? clientCostSummaryResult.data : null;
+  const tagOptions =
+    tagsLibraryResult.ok
+      ? tagsLibraryResult.data.map((t) => ({ id: t.id, name: t.name, color: t.color }))
+      : [];
+  const assignedTags = clientTagsResult.ok ? clientTagsResult.data : [];
+  const initialTagIds = assignedTags.map((t) => t.id);
+  const timelineItems = clientTimelineResult.ok ? clientTimelineResult.data : [];
+  const portalUsers = portalUsersResult.ok ? portalUsersResult.data : [];
+  const portalEnabled = Boolean(client.portalEnabled);
   const expenseDialogProjects = projects.map((p) => ({
     id: p.id,
     name: p.name,
@@ -166,6 +190,8 @@ export default async function ClientDetailPage({ params }: Props) {
             client={client}
             serviceOptions={serviceOptions}
             initialServiceIds={initialServiceIds}
+            tagOptions={tagOptions}
+            initialTagIds={initialTagIds}
           />
           <Button variant="outline" asChild>
             <Link href="/dashboard/clients">{t("backToList")}</Link>
@@ -184,6 +210,12 @@ export default async function ClientDetailPage({ params }: Props) {
             >
               {statusLabel}
             </Badge>
+            <ClientTagsEditor
+              clientId={id}
+              assignedTags={assignedTags}
+              allTags={tagOptions}
+              isRtl={isArabic}
+            />
           </div>
           <Avatar
             className={`size-20 shrink-0 ring-2 ring-border sm:self-center ${
@@ -204,16 +236,21 @@ export default async function ClientDetailPage({ params }: Props) {
 
       <Tabs defaultValue="overview" className="w-full">
         <TabsList
-          className="flex w-full flex-nowrap gap-1 overflow-x-auto p-1 whitespace-nowrap md:grid md:grid-cols-2 lg:grid-cols-4"
+          className="flex w-full flex-nowrap gap-1 overflow-x-auto p-1 whitespace-nowrap md:grid md:grid-cols-3 lg:grid-cols-6"
           dir={isArabic ? "rtl" : "ltr"}
         >
           <TabsTrigger value="overview">{t("tabOverview")}</TabsTrigger>
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
+          <TabsTrigger value="documents" className="whitespace-nowrap" lang="en">
+            Documents
+          </TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
           <TabsTrigger value="notes">{t("tabNotes")}</TabsTrigger>
+          <TabsTrigger value="portal">{t("tabPortal")}</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
-          <ClientOverview client={client} />
+          <ClientOverview client={client} revenue={revenueStats} />
+          <ClientActivityTimeline items={timelineItems} isRtl={isArabic} />
           <ClientProjectsTab
             clientId={id}
             clientName={client.companyName}
@@ -259,6 +296,13 @@ export default async function ClientDetailPage({ params }: Props) {
             clients={clientsForDialog}
           />
         </TabsContent>
+        <TabsContent value="documents" className="mt-4">
+          <Card>
+            <CardContent className="pt-6">
+              <ClientDocumentsTab clientId={client.id} initialDocuments={initialDocuments} />
+            </CardContent>
+          </Card>
+        </TabsContent>
         <TabsContent value="files" className="mt-4">
           <Card>
             <CardContent className="pt-6">
@@ -279,6 +323,14 @@ export default async function ClientDetailPage({ params }: Props) {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+        <TabsContent value="portal" className="mt-4">
+          <ClientPortalAccess
+            clientId={id}
+            initialPortalEnabled={portalEnabled}
+            initialUsers={portalUsers}
+            isRtl={isArabic}
+          />
         </TabsContent>
       </Tabs>
     </div>

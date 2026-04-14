@@ -14,12 +14,12 @@ import { cn } from "@/lib/utils";
 import { ChevronDown, Check } from "lucide-react";
 
 const PROPOSAL_STATUS_OPTIONS = [
-  { value: "applied" as const, label: "مُقدَّم", dotClass: "bg-blue-500" },
-  { value: "viewed" as const, label: "تمت المشاهدة", dotClass: "bg-amber-500" },
-  { value: "shortlisted" as const, label: "في القائمة المختصرة", dotClass: "bg-purple-500" },
-  { value: "won" as const, label: "تم الفوز", dotClass: "bg-green-500" },
-  { value: "lost" as const, label: "لم يُكسب", dotClass: "bg-red-500" },
-  { value: "cancelled" as const, label: "ملغي", dotClass: "bg-gray-500" },
+  { value: "applied" as const, label: PROPOSAL_STATUS_LABELS.applied, dotClass: "bg-blue-500" },
+  { value: "viewed" as const, label: PROPOSAL_STATUS_LABELS.viewed, dotClass: "bg-amber-500" },
+  { value: "shortlisted" as const, label: PROPOSAL_STATUS_LABELS.shortlisted, dotClass: "bg-purple-500" },
+  { value: "won" as const, label: PROPOSAL_STATUS_LABELS.won, dotClass: "bg-green-500" },
+  { value: "lost" as const, label: PROPOSAL_STATUS_LABELS.lost, dotClass: "bg-red-500" },
+  { value: "cancelled" as const, label: PROPOSAL_STATUS_LABELS.cancelled, dotClass: "bg-gray-500" },
 ] as const;
 
 type ProposalStatusBadgeProps = {
@@ -55,12 +55,12 @@ export function ProposalStatusBadge({
     setUpdating(false);
     if (result.ok) {
       const label = PROPOSAL_STATUS_LABELS[newStatus] ?? newStatus;
-      toast.success(`تم تحديث الحالة إلى ${label}`);
+      toast.success(`Status updated to ${label}`);
       onStatusChange?.(newStatus);
       router.refresh();
     } else {
       setOptimisticStatus(status);
-      toast.error(result.error ?? "فشل تحديث الحالة");
+      toast.error(result.error ?? "Could not update status");
     }
   };
 
@@ -80,11 +80,11 @@ export function ProposalStatusBadge({
           disabled={updating}
         >
           {label}
-          {isWon && " 🎉"}
+          {isWon ? " \uD83C\uDF89" : null}
           <ChevronDown className="h-3 w-3 opacity-70" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-52 p-1" align="end" dir="rtl" onClick={(e) => e.stopPropagation()}>
+      <PopoverContent className="w-52 p-1" align="end" dir="ltr" onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col">
           {PROPOSAL_STATUS_OPTIONS.map((opt) => (
             <button
@@ -93,13 +93,13 @@ export function ProposalStatusBadge({
               disabled={updating}
               onClick={() => handleSelect(opt.value)}
               className={cn(
-                "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-right text-sm hover:bg-accent",
+                "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
                 opt.value === displayStatus && "bg-accent font-medium"
               )}
             >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", opt.dotClass)} />
               {opt.label}
-              {opt.value === displayStatus && <Check className="me-0 h-4 w-4 shrink-0" />}
+              {opt.value === displayStatus && <Check className="ms-auto h-4 w-4 shrink-0" />}
             </button>
           ))}
         </div>

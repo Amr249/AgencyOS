@@ -6,6 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslations } from "next-intl";
 import { createClient, updateClient, type CreateClientInput } from "@/actions/clients";
+import { CLIENT_SOURCE_OPTIONS, clientTagBadgeClass } from "@/lib/client-metadata";
+import { CLIENT_LOSS_CATEGORIES } from "@/lib/client-loss";
+import { CLIENT_SOURCE_VALUES, type ClientSourceValue } from "@/lib/client-constants";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,9 +41,10 @@ import type { clients } from "@/lib/db/schema";
 import { useTranslateActionError } from "@/hooks/use-translate-action-error";
 import { isDbErrorKey } from "@/lib/i18n-errors";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { X } from "lucide-react";
 
-const formSchema = z.object({
+const baseFormSchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
   status: z.enum(["lead", "active", "on_hold", "completed", "closed"]),
   contactName: z.string().optional(),
@@ -49,12 +53,22 @@ const formSchema = z.object({
   website: z.string().url("Invalid URL").optional().or(z.literal("")),
   logoUrl: z.string().url().optional().or(z.literal("")),
   notes: z.string().optional(),
+  source: z.string().optional(),
+  sourceDetails: z.string().optional(),
+  tagIds: z.array(z.string().uuid()).optional(),
   serviceIds: z.array(z.string()).optional(),
+  lossCategory: z.enum(CLIENT_LOSS_CATEGORIES).optional(),
+  lossNotes: z.string().max(5000).optional(),
 });
 
-type FormValues = z.infer<typeof formSchema>;
+type FormValues = z.infer<typeof baseFormSchema>;
 
 type ClientRow = typeof clients.$inferSelect;
+
+/** Stable defaults — `param = []` creates a new array every render and retriggers effects. */
+const EMPTY_SERVICE_OPTIONS: { id: string; name: string; status: string }[] = [];
+const EMPTY_TAG_OPTIONS: { id: string; name: string; color: string }[] = [];
+const EMPTY_ID_LIST: string[] = [];
 
 type ClientFormSheetProps = {
   trigger?: React.ReactNode;
@@ -64,6 +78,8 @@ type ClientFormSheetProps = {
   asChild?: boolean;
   serviceOptions?: { id: string; name: string; status: string }[];
   initialServiceIds?: string[];
+  tagOptions?: { id: string; name: string; color: string }[];
+  initialTagIds?: string[];
 };
 
 export function ClientFormSheet({
@@ -72,8 +88,10 @@ export function ClientFormSheet({
   open,
   onOpenChange,
   asChild,
-  serviceOptions = [],
-  initialServiceIds = [],
+  serviceOptions = EMPTY_SERVICE_OPTIONS,
+  initialServiceIds = EMPTY_ID_LIST,
+  tagOptions = EMPTY_TAG_OPTIONS,
+  initialTagIds = EMPTY_ID_LIST,
 }: ClientFormSheetProps) {
   const t = useTranslations("clients");
   const tc = useTranslations("common");
@@ -85,6 +103,32 @@ export function ClientFormSheet({
   const setEffectiveOpen = isControlled ? onOpenChange : setDialogOpen;
 
   const [logoUploading, setLogoUploading] = React.useState(false);
+
+  const formSchema = React.useMemo(
+    () =>
+      baseFormSchema.superRefine((data, ctx) => {
+        const needsLoss =
+          data.status === "closed" && (!isEdit || (client?.status ?? "lead") !== "closed");
+        if (needsLoss) {
+          if (!data.lossCategory) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Required",
+              path: ["lossCategory"],
+            });
+          }
+          if (!data.lossNotes?.trim()) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Required",
+              path: ["lossNotes"],
+            });
+          }
+        }
+      }),
+    [isEdit, client?.status]
+  );
+
   const statusLabel = (status: FormValues["status"]) => {
     if (status === "lead") return t("statusLeadFull");
     if (status === "active") return tc("active");
@@ -100,8 +144,18 @@ export function ClientFormSheet({
     return "bg-red-500";
   };
 
+  function toSourcePayload(src: string | undefined): CreateClientInput["source"] {
+    const s = src?.trim();
+    if (!s) return null;
+    return (CLIENT_SOURCE_VALUES as readonly string[]).includes(s)
+      ? (s as ClientSourceValue)
+      : null;
+  }
+
+  const formResolver = React.useMemo(() => zodResolver(formSchema), [formSchema]);
+
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: formResolver,
     defaultValues: {
       companyName: client?.companyName ?? "",
       status: client?.status ?? "lead",
@@ -111,12 +165,22 @@ export function ClientFormSheet({
       website: client?.website ?? "",
       logoUrl: client?.logoUrl ?? "",
       notes: client?.notes ?? "",
+      source: client?.source ?? "",
+      sourceDetails: client?.sourceDetails ?? "",
+      tagIds: initialTagIds,
       serviceIds: initialServiceIds,
+      lossCategory: "not_serious",
+      lossNotes: "",
     },
   });
 
+  const initialTagIdsKey = initialTagIds.join("|");
+  const initialServiceIdsKey = initialServiceIds.join("|");
+  const clientKey = client?.id ?? "";
+
   React.useEffect(() => {
-    if (effectiveOpen && client) {
+    if (!effectiveOpen) return;
+    if (client) {
       form.reset({
         companyName: client.companyName,
         status: client.status,
@@ -126,9 +190,14 @@ export function ClientFormSheet({
         website: client.website ?? "",
         logoUrl: client.logoUrl ?? "",
         notes: client.notes ?? "",
-        serviceIds: initialServiceIds,
+        source: client.source ?? "",
+        sourceDetails: client.sourceDetails ?? "",
+        tagIds: [...initialTagIds],
+        serviceIds: [...initialServiceIds],
+        lossCategory: "not_serious",
+        lossNotes: "",
       });
-    } else if (effectiveOpen && !client) {
+    } else {
       form.reset({
         companyName: "",
         status: "lead",
@@ -138,10 +207,16 @@ export function ClientFormSheet({
         website: "",
         logoUrl: "",
         notes: "",
+        source: "",
+        sourceDetails: "",
+        tagIds: [],
         serviceIds: [],
+        lossCategory: "not_serious",
+        lossNotes: "",
       });
     }
-  }, [effectiveOpen, client, form, initialServiceIds]);
+    // Stable deps: avoid `form` (identity churn) and raw array refs (new [] each render).
+  }, [effectiveOpen, clientKey, initialTagIdsKey, initialServiceIdsKey]);
 
   async function onLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -164,6 +239,9 @@ export function ClientFormSheet({
   }
 
   async function onSubmit(values: FormValues) {
+    const mustSendLoss =
+      values.status === "closed" && (!isEdit || client?.status !== "closed");
+
     if (isEdit && client) {
       const result = await updateClient({
         id: client.id,
@@ -175,7 +253,18 @@ export function ClientFormSheet({
         website: values.website || undefined,
         logoUrl: values.logoUrl || undefined,
         notes: values.notes || undefined,
+        source: toSourcePayload(values.source),
+        sourceDetails: values.sourceDetails?.trim()
+          ? values.sourceDetails.trim()
+          : null,
+        tagIds: values.tagIds ?? [],
         serviceIds: values.serviceIds ?? [],
+        ...(mustSendLoss && values.lossCategory && values.lossNotes?.trim()
+          ? {
+              lossCategory: values.lossCategory,
+              lossNotes: values.lossNotes.trim(),
+            }
+          : {}),
       });
       if (result.ok) {
         toast.success(t("toastUpdated"));
@@ -195,7 +284,18 @@ export function ClientFormSheet({
         website: values.website || undefined,
         logoUrl: values.logoUrl || undefined,
         notes: values.notes || undefined,
+        source: toSourcePayload(values.source) ?? undefined,
+        sourceDetails: values.sourceDetails?.trim()
+          ? values.sourceDetails.trim()
+          : undefined,
+        tagIds: values.tagIds ?? [],
         serviceIds: values.serviceIds ?? [],
+        ...(mustSendLoss && values.lossCategory && values.lossNotes?.trim()
+          ? {
+              lossCategory: values.lossCategory,
+              lossNotes: values.lossNotes.trim(),
+            }
+          : {}),
       } as CreateClientInput);
       if (result.ok) {
         toast.success(t("toastCreated"));
@@ -207,6 +307,10 @@ export function ClientFormSheet({
       }
     }
   }
+
+   const watchedStatus = form.watch("status");
+  const showLossFields =
+    watchedStatus === "closed" && (!isEdit || (client?.status ?? "lead") !== "closed");
 
   const content = (
     <>
@@ -243,7 +347,7 @@ export function ClientFormSheet({
                       <SelectValue placeholder={t("statusPlaceholder")} />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent>
+                  <SelectContent position="popper" sideOffset={4}>
                     <SelectItem value="lead">
                       <span className="inline-flex items-center gap-2">
                         <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />
@@ -280,6 +384,59 @@ export function ClientFormSheet({
               </FormItem>
             )}
           />
+          {showLossFields ? (
+            <>
+              <FormField
+                control={form.control}
+                name="lossCategory"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("lossCategoryLabel")}</FormLabel>
+                    <FormControl>
+                      <RadioGroup
+                        onValueChange={field.onChange}
+                        value={field.value ?? "not_serious"}
+                        className="gap-3"
+                      >
+                        <div className="flex items-center gap-2">
+                          <RadioGroupItem value="not_serious" id="form-lost-ns" />
+                          <FormLabel htmlFor="form-lost-ns" className="font-normal">
+                            {t("lossCategoryNotSerious")}
+                          </FormLabel>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <RadioGroupItem value="rejected_work" id="form-lost-rw" />
+                          <FormLabel htmlFor="form-lost-rw" className="font-normal">
+                            {t("lossCategoryRejectedWork")}
+                          </FormLabel>
+                        </div>
+                      </RadioGroup>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="lossNotes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("lossWhyLabel")}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder={t("lossWhyPlaceholder")}
+                        className="resize-none"
+                        rows={4}
+                        {...field}
+                      />
+                    </FormControl>
+                    <p className="text-muted-foreground text-xs">{t("lossWhyHint")}</p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          ) : null}
           <FormField
             control={form.control}
             name="contactName"
@@ -334,6 +491,47 @@ export function ClientFormSheet({
           />
           <FormField
             control={form.control}
+            name="source"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Source</FormLabel>
+                <Select
+                  onValueChange={(v) => field.onChange(v === "__none" ? "" : v)}
+                  value={field.value ? field.value : "__none"}
+                >
+                  <FormControl>
+                    <SelectTrigger className="justify-start">
+                      <SelectValue placeholder="Select source" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent position="popper" sideOffset={4}>
+                    <SelectItem value="__none">— None —</SelectItem>
+                    {CLIENT_SOURCE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="sourceDetails"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Source Details</FormLabel>
+                <FormControl>
+                  <Input placeholder="Optional notes (referrer, campaign, link…)" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
             name="logoUrl"
             render={() => (
               <FormItem>
@@ -373,6 +571,91 @@ export function ClientFormSheet({
               </FormItem>
             )}
           />
+          <FormField
+            control={form.control}
+            name="tagIds"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Tags</FormLabel>
+                <FormControl>
+                  {tagOptions.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">
+                      No tags yet. Create tags under Settings → Client tags.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <Select
+                        value=""
+                        onValueChange={(v) => {
+                          const arr = field.value ?? [];
+                          if (v && !arr.includes(v)) {
+                            field.onChange([...arr, v]);
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Add tag" />
+                        </SelectTrigger>
+                        <SelectContent position="popper" sideOffset={4}>
+                          {tagOptions
+                            .filter((s) => !(field.value ?? []).includes(s.id))
+                            .map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                <span className="inline-flex items-center gap-2">
+                                  <span
+                                    className={`h-2 w-2 shrink-0 rounded-full ${
+                                      s.color === "blue"
+                                        ? "bg-blue-500"
+                                        : s.color === "green"
+                                          ? "bg-emerald-500"
+                                          : s.color === "red"
+                                            ? "bg-red-500"
+                                            : s.color === "purple"
+                                              ? "bg-purple-500"
+                                              : s.color === "orange"
+                                                ? "bg-orange-500"
+                                                : "bg-neutral-400"
+                                    }`}
+                                    aria-hidden
+                                  />
+                                  {s.name}
+                                </span>
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {(field.value ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {(field.value ?? []).map((id) => {
+                            const s = tagOptions.find((x) => x.id === id);
+                            return (
+                              <Badge
+                                key={id}
+                                variant="secondary"
+                                className={`gap-1 pr-1.5 pl-1.5 font-normal ${clientTagBadgeClass(s?.color)}`}
+                              >
+                                {s?.name ?? id}
+                                <button
+                                  type="button"
+                                  className="rounded-full p-0.5 hover:bg-black/10"
+                                  onClick={() =>
+                                    field.onChange((field.value ?? []).filter((x) => x !== id))
+                                  }
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
           {serviceOptions.length > 0 && (
             <FormField
               control={form.control}
@@ -394,7 +677,7 @@ export function ClientFormSheet({
                         <SelectTrigger>
                           <SelectValue placeholder="Add service" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent position="popper" sideOffset={4}>
                           {serviceOptions
                             .filter((s) => s.status === "active" || (field.value ?? []).includes(s.id))
                             .filter((s) => !(field.value ?? []).includes(s.id))
@@ -452,14 +735,14 @@ export function ClientFormSheet({
 
   if (isControlled) {
     return (
-      <Dialog open={effectiveOpen} onOpenChange={setEffectiveOpen}>
+      <Dialog modal={false} open={effectiveOpen} onOpenChange={setEffectiveOpen}>
         {dialogContent}
       </Dialog>
     );
   }
 
   return (
-    <Dialog open={effectiveOpen} onOpenChange={setEffectiveOpen}>
+    <Dialog modal={false} open={effectiveOpen} onOpenChange={setEffectiveOpen}>
       {trigger && (
         <DialogTrigger asChild={asChild}>
           {trigger}

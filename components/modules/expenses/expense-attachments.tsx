@@ -32,7 +32,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { createFile, deleteFile, type FileRow } from "@/actions/files";
+import { createFile, deleteFile } from "@/actions/files";
+import type { FileRow } from "@/lib/file-types";
 
 function formatDateSafe(value: Date | string | null | undefined): string {
   if (value == null) return "—";
@@ -154,6 +155,8 @@ export function ExpenseAttachments({ expenseId, initialFiles }: ExpenseAttachmen
           projectId: row.projectId,
           invoiceId: row.invoiceId,
           expenseId: row.expenseId,
+          documentType: row.documentType ?? null,
+          description: row.description ?? null,
           createdAt: row.createdAt,
         };
         setFiles((prev) => [newFile, ...prev]);

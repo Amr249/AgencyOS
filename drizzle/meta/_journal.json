@@ -29,6 +29,48 @@
       "when": 1774100000000,
       "tag": "0018_milestones_dates_team",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774200000000,
+      "tag": "0019_client_tags_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1774300000000,
+      "tag": "0020_win_loss_reasons",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1774400000000,
+      "tag": "0021_client_portal",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1774500000000,
+      "tag": "0022_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1774600000000,
+      "tag": "0023_proposals_skills_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1774700000000,
+      "tag": "0024_proposal_services",
+      "breakpoints": true
     }
   ]
 }

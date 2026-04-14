@@ -1,5 +1,6 @@
 import { getServerSession } from "next-auth";
 import { getSettings } from "@/actions/settings";
+import { getTags } from "@/actions/client-tags";
 import { authOptions } from "@/lib/auth";
 import { SettingsContent } from "./settings-content";
 
@@ -8,8 +9,9 @@ export const metadata = {
 };
 
 export default async function SettingsPage() {
-  const result = await getSettings();
+  const [result, tagsResult] = await Promise.all([getSettings(), getTags()]);
   const initial = result.ok ? result.data : null;
+  const initialTags = tagsResult.ok ? tagsResult.data : [];
   const adminEmail = process.env.ADMIN_EMAIL ?? "";
   const session = await getServerSession(authOptions);
   const isAdmin = session?.user?.role === "admin";
@@ -22,7 +24,12 @@ export default async function SettingsPage() {
           إدارة ملف الوكالة، إعدادات الفواتير، الهوية والحساب.
         </p>
       </div>
-      <SettingsContent initial={initial} adminEmail={adminEmail} isAdmin={isAdmin} />
+      <SettingsContent
+        initial={initial}
+        adminEmail={adminEmail}
+        isAdmin={isAdmin}
+        initialClientTags={initialTags}
+      />
     </div>
   );
 }

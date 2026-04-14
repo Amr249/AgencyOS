@@ -49,6 +49,8 @@ export function AppSidebar({
       icon: Building2,
       children: [
         { title: t("clients"), url: "/dashboard/clients", icon: IconBuilding },
+        { title: t("pipeline"), url: "/dashboard/crm/pipeline", icon: IconLayoutKanban },
+        { title: t("winLoss"), url: "/dashboard/crm/win-loss", icon: IconReport },
         { title: t("proposals"), url: "/dashboard/proposals", icon: IconFileText },
       ],
     },

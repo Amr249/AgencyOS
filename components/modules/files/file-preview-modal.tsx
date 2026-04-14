@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Download, Copy, Trash2, File } from "lucide-react";
-import type { FileRow } from "@/actions/files";
+import type { FileRow } from "@/lib/file-types";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
 
@@ -114,6 +114,9 @@ export function FilePreviewModal({
             <p className="text-muted-foreground text-xs">
               {formatSize(file.sizeBytes)} · {formatDateSafe(file.createdAt)}
             </p>
+            {file.description ? (
+              <p className="text-muted-foreground mt-2 text-xs leading-relaxed">{file.description}</p>
+            ) : null}
           </div>
         </DialogHeader>
 

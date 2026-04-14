@@ -12,7 +12,7 @@ type MonthPoint = { monthKey: string; monthLabel: string; won: number; total: nu
 
 const chartConfig = {
   ratio: {
-    label: "نسبة الفوز %",
+    label: "Win rate %",
     color: "var(--chart-1)",
   },
 } satisfies ChartConfig;
@@ -29,13 +29,13 @@ export function ProposalsWinRateChart({ data }: { data: MonthPoint[] }) {
   if (!hasData) {
     return (
       <p className="text-muted-foreground flex min-h-48 items-center justify-center text-sm">
-        لا توجد بيانات لعرضها.
+        No data to display.
       </p>
     );
   }
 
   return (
-    <ChartContainer config={chartConfig} className="aspect-auto h-48 w-full" dir="rtl">
+    <ChartContainer config={chartConfig} className="aspect-auto h-48 w-full" dir="ltr">
       <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="month" tickLine={false} tickMargin={8} axisLine={false} />

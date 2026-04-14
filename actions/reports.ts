@@ -16,6 +16,7 @@ import {
   settings,
 } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { rollupRevenueByClient } from "@/lib/client-revenue-stats";
 import {
   startOfWeek,
   endOfWeek,
@@ -1279,49 +1280,58 @@ export async function getMonthlyAreaData(
   });
 }
 
-/** Top N clients by total paid (all time). */
+/** Top N clients by collected revenue (payments + legacy paid-without-rows), all time, non-deleted clients only. */
 export async function getTopClientsByRevenue(limit: number): Promise<TopClientRow[]> {
-  const rows = await db
+  const invRows = await db
     .select({
+      id: invoices.id,
       clientId: invoices.clientId,
       total: invoices.total,
+      status: invoices.status,
+      issueDate: invoices.issueDate,
       clientName: clients.companyName,
       logoUrl: clients.logoUrl,
     })
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
-    .where(eq(invoices.status, "paid"));
+    .where(isNull(clients.deletedAt));
 
-  const byClient = new Map<string, { clientName: string | null; logoUrl: string | null; total: number; count: number }>();
-  for (const r of rows) {
-    const id = r.clientId;
-    const existing = byClient.get(id);
-    const totalNum = Number(r.total);
-    if (!existing) {
-      byClient.set(id, {
-        clientName: r.clientName,
-        logoUrl: r.logoUrl,
-        total: totalNum,
-        count: 1,
-      });
-    } else {
-      existing.total += totalNum;
-      existing.count += 1;
+  if (invRows.length === 0) return [];
+
+  const invoiceIds = invRows.map((r) => r.id);
+  const payRows = await db
+    .select({
+      invoiceId: payments.invoiceId,
+      paid: sum(payments.amount),
+    })
+    .from(payments)
+    .where(inArray(payments.invoiceId, invoiceIds))
+    .groupBy(payments.invoiceId);
+  const payMap = new Map(payRows.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
+
+  const forRollup = invRows.map(({ clientName: _n, logoUrl: _l, ...inv }) => inv);
+  const rollup = rollupRevenueByClient(forRollup, payMap);
+
+  const clientMeta = new Map<string, { clientName: string | null; logoUrl: string | null }>();
+  for (const r of invRows) {
+    if (!clientMeta.has(r.clientId)) {
+      clientMeta.set(r.clientId, { clientName: r.clientName, logoUrl: r.logoUrl });
     }
   }
 
-  const sorted = Array.from(byClient.entries())
-    .map(([clientId, v]) => ({
-      clientId,
-      clientName: v.clientName,
-      logoUrl: v.logoUrl,
-      totalPaid: v.total,
-      invoiceCount: v.count,
-    }))
+  return [...rollup.entries()]
+    .map(([clientId, v]) => {
+      const meta = clientMeta.get(clientId);
+      return {
+        clientId,
+        clientName: meta?.clientName ?? null,
+        logoUrl: meta?.logoUrl ?? null,
+        totalPaid: v.totalPaid,
+        invoiceCount: v.invoiceCount,
+      };
+    })
     .sort((a, b) => b.totalPaid - a.totalPaid)
     .slice(0, limit);
-
-  return sorted;
 }
 
 /** Last N invoices by created_at DESC. */

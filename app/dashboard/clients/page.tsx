@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
-import { getClientsList, getArchivedClientsList, getServiceIdsByClientIds } from "@/actions/clients";
+import { getAllClientsWithStats, getServiceIdsByClientIds } from "@/actions/clients";
+import { getTags } from "@/actions/client-tags";
 import { getServices } from "@/actions/services";
 import ClientsDataTable from "./data-table";
 import { ClientFormSheet } from "@/components/modules/clients/client-form-sheet";
@@ -26,14 +27,14 @@ export default async function ClientsPage({ searchParams }: PageProps) {
   const t = await getTranslations("clients");
   const tErr = await getTranslations("errors");
 
-  const [activeResult, archivedResult, servicesResult] = await Promise.all([
-    getClientsList(),
-    getArchivedClientsList(),
+  const [clientsStatsResult, servicesResult, tagsResult] = await Promise.all([
+    getAllClientsWithStats(),
     getServices(),
+    getTags(),
   ]);
 
-  if (!activeResult.ok || !archivedResult.ok) {
-    const error = !activeResult.ok ? activeResult.error : archivedResult.error;
+  if (!clientsStatsResult.ok) {
+    const error = clientsStatsResult.error;
     const errStr = typeof error === "string" ? error : "";
     const displayError = isDbErrorKey(errStr) ? tErr(errStr) : errStr;
     return (
@@ -46,9 +47,12 @@ export default async function ClientsPage({ searchParams }: PageProps) {
     );
   }
 
-  const activeClients = activeResult.data;
-  const archivedClients = archivedResult.data;
+  const activeClients = clientsStatsResult.data.active;
+  const archivedClients = clientsStatsResult.data.archived;
   const serviceOptions = servicesResult.ok ? servicesResult.data : [];
+  const tagOptions = tagsResult.ok
+    ? tagsResult.data.map((t) => ({ id: t.id, name: t.name, color: t.color }))
+    : [];
   const clientServiceMapResult = await getServiceIdsByClientIds(
     [...activeClients, ...archivedClients].map((c) => c.id)
   );
@@ -74,6 +78,7 @@ export default async function ClientsPage({ searchParams }: PageProps) {
           }
           asChild
           serviceOptions={serviceOptions}
+          tagOptions={tagOptions}
         />
       </div>
 
@@ -106,8 +111,9 @@ export default async function ClientsPage({ searchParams }: PageProps) {
         selectedTab={selectedTab}
         serviceOptions={serviceOptions}
         clientServiceMap={clientServiceMap}
+        tagOptions={tagOptions}
       />
-      <ClientsPageFAB serviceOptions={serviceOptions} />
+      <ClientsPageFAB serviceOptions={serviceOptions} tagOptions={tagOptions} />
     </div>
   );
 }

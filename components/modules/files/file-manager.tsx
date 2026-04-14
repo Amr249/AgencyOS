@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
 import { Upload, FileText, File, Download, Copy, Trash2, FolderOpen } from "lucide-react";
-import { getFiles, createFile, deleteFile, type FileRow } from "@/actions/files";
+import { getFiles, createFile, deleteFile } from "@/actions/files";
+import type { FileRow } from "@/lib/file-types";
 import { FilePreviewModal } from "@/components/modules/files/file-preview-modal";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
@@ -155,6 +156,8 @@ export function FileManager({ clientId, projectId, initialFiles }: FileManagerPr
           projectId: row.projectId,
           invoiceId: row.invoiceId,
           expenseId: row.expenseId,
+          documentType: row.documentType ?? null,
+          description: row.description ?? null,
           createdAt: row.createdAt,
         };
         toast.success("File uploaded successfully.");

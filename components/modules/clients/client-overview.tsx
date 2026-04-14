@@ -1,7 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { getLocale, getTranslations } from "next-intl/server";
+import type { ClientRevenueStats } from "@/actions/clients";
 import type { clients } from "@/lib/db/schema";
 import type { AddressJson } from "@/lib/db/schema";
+import { clientSourceLabel } from "@/lib/client-metadata";
+import { formatAmount } from "@/lib/utils";
 
 type ClientRow = typeof clients.$inferSelect;
 
@@ -18,7 +22,22 @@ function toWhatsAppLink(phone?: string | null): string | null {
   return `https://wa.me/${digits}`;
 }
 
-export async function ClientOverview({ client }: { client: ClientRow }) {
+function StatMoney({ value }: { value: number }) {
+  return (
+    <span className="inline-flex items-center gap-1 font-semibold tabular-nums text-neutral-900">
+      {formatAmount(String(value.toFixed(2)))}
+      <SarCurrencyIcon className="size-3.5 shrink-0 text-muted-foreground" />
+    </span>
+  );
+}
+
+export async function ClientOverview({
+  client,
+  revenue,
+}: {
+  client: ClientRow;
+  revenue: ClientRevenueStats | null;
+}) {
   const locale = await getLocale();
   const t = await getTranslations("clients");
   const isArabic = locale === "ar";
@@ -27,6 +46,54 @@ export async function ClientOverview({ client }: { client: ClientRow }) {
 
   return (
     <div className="grid gap-4 md:grid-cols-2" dir={isArabic ? "rtl" : "ltr"}>
+      {revenue ? (
+        <Card className="md:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className={isArabic ? "text-right" : "text-left"}>
+              {t("revenueSectionTitle")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className={isArabic ? "text-right" : "text-left"}>
+                <p className="text-muted-foreground text-xs">{t("lifetimeValueLabel")}</p>
+                <StatMoney value={revenue.lifetimeValue} />
+              </div>
+              <div className={isArabic ? "text-right" : "text-left"}>
+                <p className="text-muted-foreground text-xs">{t("totalProjectsLabel")}</p>
+                <p className="text-lg font-semibold tabular-nums text-neutral-900">
+                  {revenue.projectCount}
+                </p>
+              </div>
+              <div className={isArabic ? "text-right" : "text-left"}>
+                <p className="text-muted-foreground text-xs">{t("avgProjectValueLabel")}</p>
+                <StatMoney value={revenue.avgProjectValue} />
+              </div>
+              <div className={isArabic ? "text-right" : "text-left"}>
+                <p className="text-muted-foreground text-xs">{t("outstandingLabel")}</p>
+                <StatMoney value={revenue.totalOutstanding} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      <Card>
+        <CardHeader>
+          <CardTitle className={isArabic ? "text-right" : "text-left"}>Source</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm">
+          <div className={`w-full ${isArabic ? "text-right" : "text-left"}`}>
+            <p className="text-muted-foreground text-xs">Source</p>
+            <p className="font-medium">{clientSourceLabel(client.source)}</p>
+          </div>
+          <div className={`w-full ${isArabic ? "text-right" : "text-left"}`}>
+            <p className="text-muted-foreground text-xs">Source Details</p>
+            <p className="font-medium whitespace-pre-wrap">
+              {client.sourceDetails?.trim() ? client.sourceDetails.trim() : "—"}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle className={isArabic ? "text-right" : "text-left"}>

@@ -978,6 +978,7 @@ export async function markAsPaid(input: z.infer<typeof markAsPaidSchema>) {
         invoiceNumber: row.invoiceNumber,
         total: row.total,
         projectId: row.projectId,
+        clientId: row.clientId,
       },
     });
     revalidatePath("/dashboard/invoices");

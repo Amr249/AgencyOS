@@ -26,6 +26,7 @@ import { createRecurringExpense, updateRecurringExpense } from "@/actions/recurr
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { ExpenseCategory } from "@/actions/expenses";
 import { enUS } from "date-fns/locale";
+import { formatCalendarDate } from "@/lib/calendar-date";
 
 type RecurrenceFrequency = "weekly" | "monthly" | "quarterly" | "yearly";
 
@@ -170,7 +171,7 @@ export function NewRecurringExpenseDialog({
 
     setIsSubmitting(true);
 
-    const nextDueStr = nextDueDate.toISOString().split("T")[0]!;
+    const nextDueStr = formatCalendarDate(nextDueDate);
     const trimmedNotes = notes.trim();
     const vendorLogoPayload =
       category === "software" && vendorLogoUrl.trim() ? vendorLogoUrl.trim() : null;

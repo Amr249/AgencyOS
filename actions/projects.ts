@@ -123,7 +123,7 @@ export async function updateProject(input: UpdateProjectInput) {
       entityType: "project",
       entityId: id,
       action: "updated",
-      metadata: { name: row.name },
+      metadata: { name: row.name, status: row.status, clientId: row.clientId },
     });
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${id}`);

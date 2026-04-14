@@ -40,6 +40,7 @@ import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { Cross2Icon } from "@radix-ui/react-icons";
 import { Lock } from "lucide-react";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
+import { formatCalendarDate } from "@/lib/calendar-date";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -118,7 +119,7 @@ type NewInvoiceDialogProps = {
 function getDefaultDueDate(paymentTerms: number) {
   const d = new Date();
   d.setDate(d.getDate() + paymentTerms);
-  return d.toISOString().slice(0, 10);
+  return formatCalendarDate(d);
 }
 
 export function NewInvoiceDialog({
@@ -147,7 +148,7 @@ export function NewInvoiceDialog({
       clientId: defaultClientId ?? "",
       projectIds: [] as string[],
       invoiceNumber: nextInvoiceNumber,
-      issueDate: new Date().toISOString().slice(0, 10),
+      issueDate: formatCalendarDate(new Date()),
       notes: defaultNotes,
       lineItems: [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0 }],
     },
@@ -192,7 +193,7 @@ export function NewInvoiceDialog({
       clientId: defaultClientId ?? "",
       projectIds: milestonePrefill ? [milestonePrefill.projectId] : [],
       invoiceNumber: nextInvoiceNumber,
-      issueDate: new Date().toISOString().slice(0, 10),
+      issueDate: formatCalendarDate(new Date()),
       notes: defaultNotes,
       lineItems: milestonePrefill
         ? [

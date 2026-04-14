@@ -2,11 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { eq, isNull, and, desc } from "drizzle-orm";
+import { eq, isNull, isNotNull, and, desc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { files } from "@/lib/db";
+import { files, projects, invoices } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { logActivityWithActor } from "@/actions/activity-log";
 import { getImageKitClient } from "@/lib/imagekit";
+import { FILE_DOCUMENT_TYPES, type FileRow } from "@/lib/file-types";
 
 const createFileSchema = z.object({
   name: z.string().min(1),
@@ -19,6 +21,8 @@ const createFileSchema = z.object({
   projectId: z.string().uuid().nullable().optional(),
   invoiceId: z.string().uuid().nullable().optional(),
   expenseId: z.string().uuid().nullable().optional(),
+  documentType: z.enum(FILE_DOCUMENT_TYPES).nullable().optional(),
+  description: z.string().max(5000).nullable().optional(),
 });
 
 const getFilesSchema = z
@@ -27,6 +31,8 @@ const getFilesSchema = z
     projectId: z.string().uuid().optional(),
     invoiceId: z.string().uuid().optional(),
     expenseId: z.string().uuid().optional(),
+    /** When `clientId` is set: `general` = Files tab (no document type); `documents` = Documents tab. */
+    clientFileScope: z.enum(["general", "documents"]).optional(),
   })
   .refine(
     (d) =>
@@ -34,28 +40,17 @@ const getFilesSchema = z
     {
       message: "Provide clientId, projectId, invoiceId, or expenseId",
     }
-  );
-
-export type FileRow = {
-  id: string;
-  name: string;
-  imagekitFileId: string;
-  imagekitUrl: string;
-  filePath: string;
-  mimeType: string | null;
-  sizeBytes: number | null;
-  clientId: string | null;
-  projectId: string | null;
-  invoiceId: string | null;
-  expenseId: string | null;
-  createdAt: Date;
-};
+  )
+  .refine((d) => d.clientFileScope == null || d.clientId != null, {
+    message: "clientFileScope is only valid with clientId",
+  });
 
 export async function getFiles(params: {
   clientId?: string;
   projectId?: string;
   invoiceId?: string;
   expenseId?: string;
+  clientFileScope?: "general" | "documents";
 }) {
   const parsed = getFilesSchema.safeParse(params);
   if (!parsed.success) {
@@ -65,10 +60,18 @@ export async function getFiles(params: {
       data: [] as FileRow[],
     };
   }
-  const { clientId, projectId, invoiceId, expenseId } = parsed.data;
+  const { clientId, projectId, invoiceId, expenseId, clientFileScope } = parsed.data;
   try {
     const conditions = [isNull(files.deletedAt)];
-    if (clientId != null) conditions.push(eq(files.clientId, clientId));
+    if (clientId != null) {
+      conditions.push(eq(files.clientId, clientId));
+      const scope = clientFileScope ?? "general";
+      if (scope === "documents") {
+        conditions.push(isNotNull(files.documentType));
+      } else {
+        conditions.push(isNull(files.documentType));
+      }
+    }
     if (projectId != null) conditions.push(eq(files.projectId, projectId));
     if (invoiceId != null) conditions.push(eq(files.invoiceId, invoiceId));
     if (expenseId != null) conditions.push(eq(files.expenseId, expenseId));
@@ -86,6 +89,8 @@ export async function getFiles(params: {
         projectId: files.projectId,
         invoiceId: files.invoiceId,
         expenseId: files.expenseId,
+        documentType: files.documentType,
+        description: files.description,
         createdAt: files.createdAt,
       })
       .from(files)
@@ -104,6 +109,8 @@ export async function getFiles(params: {
       projectId: r.projectId,
       invoiceId: r.invoiceId,
       expenseId: r.expenseId,
+      documentType: r.documentType ?? null,
+      description: r.description ?? null,
       createdAt: r.createdAt,
     }));
 
@@ -142,6 +149,36 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
 
     if (!row) return { ok: false as const, error: { _form: ["Failed to create file record"] } };
 
+    let clientIdForLog = row.clientId;
+    if (!clientIdForLog && row.projectId) {
+      const [p] = await db
+        .select({ clientId: projects.clientId })
+        .from(projects)
+        .where(eq(projects.id, row.projectId))
+        .limit(1);
+      clientIdForLog = p?.clientId ?? null;
+    }
+    if (!clientIdForLog && row.invoiceId) {
+      const [inv] = await db
+        .select({ clientId: invoices.clientId })
+        .from(invoices)
+        .where(eq(invoices.id, row.invoiceId))
+        .limit(1);
+      clientIdForLog = inv?.clientId ?? null;
+    }
+    if (clientIdForLog) {
+      await logActivityWithActor({
+        entityType: "file",
+        entityId: row.id,
+        action: "uploaded",
+        metadata: {
+          name: row.name,
+          clientId: clientIdForLog,
+          projectId: row.projectId,
+        },
+      });
+    }
+
     const data: FileRow = {
       id: row.id,
       name: row.name,
@@ -154,6 +191,8 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       projectId: row.projectId,
       invoiceId: row.invoiceId ?? null,
       expenseId: row.expenseId ?? null,
+      documentType: row.documentType ?? null,
+      description: row.description ?? null,
       createdAt: row.createdAt,
     };
 

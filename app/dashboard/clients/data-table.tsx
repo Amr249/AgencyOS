@@ -43,20 +43,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ClientFormSheet } from "@/components/modules/clients/client-form-sheet";
+import { ClientLostDialog } from "@/components/modules/crm/client-lost-dialog";
+import { markClientLost } from "@/actions/win-loss";
 import {
   archiveClient,
   unarchiveClient,
   deleteClient,
   deleteClients,
   updateClient,
+  type ClientWithStatsRow,
 } from "@/actions/clients";
 import { toast } from "sonner";
-import type { clients } from "@/lib/db/schema";
 import { useTranslateActionError } from "@/hooks/use-translate-action-error";
 import { isDbErrorKey } from "@/lib/i18n-errors";
 import { listSavedViews, removeSavedView, upsertSavedView } from "@/lib/table-views";
+import { formatAmount } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { CLIENT_SOURCE_OPTIONS, clientTagBadgeClass } from "@/lib/client-metadata";
 
-type ClientRow = typeof clients.$inferSelect & { projectCount: number };
+type ClientRow = ClientWithStatsRow;
 
 type ClientsDataTableProps = {
   activeClients: ClientRow[];
@@ -64,6 +69,7 @@ type ClientsDataTableProps = {
   selectedTab?: string;
   serviceOptions: { id: string; name: string; status: string }[];
   clientServiceMap: Record<string, { id: string; name: string; status: string }[]>;
+  tagOptions?: { id: string; name: string; color: string }[];
 };
 
 function ClientAvatar({ name, logoUrl }: { name: string; logoUrl?: string | null }) {
@@ -161,6 +167,8 @@ function ClientStatusCell({ client }: { client: ClientRow }) {
   const router = useRouter();
   const translateErr = useTranslateActionError();
   const [pending, setPending] = React.useState(false);
+  const [lostOpen, setLostOpen] = React.useState(false);
+  const [markLostPending, setMarkLostPending] = React.useState(false);
 
   function labelFor(status: ClientRow["status"]): string {
     if (status === "active") return tc("active");
@@ -199,35 +207,76 @@ function ClientStatusCell({ client }: { client: ClientRow }) {
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild disabled={pending}>
-        <button
-          type="button"
-          className="inline-flex max-w-full cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none ring-offset-2 transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:cursor-wait disabled:opacity-60"
-          aria-label={t("changeStatusAria")}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <StatusPill status={client.status} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-40" onClick={(e) => e.stopPropagation()}>
-        {CLIENT_STATUSES.map((s) => (
-          <DropdownMenuItem
-            key={s}
-            disabled={s === client.status || pending}
-            onSelect={() => void apply(s)}
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild disabled={pending || markLostPending}>
+          <button
+            type="button"
+            className="inline-flex max-w-full cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none ring-offset-2 transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:cursor-wait disabled:opacity-60"
+            aria-label={t("changeStatusAria")}
+            onClick={(e) => e.stopPropagation()}
           >
-            <span className="flex w-full items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${dotClassFor(s)}`} aria-hidden />
-                {labelFor(s)}
+            <StatusPill status={client.status} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40" onClick={(e) => e.stopPropagation()}>
+          {CLIENT_STATUSES.map((s) => (
+            <DropdownMenuItem
+              key={s}
+              disabled={s === client.status || pending || markLostPending}
+              onSelect={(e) => {
+                if (s === "closed") {
+                  e.preventDefault();
+                  setLostOpen(true);
+                  return;
+                }
+                void apply(s);
+              }}
+            >
+              <span className="flex w-full items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${dotClassFor(s)}`} aria-hidden />
+                  {labelFor(s)}
+                </span>
+                {s === client.status ? <Check className="h-4 w-4 shrink-0 opacity-60" aria-hidden /> : null}
               </span>
-              {s === client.status ? <Check className="h-4 w-4 shrink-0 opacity-60" aria-hidden /> : null}
-            </span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ClientLostDialog
+        key={client.id}
+        open={lostOpen}
+        onOpenChange={setLostOpen}
+        companyName={client.companyName}
+        pending={markLostPending}
+        onConfirm={async ({ lossCategory, notes }) => {
+          if (!notes.trim()) {
+            toast.error(t("lossNotesRequired"));
+            return;
+          }
+          setMarkLostPending(true);
+          try {
+            const res = await markClientLost({
+              clientId: client.id,
+              lossCategory,
+              notes: notes.trim(),
+            });
+            if (!res.ok) {
+              const e = res.error as Record<string, string[] | undefined>;
+              const msg = e._form?.[0] ?? Object.values(e).flat()[0] ?? tc("error");
+              toast.error(translateErr(msg));
+              return;
+            }
+            toast.success(t("toastUpdated"));
+            setLostOpen(false);
+            router.refresh();
+          } finally {
+            setMarkLostPending(false);
+          }
+        }}
+      />
+    </>
   );
 }
 
@@ -237,6 +286,7 @@ export default function ClientsDataTable({
   selectedTab = "all",
   serviceOptions,
   clientServiceMap,
+  tagOptions = [],
 }: ClientsDataTableProps) {
   const router = useRouter();
   const locale = useLocale();
@@ -258,10 +308,14 @@ export default function ClientsDataTable({
     | "contact_desc"
     | "projects_asc"
     | "projects_desc"
+    | "revenue_asc"
+    | "revenue_desc"
     | "status_asc"
     | "status_desc"
   >("newest");
   const [statusFilters, setStatusFilters] = React.useState<ClientRow["status"][]>([]);
+  const [tagFilter, setTagFilter] = React.useState("all");
+  const [sourceFilter, setSourceFilter] = React.useState("all");
   const [savedViews, setSavedViews] = React.useState(() => listSavedViews("clients-table"));
   const [selectedViewId, setSelectedViewId] = React.useState("none");
 
@@ -301,6 +355,12 @@ export default function ClientsDataTable({
     if (statusFilterSet.size > 0) {
       rows = rows.filter((c) => statusFilterSet.has(c.status));
     }
+    if (tagFilter !== "all") {
+      rows = rows.filter((c) => c.tags.some((tg) => tg.id === tagFilter));
+    }
+    if (sourceFilter !== "all") {
+      rows = rows.filter((c) => (c.source ?? "") === sourceFilter);
+    }
     rows.sort((a, b) => {
       if (sortBy === "name") return (a.companyName ?? "").localeCompare(b.companyName ?? "", sortLocale);
       if (sortBy === "contact_asc")
@@ -309,6 +369,8 @@ export default function ClientsDataTable({
         return (b.contactName ?? "").localeCompare(a.contactName ?? "", sortLocale);
       if (sortBy === "projects_asc") return a.projectCount - b.projectCount;
       if (sortBy === "projects_desc") return b.projectCount - a.projectCount;
+      if (sortBy === "revenue_asc") return a.totalInvoiced - b.totalInvoiced;
+      if (sortBy === "revenue_desc") return b.totalInvoiced - a.totalInvoiced;
       if (sortBy === "status_asc") return statusRank[a.status] - statusRank[b.status];
       if (sortBy === "status_desc") return statusRank[b.status] - statusRank[a.status];
       const aTime = new Date(a.createdAt).getTime();
@@ -316,7 +378,7 @@ export default function ClientsDataTable({
       return sortBy === "oldest" ? aTime - bTime : bTime - aTime;
     });
     return rows;
-  }, [baseClients, search, sortBy, sortLocale, statusFilterSet, statusRank]);
+  }, [baseClients, search, sortBy, sortLocale, statusFilterSet, statusRank, tagFilter, sourceFilter]);
 
   const visibleIdKey = visibleClients.map((c) => c.id).join("\0");
   React.useEffect(() => {
@@ -497,6 +559,38 @@ export default function ClientsDataTable({
               className="w-full bg-transparent text-sm text-neutral-700 outline-none placeholder:text-neutral-400"
             />
           </div>
+          <Select value={tagFilter} onValueChange={setTagFilter}>
+            <SelectTrigger
+              size="sm"
+              className="h-8 w-auto min-w-36 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25"
+            >
+              <SelectValue placeholder="Tag" />
+            </SelectTrigger>
+            <SelectContent align="start" position="popper" sideOffset={4}>
+              <SelectItem value="all">All tags</SelectItem>
+              {tagOptions.map((tg) => (
+                <SelectItem key={tg.id} value={tg.id}>
+                  {tg.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger
+              size="sm"
+              className="h-8 w-auto min-w-40 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25"
+            >
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent align="start" position="popper" sideOffset={4}>
+              <SelectItem value="all">All sources</SelectItem>
+              {CLIENT_SOURCE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select
             value={sortBy}
             onValueChange={(v) =>
@@ -509,6 +603,8 @@ export default function ClientsDataTable({
                   | "contact_desc"
                   | "projects_asc"
                   | "projects_desc"
+                  | "revenue_asc"
+                  | "revenue_desc"
                   | "status_asc"
                   | "status_desc"
               )
@@ -608,7 +704,7 @@ export default function ClientsDataTable({
 
       <div className="overflow-hidden rounded-xl border border-neutral-100 bg-white">
         <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[860px] border-collapse" dir={tableDir}>
+          <table className="w-full min-w-[960px] border-collapse" dir={tableDir}>
           <thead className="border-b border-neutral-100 bg-neutral-50">
             <tr>
               <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
@@ -637,6 +733,11 @@ export default function ClientsDataTable({
                 </button>
               </th>
               <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
+                <button type="button" onClick={() => toggleSort("revenue_asc", "revenue_desc")} className="inline-flex items-center gap-1">
+                  {t("tableInvoiced")} {getSortIcon("revenue_asc", "revenue_desc")}
+                </button>
+              </th>
+              <th className="px-4 py-2.5 text-start text-xs font-medium text-neutral-400">
                 <button type="button" onClick={() => toggleSort("oldest", "newest")} className="inline-flex items-center gap-1">
                   {t("tableAddedDate")} {getSortIcon("oldest", "newest")}
                 </button>
@@ -652,7 +753,7 @@ export default function ClientsDataTable({
           <tbody>
             {visibleClients.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-sm text-neutral-400" colSpan={7}>
+                <td className="px-4 py-8 text-center text-sm text-neutral-400" colSpan={8}>
                   {t("noMatchingRows")}
                 </td>
               </tr>
@@ -674,9 +775,29 @@ export default function ClientsDataTable({
                   </td>
                   <td className="px-4 py-3 text-start">
                     <Link href={`/dashboard/clients/${client.id}`}>
-                      <div className="flex items-center gap-2.5">
-                        <ClientAvatar name={client.companyName} logoUrl={client.logoUrl} />
-                        <div className="text-sm font-medium text-neutral-900">{client.companyName}</div>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2.5">
+                          <ClientAvatar name={client.companyName} logoUrl={client.logoUrl} />
+                          <div className="text-sm font-medium text-neutral-900">{client.companyName}</div>
+                        </div>
+                        {client.tags.length > 0 ? (
+                          <div className="flex max-w-[220px] flex-wrap gap-1 ps-10">
+                            {client.tags.slice(0, 3).map((tg) => (
+                              <Badge
+                                key={tg.id}
+                                variant="secondary"
+                                className={`px-1.5 py-0 text-[10px] font-normal leading-tight ${clientTagBadgeClass(tg.color)}`}
+                              >
+                                {tg.name}
+                              </Badge>
+                            ))}
+                            {client.tags.length > 3 ? (
+                              <span className="text-muted-foreground self-center text-[10px]">
+                                +{client.tags.length - 3}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </Link>
                   </td>
@@ -687,6 +808,9 @@ export default function ClientsDataTable({
                   <td className="px-4 py-3 text-start text-sm text-neutral-400">
                     {client.projectCount}{" "}
                     {t("projectsCount")}
+                  </td>
+                  <td className="px-4 py-3 text-start text-sm tabular-nums text-neutral-800">
+                    {formatAmount(String(client.totalInvoiced.toFixed(2)))}
                   </td>
                   <td className="px-4 py-3 text-start text-sm text-neutral-400">
                     {new Date(client.createdAt).toLocaleDateString(dateLocale, {
@@ -810,6 +934,8 @@ export default function ClientsDataTable({
         onOpenChange={(open) => !open && setEditingClient(null)}
         client={editingClient ?? undefined}
         serviceOptions={serviceOptions}
+        tagOptions={tagOptions}
+        initialTagIds={editingClient ? editingClient.tags.map((x) => x.id) : []}
         initialServiceIds={
           editingClient ? (clientServiceMap[editingClient.id] ?? []).map((s) => s.id) : []
         }

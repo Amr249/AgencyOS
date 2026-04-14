@@ -72,8 +72,15 @@ export type TableColumnFilterMeta =
       allLabel?: string;
     };
 
+/** Optional layout classes merged into header/cells (e.g. `min-w-[…]`). */
+export type SortableColumnLayoutMeta = {
+  columnFilter?: TableColumnFilterMeta;
+  headerClassName?: string;
+  cellClassName?: string;
+};
+
 function TableColumnFilterCell<T>({ column }: { column: Column<T> }) {
-  const meta = column.columnDef.meta as { columnFilter?: TableColumnFilterMeta } | undefined;
+  const meta = column.columnDef.meta as SortableColumnLayoutMeta | undefined;
   const filter = meta?.columnFilter;
   if (!filter) {
     return <div className="h-8" />;
@@ -182,7 +189,8 @@ function SortableTableRow<T>({
             key={cell.id}
             className={cn(
               uiVariant === "clients" ? "px-4 py-3 text-left text-sm" : "text-right",
-              cell.column.id === "actions" && "w-10"
+              cell.column.id === "actions" && "w-10",
+              (cell.column.columnDef.meta as SortableColumnLayoutMeta | undefined)?.cellClassName
             )}
           >
             {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -605,7 +613,9 @@ export function SortableDataTable<T>({
                           ? "px-4 py-2.5 text-xs font-medium text-neutral-400 text-left"
                           : "text-right",
                         header.column.id === "actions" && "w-10",
-                        header.column.id === dragColumnId && "w-8 pr-1"
+                        header.column.id === dragColumnId && "w-8 pr-1",
+                        (header.column.columnDef.meta as SortableColumnLayoutMeta | undefined)
+                          ?.headerClassName
                       )}
                     >
                       {header.isPlaceholder
@@ -628,7 +638,9 @@ export function SortableDataTable<T>({
                           "p-2 align-top",
                           uiVariant === "clients" ? "px-4 text-left" : "text-right",
                           header.column.id === "actions" && "w-10",
-                          header.column.id === dragColumnId && "w-8 pr-1"
+                          header.column.id === dragColumnId && "w-8 pr-1",
+                          (header.column.columnDef.meta as SortableColumnLayoutMeta | undefined)
+                            ?.headerClassName
                         )}
                       >
                         <TableColumnFilterCell column={header.column} />

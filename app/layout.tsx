@@ -43,10 +43,7 @@ export default async function RootLayout({
   const locale = await getLocale();
   const messages = await getMessages();
   const isRTL = locale === "ar";
-  const fontClass =
-    locale === "ar"
-      ? `${ibmPlexSansArabic.className} ${ibmPlexSansArabic.variable}`
-      : `${ibmPlexSans.className} ${ibmPlexSans.variable} ${ibmPlexSansArabic.variable}`;
+  const fontClass = `${ibmPlexSans.variable} ${ibmPlexSansArabic.variable}`;
 
   return (
     <html lang={locale} dir={isRTL ? "rtl" : "ltr"} suppressHydrationWarning>

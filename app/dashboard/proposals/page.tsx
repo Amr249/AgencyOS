@@ -5,11 +5,12 @@ import {
   getProposalStats,
   getProposalStatsForCharts,
 } from "@/actions/proposals";
+import { getServices } from "@/actions/services";
 import { ProposalsListView } from "@/components/modules/proposals/proposals-list-view";
 
 export const metadata: Metadata = {
-  title: "العروض",
-  description: "عروض مستقل والمشاريع المقدمة",
+  title: "Proposals",
+  description: "Mostaql and other submitted proposals",
 };
 
 type PageProps = {
@@ -18,7 +19,7 @@ type PageProps = {
 
 export default async function ProposalsPage({ searchParams }: PageProps) {
   const { status, dateRange, search } = await searchParams;
-  const [listResult, statsResult, chartsResult] = await Promise.all([
+  const [listResult, statsResult, chartsResult, servicesResult] = await Promise.all([
     getProposals({
       status: status ?? undefined,
       dateRange: dateRange ?? undefined,
@@ -26,12 +27,13 @@ export default async function ProposalsPage({ searchParams }: PageProps) {
     }),
     getProposalStats(),
     getProposalStatsForCharts(),
+    getServices(),
   ]);
 
   if (!listResult.ok) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold tracking-tight">العروض المقدمة</h1>
+      <div className="space-y-4" dir="ltr">
+        <h1 className="text-2xl font-bold tracking-tight">Proposals</h1>
         <p className="text-destructive">{listResult.error}</p>
       </div>
     );
@@ -51,12 +53,20 @@ export default async function ProposalsPage({ searchParams }: PageProps) {
     ? chartsResult.data
     : { byMonth: [], statusDistribution: [] };
 
+  const serviceOptions =
+    servicesResult.ok
+      ? servicesResult.data
+          .filter((s) => s.status === "active")
+          .map((s) => ({ id: s.id, name: s.name }))
+      : [];
+
   return (
-    <Suspense fallback={<div className="text-muted-foreground">جاري التحميل…</div>}>
+    <Suspense fallback={<div className="text-muted-foreground" dir="ltr">Loading…</div>}>
       <ProposalsListView
         proposals={proposals}
         stats={stats}
         chartData={chartData}
+        serviceOptions={serviceOptions}
       />
     </Suspense>
   );

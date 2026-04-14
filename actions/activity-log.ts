@@ -3,10 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { authOptions } from "@/lib/auth";
 import { formatDistanceToNow } from "date-fns";
 import { enUS } from "date-fns/locale";
+import { PROJECT_STATUS_LABELS_EN } from "@/types";
+
+const CLIENT_STATUS_LABELS_EN: Record<string, string> = {
+  lead: "Lead",
+  active: "Active",
+  on_hold: "On Hold",
+  completed: "Completed",
+  closed: "Lost",
+};
 import { db } from "@/lib/db";
 import {
   activityLogs,
@@ -16,6 +25,7 @@ import {
   invoiceProjects,
   projects,
   clients,
+  files,
 } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 
@@ -34,6 +44,28 @@ export type RecentActivityEntry = {
   entityLabel: string | null;
   entityHref: string | null;
   relativeTime: string;
+};
+
+export type TimelineIconKind =
+  | "client"
+  | "status"
+  | "project"
+  | "invoice"
+  | "file"
+  | "note"
+  | "proposal"
+  | "task"
+  | "milestone"
+  | "generic";
+
+/** Serialized client detail timeline row (English copy; dates as ISO). */
+export type ClientTimelineItem = {
+  id: string;
+  createdAt: string;
+  description: string;
+  iconKind: TimelineIconKind;
+  entityHref: string | null;
+  actorName: string | null;
 };
 
 const logActivitySchema = z.object({
@@ -172,6 +204,13 @@ async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentA
   const projectEntityIds = uniq(byType.get("project") ?? []);
   for (const id of projectEntityIds) projectIdsForNames.add(id);
 
+  const metaClientIds = new Set<string>();
+  for (const log of logs) {
+    const m = log.metadata as Record<string, unknown> | null | undefined;
+    if (m && typeof m.clientId === "string") metaClientIds.add(m.clientId);
+    if (m && typeof m.projectId === "string") projectIdsForNames.add(m.projectId);
+  }
+
   const taskEntityIds = uniq(byType.get("task") ?? []);
   if (taskEntityIds.length > 0) {
     const rows = await db
@@ -230,7 +269,7 @@ async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentA
     }
   }
 
-  const clientEntityIds = uniq(byType.get("client") ?? []);
+  const clientEntityIds = uniq([...byType.get("client") ?? [], ...metaClientIds]);
   if (clientEntityIds.length > 0) {
     const rows = await db
       .select({ id: clients.id, companyName: clients.companyName })
@@ -320,6 +359,24 @@ async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentA
         projectName: pid ? projectMap.get(pid) ?? null : null,
         entityLabel: label,
         entityHref: `/dashboard/invoices/${log.entityId}`,
+      };
+    }
+
+    if (mt === "file") {
+      const fname = typeof meta?.name === "string" ? meta.name : metaLabel ?? "File";
+      const cid = typeof meta?.clientId === "string" ? meta.clientId : null;
+      const pid = metaPid;
+      return {
+        id: log.id,
+        entityType: log.entityType,
+        entityId: log.entityId,
+        action: log.action,
+        actorName: log.actorName,
+        createdAt: log.createdAt instanceof Date ? log.createdAt : new Date(log.createdAt),
+        projectId: pid,
+        projectName: pid ? projectMap.get(pid) ?? null : null,
+        entityLabel: fname,
+        entityHref: cid ? `/dashboard/clients/${cid}` : pid ? `/dashboard/projects/${pid}` : null,
       };
     }
 
@@ -456,5 +513,244 @@ export async function getProjectActivity(projectId: string, limit?: number) {
       return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load project activity" };
+  }
+}
+
+function metaStr(
+  meta: Record<string, unknown> | null | undefined,
+  key: string
+): string | undefined {
+  const v = meta?.[key];
+  return typeof v === "string" ? v : undefined;
+}
+
+function describeClientTimelineEvent(
+  log: ActivityLogRow,
+  entry: RecentActivityEntry
+): string {
+  const meta = log.metadata as Record<string, unknown> | undefined;
+  const mt = log.entityType.toLowerCase();
+  const action = log.action;
+  const label = entry.entityLabel ?? "";
+  const invNum = metaStr(meta, "invoiceNumber");
+
+  if (mt === "client") {
+    if (action === "created") {
+      const cn = metaStr(meta, "companyName") ?? label;
+      return `${cn} was added as a client`;
+    }
+    if (action === "status_changed") {
+      const to = metaStr(meta, "toStatus") ?? metaStr(meta, "status");
+      const toLabel = to ? CLIENT_STATUS_LABELS_EN[to] ?? to : "updated";
+      return `Client status changed to ${toLabel}`;
+    }
+    if (action === "notes_updated") return "Client notes were updated";
+    if (action === "proposal_converted") {
+      const title = metaStr(meta, "proposalTitle") ?? "Proposal";
+      return `Proposal converted to this client: ${title}`;
+    }
+    return `Client ${action}`;
+  }
+
+  if (mt === "project") {
+    if (action === "created") return `Project created: ${label}`;
+    if (action === "deleted") return `Project removed: ${label}`;
+    if (action === "updated") {
+      const st = metaStr(meta, "status");
+      if (st === "completed") return `Project completed: ${label}`;
+      if (st) {
+        const sl = PROJECT_STATUS_LABELS_EN[st] ?? st;
+        return `Project ${label} updated (${sl})`;
+      }
+      return `Project updated: ${label}`;
+    }
+    return `Project ${action}: ${label}`;
+  }
+
+  if (mt === "invoice") {
+    const num = invNum ?? label;
+    if (action === "created") return `Invoice created: ${num}`;
+    if (action === "paid") return `Invoice paid: ${num}`;
+    return `Invoice ${action}: ${num}`;
+  }
+
+  if (mt === "file" && action === "uploaded") {
+    return `File uploaded: ${metaStr(meta, "name") ?? label}`;
+  }
+
+  if (mt === "task") {
+    if (action === "created") return `Task created: ${label}`;
+    if (action === "status_changed") return `Task status updated: ${label}`;
+    if (action === "deleted") return `Task removed: ${label}`;
+    return `Task ${action}: ${label}`;
+  }
+
+  if (mt === "milestone") {
+    if (action === "created") return `Milestone created: ${label}`;
+    if (action === "completed") return `Milestone completed: ${label}`;
+    return `Milestone ${action}: ${label}`;
+  }
+
+  return `${entry.entityType} ${action}: ${label}`;
+}
+
+function timelineIconKind(log: ActivityLogRow): TimelineIconKind {
+  const mt = log.entityType.toLowerCase();
+  const action = log.action;
+  if (mt === "client") {
+    if (action === "status_changed") return "status";
+    if (action === "notes_updated") return "note";
+    if (action === "proposal_converted") return "proposal";
+    return "client";
+  }
+  if (mt === "project") return "project";
+  if (mt === "invoice") return "invoice";
+  if (mt === "file") return "file";
+  if (mt === "task") return action === "status_changed" ? "status" : "task";
+  if (mt === "milestone") return "milestone";
+  return "generic";
+}
+
+/** Activity for a client: own logs plus related projects, invoices, tasks, milestones, and files. */
+export async function getClientTimeline(clientId: string, limit = 150) {
+  const idParsed = z.string().uuid().safeParse(clientId);
+  const limParsed = z.number().int().min(1).max(500).safeParse(limit);
+  if (!idParsed.success) return { ok: false as const, error: "Invalid client id" };
+  if (!limParsed.success) return { ok: false as const, error: "Invalid limit" };
+
+  const cid = idParsed.data;
+  const lim = limParsed.data;
+
+  try {
+    const [clientRow] = await db
+      .select({
+        createdAt: clients.createdAt,
+        companyName: clients.companyName,
+      })
+      .from(clients)
+      .where(eq(clients.id, cid))
+      .limit(1);
+    if (!clientRow) {
+      return { ok: false as const, error: "Client not found" };
+    }
+
+    const projectRows = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.clientId, cid));
+    const projectIds = projectRows.map((r) => r.id);
+
+    const invoiceRows = await db
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(eq(invoices.clientId, cid));
+    const invoiceIds = invoiceRows.map((r) => r.id);
+
+    let taskIds: string[] = [];
+    if (projectIds.length > 0) {
+      const tr = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(inArray(tasks.projectId, projectIds));
+      taskIds = tr.map((r) => r.id);
+    }
+
+    let milestoneIds: string[] = [];
+    if (projectIds.length > 0) {
+      const mr = await db
+        .select({ id: milestones.id })
+        .from(milestones)
+        .where(inArray(milestones.projectId, projectIds));
+      milestoneIds = mr.map((r) => r.id);
+    }
+
+    const fileParts = [eq(files.clientId, cid)];
+    if (projectIds.length > 0) fileParts.push(inArray(files.projectId, projectIds));
+    if (invoiceIds.length > 0) fileParts.push(inArray(files.invoiceId, invoiceIds));
+    const fileRows = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(and(isNull(files.deletedAt), or(...fileParts)));
+    const fileIds = fileRows.map((r) => r.id);
+
+    const orParts = [and(eq(activityLogs.entityType, "client"), eq(activityLogs.entityId, cid))];
+    if (projectIds.length > 0) {
+      orParts.push(
+        and(eq(activityLogs.entityType, "project"), inArray(activityLogs.entityId, projectIds))
+      );
+    }
+    if (invoiceIds.length > 0) {
+      orParts.push(
+        and(eq(activityLogs.entityType, "invoice"), inArray(activityLogs.entityId, invoiceIds))
+      );
+    }
+    if (taskIds.length > 0) {
+      orParts.push(
+        and(eq(activityLogs.entityType, "task"), inArray(activityLogs.entityId, taskIds))
+      );
+    }
+    if (milestoneIds.length > 0) {
+      orParts.push(
+        and(eq(activityLogs.entityType, "milestone"), inArray(activityLogs.entityId, milestoneIds))
+      );
+    }
+    if (fileIds.length > 0) {
+      orParts.push(
+        and(eq(activityLogs.entityType, "file"), inArray(activityLogs.entityId, fileIds))
+      );
+    }
+
+    const whereClause = orParts.length === 1 ? orParts[0]! : or(...orParts);
+
+    const logs = await db
+      .select()
+      .from(activityLogs)
+      .where(whereClause)
+      .orderBy(desc(activityLogs.createdAt))
+      .limit(Math.min(lim * 2, 500));
+
+    const hasClientCreated = logs.some(
+      (l) => l.entityType.toLowerCase() === "client" && l.action === "created"
+    );
+
+    const items: ClientTimelineItem[] = [];
+
+    if (!hasClientCreated && clientRow.createdAt) {
+      const ca =
+        clientRow.createdAt instanceof Date
+          ? clientRow.createdAt
+          : new Date(clientRow.createdAt);
+      items.push({
+        id: `__fallback_client_created__${cid}`,
+        createdAt: ca.toISOString(),
+        description: `${clientRow.companyName ?? "Client"} was added as a client`,
+        iconKind: "client",
+        entityHref: `/dashboard/clients/${cid}`,
+        actorName: null,
+      });
+    }
+
+    const enriched = await enrichRecentActivityLogs(logs);
+    for (let i = 0; i < logs.length; i++) {
+      const log = logs[i]!;
+      const e = enriched[i]!;
+      items.push({
+        id: e.id,
+        createdAt: e.createdAt,
+        description: describeClientTimelineEvent(log, e),
+        iconKind: timelineIconKind(log),
+        entityHref: e.entityHref,
+        actorName: e.actorName,
+      });
+    }
+
+    items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return { ok: true as const, data: items.slice(0, lim) };
+  } catch (e) {
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: "Failed to load client timeline" };
   }
 }

@@ -7,11 +7,26 @@ type SarMoneyProps = {
   value: string | number | null | undefined;
   className?: string;
   iconClassName?: string;
+  /** When USD, shows a leading $ instead of the riyal icon. */
+  currency?: "SAR" | "USD";
 };
 
-export function SarMoney({ value, className, iconClassName }: SarMoneyProps) {
+export function SarMoney({
+  value,
+  className,
+  iconClassName,
+  currency = "SAR",
+}: SarMoneyProps) {
   const text = formatAmount(value == null ? undefined : typeof value === "number" ? String(value) : value);
   if (text === "—") return <span>—</span>;
+  if (currency === "USD") {
+    return (
+      <span className={cn("inline-flex items-center gap-0.5 tabular-nums", className)} dir="ltr">
+        <span className="text-muted-foreground">$</span>
+        {text}
+      </span>
+    );
+  }
   return (
     <span className={cn("inline-flex items-center gap-1 tabular-nums", className)} dir="ltr">
       {text}

@@ -130,14 +130,16 @@ export function NavMain({ dashboard, settings, groups }: NavMainProps) {
                             asChild
                             isActive={isActivePath(pathname, item.url)}
                             className={
-                              item.url === "/dashboard/clients"
+                              item.url === "/dashboard/clients" ||
+                              item.url === "/dashboard/crm/pipeline" ||
+                              item.url === "/dashboard/crm/win-loss"
                                 ? "data-[active=true]:bg-[rgba(164,254,25,1)]"
                                 : undefined
                             }
                           >
                             <Link href={item.url} onClick={() => setOpenMobile(false)}>
                               {item.icon && <item.icon />}
-                              <span className={cn("text-[15px]", item.url === "/dashboard/proposals" && "font-black")}>
+                              <span className="text-[15px]">
                                 {item.title}
                               </span>
                             </Link>

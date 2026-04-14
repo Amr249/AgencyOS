@@ -82,6 +82,22 @@ export const proposalStatusEnum = pgEnum("proposal_status", [
 ]);
 export const serviceStatusEnum = pgEnum("service_status", ["active", "inactive"]);
 
+/** Client documents tab (contracts, NDAs, etc.); null = general file in Files tab. */
+export const fileDocumentTypeEnum = pgEnum("file_document_type", [
+  "contract",
+  "agreement",
+  "proposal",
+  "nda",
+  "other",
+]);
+
+export {
+  CLIENT_SOURCE_VALUES,
+  type ClientSourceValue,
+  CLIENT_TAG_COLOR_VALUES,
+  type ClientTagColorValue,
+} from "@/lib/client-constants";
+
 // Address type (clients + agency settings)
 export type AddressJson = {
   street?: string;
@@ -112,9 +128,80 @@ export const clients = pgTable("clients", {
   address: jsonb("address").$type<AddressJson>(),
   logoUrl: text("logo_url"),
   notes: text("notes"),
+  /** Acquisition channel (e.g. referral, website). */
+  source: text("source"),
+  /** Extra context (referrer name, campaign, etc.). */
+  sourceDetails: text("source_details"),
+  /** Free-text win/loss reason (may match a row in `win_loss_reasons`). */
+  wonLostReason: text("won_lost_reason"),
+  wonLostDate: date("won_lost_date"),
+  /** Deal value when marked won (pipeline); optional. */
+  dealValue: numeric("deal_value", { precision: 12, scale: 2 }),
+  /** When true, client portal login may be allowed for this client (routes TBD). */
+  portalEnabled: boolean("portal_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
+
+/** Predefined win/loss reason labels for the sales pipeline (`type`: won | lost). */
+export const winLossReasons = pgTable(
+  "win_loss_reasons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    type: text("type").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("win_loss_reasons_type_reason_unique").on(table.type, table.reason),
+    index("win_loss_reasons_type_idx").on(table.type),
+  ]
+);
+
+export const clientTags = pgTable("client_tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  color: text("color").notNull().default("blue"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const clientTagAssignments = pgTable(
+  "client_tag_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => clientTags.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("client_tag_assignments_client_tag_unique").on(table.clientId, table.tagId),
+    index("client_tag_assignments_client_id_idx").on(table.clientId),
+    index("client_tag_assignments_tag_id_idx").on(table.tagId),
+  ]
+);
+
+/** Client portal login identities (password/auth wired later). */
+export const clientUsers = pgTable(
+  "client_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    email: text("email").notNull().unique(),
+    name: text("name"),
+    passwordHash: text("password_hash"),
+    isActive: boolean("is_active").notNull().default(true),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("client_users_client_id_idx").on(table.clientId)]
+);
 
 // projects
 export const projects = pgTable("projects", {
@@ -291,6 +378,8 @@ export const files = pgTable("files", {
   taskId: uuid("task_id").references(() => tasks.id, { onDelete: "cascade" }),
   invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "cascade" }),
   expenseId: uuid("expense_id").references((): any => expenses.id, { onDelete: "cascade" }),
+  documentType: fileDocumentTypeEnum("document_type"),
+  description: text("description"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (table) => [
@@ -432,6 +521,8 @@ export const proposals = pgTable("proposals", {
   budgetMax: numeric("budget_max", { precision: 12, scale: 2 }),
   currency: text("currency").notNull().default("SAR"),
   category: text("category"),
+  /** Client skill tags from the job page (e.g. Mostaql), comma-separated or free text. */
+  skillsTags: text("skills_tags"),
   description: text("description"),
   myBid: numeric("my_bid", { precision: 12, scale: 2 }),
   status: proposalStatusEnum("status").notNull().default("applied"),
@@ -444,6 +535,29 @@ export const proposals = pgTable("proposals", {
   index("proposals_status_idx").on(table.status),
   index("proposals_applied_at_idx").on(table.appliedAt),
 ]);
+
+// proposal_services (junction: proposal ↔ service)
+export const proposalServices = pgTable(
+  "proposal_services",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => proposals.id, { onDelete: "cascade" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("proposal_services_proposal_service_unique").on(
+      table.proposalId,
+      table.serviceId
+    ),
+    index("proposal_services_proposal_id_idx").on(table.proposalId),
+    index("proposal_services_service_id_idx").on(table.serviceId),
+  ]
+);
 
 // expenses
 export const expenses = pgTable("expenses", {
@@ -624,6 +738,21 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   clientServices: many(clientServices),
   expenses: many(expenses),
   recurringExpenses: many(recurringExpenses),
+  tagAssignments: many(clientTagAssignments),
+  portalUsers: many(clientUsers),
+}));
+
+export const clientTagsRelations = relations(clientTags, ({ many }) => ({
+  assignments: many(clientTagAssignments),
+}));
+
+export const clientTagAssignmentsRelations = relations(clientTagAssignments, ({ one }) => ({
+  client: one(clients, { fields: [clientTagAssignments.clientId], references: [clients.id] }),
+  tag: one(clientTags, { fields: [clientTagAssignments.tagId], references: [clientTags.id] }),
+}));
+
+export const clientUsersRelations = relations(clientUsers, ({ one }) => ({
+  client: one(clients, { fields: [clientUsers.clientId], references: [clients.id] }),
 }));
 
 export const projectTemplatesRelations = relations(projectTemplates, ({ one, many }) => ({
@@ -684,6 +813,7 @@ export const teamAvailabilityRelations = relations(teamAvailability, ({ one }) =
 export const servicesRelations = relations(services, ({ many }) => ({
   projectServices: many(projectServices),
   clientServices: many(clientServices),
+  proposalServices: many(proposalServices),
 }));
 
 export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
@@ -768,9 +898,21 @@ export const filesRelations = relations(files, ({ one }) => ({
   expense: one(expenses, { fields: [files.expenseId], references: [expenses.id] }),
 }));
 
-export const proposalsRelations = relations(proposals, ({ one }) => ({
+export const proposalsRelations = relations(proposals, ({ one, many }) => ({
   client: one(clients, { fields: [proposals.clientId], references: [clients.id] }),
   project: one(projects, { fields: [proposals.projectId], references: [projects.id] }),
+  proposalServices: many(proposalServices),
+}));
+
+export const proposalServicesRelations = relations(proposalServices, ({ one }) => ({
+  proposal: one(proposals, {
+    fields: [proposalServices.proposalId],
+    references: [proposals.id],
+  }),
+  service: one(services, {
+    fields: [proposalServices.serviceId],
+    references: [services.id],
+  }),
 }));
 
 export const expensesRelations = relations(expenses, ({ one, many }) => ({

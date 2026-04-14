@@ -26,6 +26,7 @@ import { createPayment } from "@/actions/payments";
 import { Loader2 } from "lucide-react";
 import { PAYMENT_METHOD_LABELS } from "@/types";
 import { enUS } from "date-fns/locale";
+import { formatCalendarDate } from "@/lib/calendar-date";
 
 interface AddPaymentModalProps {
   open: boolean;
@@ -82,7 +83,7 @@ export function AddPaymentModal({
       const result = await createPayment({
         invoiceId,
         amount: n,
-        paymentDate: paymentDate.toISOString().split("T")[0]!,
+        paymentDate: formatCalendarDate(paymentDate),
         ...(paymentMethod
           ? {
               paymentMethod: paymentMethod as

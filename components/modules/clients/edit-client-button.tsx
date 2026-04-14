@@ -12,10 +12,14 @@ export function EditClientButton({
   client,
   serviceOptions,
   initialServiceIds,
+  tagOptions = [],
+  initialTagIds = [],
 }: {
   client: ClientRow;
   serviceOptions: { id: string; name: string; status: string }[];
   initialServiceIds: string[];
+  tagOptions?: { id: string; name: string; color: string }[];
+  initialTagIds?: string[];
 }) {
   const t = useTranslations("clients");
   const [open, setOpen] = React.useState(false);
@@ -30,6 +34,8 @@ export function EditClientButton({
         client={client}
         serviceOptions={serviceOptions}
         initialServiceIds={initialServiceIds}
+        tagOptions={tagOptions}
+        initialTagIds={initialTagIds}
       />
     </>
   );

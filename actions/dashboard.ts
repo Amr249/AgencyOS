@@ -380,17 +380,17 @@ export async function getDashboardData(): Promise<DashboardData> {
   let budgetWarnings: DashboardData["budgetWarnings"] = [];
   if (budgetProjectRows.length > 0) {
     const healthRes = await getProjectsHealthMap(budgetProjectRows.map((p) => p.id));
-    const warnClientIds = [...new Set(budgetProjectRows.map((p) => p.clientId))];
-    const warnClients =
-      warnClientIds.length > 0
-        ? await db
-            .select({ id: clients.id, companyName: clients.companyName })
-            .from(clients)
-            .where(inArray(clients.id, warnClientIds))
-        : [];
-    const warnClientMap = new Map(warnClients.map((c) => [c.id, c.companyName]));
-
     if (healthRes.ok) {
+      const warnClientIds = [...new Set(budgetProjectRows.map((p) => p.clientId))];
+      const warnClients =
+        warnClientIds.length > 0
+          ? await db
+              .select({ id: clients.id, companyName: clients.companyName })
+              .from(clients)
+              .where(inArray(clients.id, warnClientIds))
+          : [];
+      const warnClientMap = new Map(warnClients.map((c) => [c.id, c.companyName]));
+
       for (const p of budgetProjectRows) {
         const h = healthRes.data[p.id];
         if (!h || h.budget == null || h.budgetUsedPercent == null) continue;
