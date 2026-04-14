@@ -1,7 +1,5 @@
-/* File-relative imports: always resolve from this file's directory (app/), so PostCSS
-   does not depend on Turbopack bare-specifier resolution (which can yield empty CSS). */
-@import "../node_modules/tailwindcss/index.css";
-@import "../node_modules/tw-animate-css/dist/tw-animate.css";
+@import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 

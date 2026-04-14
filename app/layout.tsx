@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
 import Providers from "@/components/providers";
+import { cn } from "@/lib/utils";
 
 const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
   subsets: ["arabic"],
@@ -19,11 +20,14 @@ const ibmPlexSans = IBM_Plex_Sans({
 
 /** Production site URL for metadata and absolute asset resolution (Vercel sets VERCEL_URL). */
 const siteUrl =
-  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "") : undefined);
+  process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
+  (process.env.VERCEL_URL?.trim()
+    ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}`
+    : "") ||
+  "http://localhost:3000";
 
 export const metadata: Metadata = {
-  ...(siteUrl ? { metadataBase: new URL(`${siteUrl}/`) } : {}),
+  metadataBase: new URL(`${siteUrl.replace(/\/$/, "")}/`),
   title: {
     default: "AgencyOS",
     template: "%s | AgencyOS",
@@ -45,7 +49,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+  ],
   width: "device-width",
   initialScale: 1,
 };
@@ -62,7 +69,10 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} dir={isRTL ? "rtl" : "ltr"} suppressHydrationWarning>
-      <body className={fontClass} dir={isRTL ? "rtl" : "ltr"}>
+      <body
+        className={cn(fontClass, "min-h-screen bg-background antialiased")}
+        dir={isRTL ? "rtl" : "ltr"}
+      >
         <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>{children}</Providers>
         </NextIntlClientProvider>
