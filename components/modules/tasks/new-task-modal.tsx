@@ -34,28 +34,40 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
-import { TASK_STATUS_LABELS_EN, TASK_PRIORITY_LABELS_EN } from "@/types";
 import {
-  ProjectSelectOptionRow,
-  TeamMemberSelectOptionRow,
-} from "@/components/entity-select-option";
+  TASK_STATUS_LABELS_EN,
+  TASK_PRIORITY_LABELS_EN,
+  TASK_STATUS_LABELS,
+  TASK_PRIORITY_LABELS,
+} from "@/types";
+import { ProjectSelectOptionRow, TeamMemberSelectOptionRow } from "@/components/entity-select-option";
 
 /** Radix Select reserves empty string; use a sentinel for "no assignee". */
 const ASSIGNEE_NONE = "__none__";
 
-const formSchema = z.object({
-  title: z.string().min(1, "Task title is required"),
-  projectId: z.string().uuid("Select a project"),
-  description: z.string().optional(),
-  status: z.enum(["todo", "in_progress", "in_review", "done", "blocked"]),
-  priority: z.enum(["low", "medium", "high", "urgent"]),
-  assigneeId: z.string().optional(),
-  startDate: z.string().optional(),
-  dueDate: z.string().optional(),
-  estimatedHours: z.coerce.number().min(0).optional(),
-});
+type FormValues = {
+  title: string;
+  projectId: string;
+  description?: string;
+  status: "todo" | "in_progress" | "in_review" | "done" | "blocked";
+  priority: "low" | "medium" | "high" | "urgent";
+  assigneeId?: string;
+  startDate?: string;
+  dueDate?: string;
+};
 
-type FormValues = z.infer<typeof formSchema>;
+function buildFormSchema(memberView: boolean) {
+  return z.object({
+    title: z.string().min(1, memberView ? "عنوان المهمة مطلوب" : "Task title is required"),
+    projectId: z.string().uuid(memberView ? "اختر مشروعاً صالحاً" : "Select a project"),
+    description: z.string().optional(),
+    status: z.enum(["todo", "in_progress", "in_review", "done", "blocked"]),
+    priority: z.enum(["low", "medium", "high", "urgent"]),
+    assigneeId: z.string().optional(),
+    startDate: z.string().optional(),
+    dueDate: z.string().optional(),
+  });
+}
 
 type ProjectOption = {
   id: string;
@@ -73,7 +85,42 @@ type NewTaskModalProps = {
   defaultStatus?: "todo" | "in_progress" | "in_review" | "done" | "blocked";
   defaultDueDate?: string;
   onSuccess: () => void;
+  /** Member portal: Arabic UI, no assignee picker; task is assigned to the signed-in member on the server. */
+  memberView?: boolean;
+  /** Team member id for the current user (optional; server still enforces self-assign for members). */
+  memberTeamMemberId?: string | null;
 };
+
+const AR = {
+  title: "مهمة جديدة",
+  description:
+    "أضف مهمة إلى المشروع. سيتم تعيين المهمة تلقائياً إليك. املأ الحقول المطلوبة.",
+  titleLabel: "العنوان",
+  titlePh: "عنوان المهمة",
+  project: "المشروع",
+  projectPh: "اختر مشروعاً",
+  descLabel: "الوصف",
+  descPh: "تفاصيل اختيارية",
+  status: "الحالة",
+  priority: "الأولوية",
+  startDate: "تاريخ البدء",
+  dueDate: "تاريخ الاستحقاق",
+  datePh: "اختر التاريخ",
+  cancel: "إلغاء",
+  create: "إنشاء المهمة",
+  creating: "جاري الإنشاء…",
+  success: "تم إنشاء المهمة",
+  errorGeneric: "تعذر إنشاء المهمة",
+  forbidden: "غير مسموح",
+  unauthorized: "غير مصرح",
+};
+
+function mapServerErrorToAr(msg: string): string {
+  const m = msg.trim();
+  if (m === "Forbidden") return AR.forbidden;
+  if (m === "Not authorized") return AR.unauthorized;
+  return m;
+}
 
 export function NewTaskModal({
   open,
@@ -83,7 +130,14 @@ export function NewTaskModal({
   defaultStatus = "todo",
   defaultDueDate,
   onSuccess,
+  memberView = false,
+  memberTeamMemberId = null,
 }: NewTaskModalProps) {
+  const formSchema = React.useMemo(() => buildFormSchema(memberView), [memberView]);
+  const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
+  const priorityLabels = memberView ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
+  const selectDir = memberView ? "rtl" : "ltr";
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -92,10 +146,9 @@ export function NewTaskModal({
       description: "",
       status: defaultStatus,
       priority: "medium",
-      assigneeId: "",
+      assigneeId: memberView && memberTeamMemberId ? memberTeamMemberId : "",
       startDate: "",
       dueDate: defaultDueDate ?? "",
-      estimatedHours: undefined,
     },
   });
 
@@ -107,45 +160,53 @@ export function NewTaskModal({
         description: "",
         status: defaultStatus,
         priority: "medium",
-        assigneeId: "",
+        assigneeId: memberView && memberTeamMemberId ? memberTeamMemberId : "",
         startDate: "",
         dueDate: defaultDueDate ?? "",
-        estimatedHours: undefined,
       });
     }
-  }, [open, defaultStatus, defaultDueDate, projects, form]);
+  }, [open, defaultStatus, defaultDueDate, projects, form, memberView, memberTeamMemberId]);
 
   async function onSubmit(values: FormValues) {
+    const assigneeId =
+      memberView && memberTeamMemberId ? memberTeamMemberId : values.assigneeId || null;
     const result = await createTask({
       projectId: values.projectId,
       title: values.title,
       description: values.description || undefined,
       status: values.status,
       priority: values.priority,
-      assigneeId: values.assigneeId || null,
+      assigneeId,
       startDate: values.startDate || undefined,
       dueDate: values.dueDate || undefined,
-      estimatedHours: values.estimatedHours,
     });
     if (result.ok) {
-      toast.success("Task created");
+      toast.success(memberView ? AR.success : "Task created");
       onOpenChange(false);
       onSuccess();
     } else {
       const err = result.error as Record<string, string[] | undefined>;
-      const msg =
+      const raw =
         (err._form?.[0] ?? Object.values(err).flat().filter(Boolean).join(", ")) ||
-        "Could not create task";
-      toast.error(msg);
+        (memberView ? AR.errorGeneric : "Could not create task");
+      toast.error(memberView ? mapServerErrorToAr(raw) : raw);
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="text-start sm:max-w-md" dir="ltr" lang="en">
+      <DialogContent
+        className="text-start sm:max-w-md"
+        dir={memberView ? "rtl" : "ltr"}
+        lang={memberView ? "ar" : "en"}
+      >
         <DialogHeader>
-          <DialogTitle>New task</DialogTitle>
-          <DialogDescription>Add a task to a project. Fields marked by validation must be filled.</DialogDescription>
+          <DialogTitle>{memberView ? AR.title : "New task"}</DialogTitle>
+          <DialogDescription>
+            {memberView
+              ? AR.description
+              : "Add a task to a project. Fields marked by validation must be filled."}
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -154,9 +215,12 @@ export function NewTaskModal({
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Title</FormLabel>
+                  <FormLabel>{memberView ? AR.titleLabel : "Title"}</FormLabel>
                   <FormControl>
-                    <Input placeholder="Task title" {...field} />
+                    <Input
+                      placeholder={memberView ? AR.titlePh : "Task title"}
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -167,14 +231,14 @@ export function NewTaskModal({
               name="projectId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Project</FormLabel>
+                  <FormLabel>{memberView ? AR.project : "Project"}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select project" />
+                        <SelectValue placeholder={memberView ? AR.projectPh : "Select project"} />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent dir="ltr">
+                    <SelectContent dir={selectDir}>
                       {projects.map((p) => (
                         <SelectItem key={p.id} value={p.id} textValue={p.name}>
                           <ProjectSelectOptionRow
@@ -195,9 +259,13 @@ export function NewTaskModal({
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
+                  <FormLabel>{memberView ? AR.descLabel : "Description"}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Optional details" className="resize-none" {...field} />
+                    <Textarea
+                      placeholder={memberView ? AR.descPh : "Optional details"}
+                      className="resize-none"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -209,19 +277,21 @@ export function NewTaskModal({
                 name="status"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Status</FormLabel>
+                    <FormLabel>{memberView ? AR.status : "Status"}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent dir="ltr">
-                        {(["todo", "in_progress", "in_review", "done", "blocked"] as const).map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {TASK_STATUS_LABELS_EN[s]}
-                          </SelectItem>
-                        ))}
+                      <SelectContent dir={selectDir}>
+                        {(["todo", "in_progress", "in_review", "done", "blocked"] as const).map(
+                          (s) => (
+                            <SelectItem key={s} value={s}>
+                              {statusLabels[s] ?? TASK_STATUS_LABELS_EN[s]}
+                            </SelectItem>
+                          )
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -233,17 +303,17 @@ export function NewTaskModal({
                 name="priority"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Priority</FormLabel>
+                    <FormLabel>{memberView ? AR.priority : "Priority"}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent dir="ltr">
+                      <SelectContent dir={selectDir}>
                         {(["low", "medium", "high", "urgent"] as const).map((p) => (
                           <SelectItem key={p} value={p}>
-                            {TASK_PRIORITY_LABELS_EN[p]}
+                            {priorityLabels[p] ?? TASK_PRIORITY_LABELS_EN[p]}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -253,7 +323,7 @@ export function NewTaskModal({
                 )}
               />
             </div>
-            {teamMembers.length > 0 && (
+            {!memberView && teamMembers.length > 0 && (
               <FormField
                 control={form.control}
                 name="assigneeId"
@@ -291,12 +361,12 @@ export function NewTaskModal({
                 name="startDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Start date</FormLabel>
+                    <FormLabel>{memberView ? AR.startDate : "Start date"}</FormLabel>
                     <FormControl>
                       <DatePickerAr
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder="Pick date"
+                        placeholder={memberView ? AR.datePh : "Pick date"}
                       />
                     </FormControl>
                     <FormMessage />
@@ -308,12 +378,12 @@ export function NewTaskModal({
                 name="dueDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Due date</FormLabel>
+                    <FormLabel>{memberView ? AR.dueDate : "Due date"}</FormLabel>
                     <FormControl>
                       <DatePickerAr
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder="Pick date"
+                        placeholder={memberView ? AR.datePh : "Pick date"}
                       />
                     </FormControl>
                     <FormMessage />
@@ -321,32 +391,18 @@ export function NewTaskModal({
                 )}
               />
             </div>
-            <FormField
-              control={form.control}
-              name="estimatedHours"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Estimated hours</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      {...field}
-                      value={field.value ?? ""}
-                      onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : undefined)}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
+            <DialogFooter className={memberView ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {memberView ? AR.cancel : "Cancel"}
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Creating…" : "Create task"}
+                {form.formState.isSubmitting
+                  ? memberView
+                    ? AR.creating
+                    : "Creating…"
+                  : memberView
+                    ? AR.create
+                    : "Create task"}
               </Button>
             </DialogFooter>
           </form>

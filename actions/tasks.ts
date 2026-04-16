@@ -12,6 +12,7 @@ import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import {
   getMemberProjectIdsForUser,
+  getTeamMemberIdsForSessionUser,
   memberCanAccessTask,
   memberHasProjectAccess,
   memberIsAssignedToTask,
@@ -29,7 +30,6 @@ const createTaskSchema = z.object({
   startDate: z.string().optional(),
   dueDate: z.string().optional(),
   description: z.string().optional(),
-  estimatedHours: z.coerce.number().min(0).optional(),
   milestoneId: z.string().uuid().nullable().optional(),
 });
 
@@ -42,7 +42,6 @@ const updateTaskSchema = z.object({
   startDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
-  estimatedHours: z.coerce.number().min(0).nullable().optional(),
   milestoneId: z.string().uuid().nullable().optional(),
 });
 
@@ -94,7 +93,6 @@ export type TaskWithProject = {
   priority: string;
   startDate: string | null;
   dueDate: string | null;
-  estimatedHours: string | null;
   notes: string | null;
   createdAt: Date;
   actualHours?: string | null;
@@ -164,7 +162,6 @@ export async function getTasks(filters?: GetTasksFilters) {
         priority: tasks.priority,
         startDate: tasks.startDate,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
         notes: tasks.notes,
         createdAt: tasks.createdAt,
         actualHours: tasks.actualHours,
@@ -201,7 +198,6 @@ export async function getTasks(filters?: GetTasksFilters) {
       priority: r.priority,
       startDate: r.startDate,
       dueDate: r.dueDate,
-      estimatedHours: r.estimatedHours,
       notes: r.notes,
       createdAt: r.createdAt,
       actualHours: r.actualHours,
@@ -262,7 +258,6 @@ export async function getTaskById(id: string) {
         status: tasks.status,
         priority: tasks.priority,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
         notes: tasks.notes,
         createdAt: tasks.createdAt,
         milestoneId: tasks.milestoneId,
@@ -283,7 +278,20 @@ export async function getTaskById(id: string) {
     }
 
     const subtasks = await db
-      .select()
+      .select({
+        id: tasks.id,
+        projectId: tasks.projectId,
+        phaseId: tasks.phaseId,
+        parentTaskId: tasks.parentTaskId,
+        title: tasks.title,
+        description: tasks.description,
+        status: tasks.status,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        notes: tasks.notes,
+        createdAt: tasks.createdAt,
+        deletedAt: tasks.deletedAt,
+      })
       .from(tasks)
       .where(and(eq(tasks.parentTaskId, row.id), isNull(tasks.deletedAt)))
       .orderBy(tasks.createdAt);
@@ -314,29 +322,25 @@ export async function createTask(input: CreateTaskInput) {
   const data = parsed.data;
   try {
     const session = await getServerSession(authOptions);
-    if (sessionUserRole(session) === "member") {
-      if (!session?.user?.id) {
+    const role = sessionUserRole(session);
+    const userId = session?.user?.id;
+    /** For members, always assign to their own team_member row (ignore client assignee). */
+    let assigneeIdForInsert = data.assigneeId || null;
+
+    if (role === "member") {
+      if (!userId) {
         return { ok: false as const, error: { _form: ["Not authorized"] } };
       }
-      const allowed = await memberHasProjectAccess(session.user.id, data.projectId);
+      const allowed = await memberHasProjectAccess(userId, data.projectId);
       if (!allowed) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
       }
-      if (data.assigneeId) {
-        const [onProject] = await db
-          .select({ id: projectMembers.id })
-          .from(projectMembers)
-          .where(
-            and(
-              eq(projectMembers.projectId, data.projectId),
-              eq(projectMembers.teamMemberId, data.assigneeId)
-            )
-          )
-          .limit(1);
-        if (!onProject) {
-          return { ok: false as const, error: { _form: ["Forbidden"] } };
-        }
+      const memberIds = await getTeamMemberIdsForSessionUser(userId);
+      const selfTeamMemberId = memberIds[0] ?? null;
+      if (!selfTeamMemberId) {
+        return { ok: false as const, error: { _form: ["Not authorized"] } };
       }
+      assigneeIdForInsert = selfTeamMemberId;
     }
 
     if (data.milestoneId) {
@@ -351,11 +355,10 @@ export async function createTask(input: CreateTaskInput) {
         title: data.title,
         status: data.status,
         priority: data.priority,
-        assigneeId: data.assigneeId || null,
+        assigneeId: assigneeIdForInsert,
         startDate: data.startDate || null,
         dueDate: data.dueDate || null,
         description: data.description ?? null,
-        estimatedHours: data.estimatedHours != null ? String(data.estimatedHours) : null,
         milestoneId: data.milestoneId ?? null,
       })
       .returning();
@@ -363,12 +366,12 @@ export async function createTask(input: CreateTaskInput) {
 
     // Also populate the junction table so the AssigneePicker (which reads from
     // task_assignments) shows the person chosen at creation time.
-    if (data.assigneeId) {
+    if (assigneeIdForInsert) {
       await db
         .insert(taskAssignments)
         .values({
           taskId: row.id,
-          teamMemberId: data.assigneeId,
+          teamMemberId: assigneeIdForInsert,
           assignedBy: session?.user?.id ?? null,
         })
         .onConflictDoNothing();
@@ -468,8 +471,6 @@ export async function updateTask(input: UpdateTaskInput) {
     if (data.startDate !== undefined) updatePayload.startDate = data.startDate ?? null;
     if (data.dueDate !== undefined) updatePayload.dueDate = data.dueDate ?? null;
     if (data.description !== undefined) updatePayload.description = data.description ?? null;
-    if (data.estimatedHours !== undefined)
-      updatePayload.estimatedHours = data.estimatedHours != null ? String(data.estimatedHours) : null;
     if (data.milestoneId !== undefined) updatePayload.milestoneId = data.milestoneId;
     if (data.assigneeId !== undefined) updatePayload.assigneeId = data.assigneeId;
 
@@ -664,7 +665,20 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
         status: "todo",
         priority: "medium",
       })
-      .returning();
+      .returning({
+        id: tasks.id,
+        projectId: tasks.projectId,
+        phaseId: tasks.phaseId,
+        parentTaskId: tasks.parentTaskId,
+        title: tasks.title,
+        description: tasks.description,
+        status: tasks.status,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        notes: tasks.notes,
+        createdAt: tasks.createdAt,
+        deletedAt: tasks.deletedAt,
+      });
     if (!row) return { ok: false as const, error: { _form: ["Failed to create subtask"] } };
     revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${parent.projectId}`);

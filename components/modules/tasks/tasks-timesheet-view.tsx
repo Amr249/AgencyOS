@@ -4,7 +4,6 @@ import * as React from "react";
 import {
   addDays,
   addWeeks,
-  differenceInCalendarDays,
   format,
   isSameDay,
   isWithinInterval,
@@ -42,8 +41,6 @@ type TimesheetRow = {
   avatarUrl: string | null;
   /** per-day list of task cells */
   daily: TaskWithProject[][];
-  /** per-day estimated hours total */
-  hours: number[];
 };
 
 function parseIsoDate(s: string | null): Date | null {
@@ -66,19 +63,6 @@ function initials(name: string) {
   );
 }
 
-function hoursForDay(task: TaskWithProject, day: Date, start: Date | null, due: Date | null): number {
-  const estimated = task.estimatedHours ? parseFloat(task.estimatedHours) : 0;
-  if (!estimated || !Number.isFinite(estimated)) return 0;
-  if (start && due) {
-    const span = Math.max(1, differenceInCalendarDays(due, start) + 1);
-    if (isWithinInterval(day, { start, end: due })) return estimated / span;
-    return 0;
-  }
-  const anchor = due ?? start;
-  if (anchor && isSameDay(day, anchor)) return estimated;
-  return 0;
-}
-
 function taskOverlaps(task: TaskWithProject, day: Date): boolean {
   const start = parseIsoDate(task.startDate);
   const due = parseIsoDate(task.dueDate);
@@ -86,12 +70,6 @@ function taskOverlaps(task: TaskWithProject, day: Date): boolean {
   if (due) return isSameDay(day, due);
   if (start) return isSameDay(day, start);
   return false;
-}
-
-function roundHours(n: number): string {
-  if (n === 0) return "";
-  if (Math.abs(n - Math.round(n)) < 0.05) return String(Math.round(n));
-  return n.toFixed(1);
 }
 
 export function TasksTimesheetView({
@@ -122,8 +100,7 @@ export function TasksTimesheetView({
       name: string,
       avatarUrl: string | null,
       dayIndex: number,
-      task: TaskWithProject,
-      hours: number
+      task: TaskWithProject
     ) {
       let row = map.get(key);
       if (!row) {
@@ -132,27 +109,22 @@ export function TasksTimesheetView({
           name,
           avatarUrl,
           daily: Array.from({ length: 7 }, () => [] as TaskWithProject[]),
-          hours: Array.from({ length: 7 }, () => 0),
         };
         map.set(key, row);
       }
       row.daily[dayIndex].push(task);
-      row.hours[dayIndex] += hours;
     }
 
     for (const t of tasks) {
-      const start = parseIsoDate(t.startDate);
-      const due = parseIsoDate(t.dueDate);
       const assignees = assigneesByTaskId[t.id] ?? [];
       for (let i = 0; i < 7; i++) {
         const day = days[i];
         if (!taskOverlaps(t, day)) continue;
-        const h = hoursForDay(t, day, start, due);
         if (assignees.length === 0) {
-          pushRow(unassignedKey, memberView ? "بدون تعيين" : "Unassigned", null, i, t, h);
+          pushRow(unassignedKey, memberView ? "بدون تعيين" : "Unassigned", null, i, t);
         } else {
           for (const a of assignees) {
-            pushRow(a.userId, a.name, a.avatarUrl, i, t, h);
+            pushRow(a.userId, a.name, a.avatarUrl, i, t);
           }
         }
       }
@@ -167,15 +139,6 @@ export function TasksTimesheetView({
     return arr;
   }, [tasks, assigneesByTaskId, days, memberView]);
 
-  const columnTotals = React.useMemo(() => {
-    const totals = Array.from({ length: 7 }, () => 0);
-    for (const r of rows) {
-      for (let i = 0; i < 7; i++) totals[i] += r.hours[i];
-    }
-    return totals;
-  }, [rows]);
-
-  const grandTotal = columnTotals.reduce((a, b) => a + b, 0);
   const dir = memberView ? "rtl" : "ltr";
   const today = startOfDay(new Date());
 
@@ -210,14 +173,11 @@ export function TasksTimesheetView({
           </Button>
         </div>
         <h3 className="text-base font-semibold capitalize">{rangeLabel}</h3>
-        <div className="text-muted-foreground text-xs">
-          {memberView ? "إجمالي الساعات" : "Total hours"}:{" "}
-          <span className="text-foreground font-semibold">{roundHours(grandTotal) || "0"}</span>
-        </div>
+        <div className="w-24 shrink-0" aria-hidden />
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px] border-collapse text-sm">
+        <table className="w-full min-w-[840px] border-collapse text-sm">
           <thead>
             <tr className="bg-muted/40">
               <th className="sticky start-0 z-10 w-56 border-e border-b bg-muted/40 p-2 text-start text-xs font-medium uppercase text-muted-foreground">
@@ -234,22 +194,24 @@ export function TasksTimesheetView({
                     )}
                   >
                     <div className="uppercase">{format(d, "EEE", { locale })}</div>
-                    <div className={cn("text-sm", isToday ? "font-bold text-primary" : "text-foreground font-semibold")}>
+                    <div
+                      className={cn(
+                        "text-sm",
+                        isToday ? "font-bold text-primary" : "text-foreground font-semibold"
+                      )}
+                    >
                       {format(d, "dd", { locale })}
                     </div>
                   </th>
                 );
               })}
-              <th className="w-24 border-b p-2 text-center text-xs font-medium uppercase text-muted-foreground">
-                {memberView ? "المجموع" : "Total"}
-              </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={8}
                   className="p-8 text-center text-sm text-muted-foreground"
                 >
                   {memberView
@@ -259,7 +221,7 @@ export function TasksTimesheetView({
               </tr>
             ) : (
               rows.map((r) => {
-                const rowTotal = r.hours.reduce((a, b) => a + b, 0);
+                const weekTaskCount = new Set(r.daily.flat().map((t) => t.id)).size;
                 return (
                   <tr key={r.userId} className="align-top">
                     <th className="sticky start-0 z-10 border-e border-b bg-card p-2 text-start font-normal">
@@ -277,14 +239,14 @@ export function TasksTimesheetView({
                         <div className="min-w-0">
                           <div className="truncate font-medium">{r.name}</div>
                           <div className="text-muted-foreground text-xs">
-                            {roundHours(rowTotal) || "0"} {memberView ? "س" : "hrs"}
+                            {weekTaskCount}{" "}
+                            {memberView ? (weekTaskCount === 1 ? "مهمة" : "مهام") : weekTaskCount === 1 ? "task" : "tasks"}
                           </div>
                         </div>
                       </div>
                     </th>
                     {days.map((d, i) => {
                       const dayTasks = r.daily[i];
-                      const dayHours = r.hours[i];
                       const isToday = isSameDay(d, today);
                       return (
                         <td
@@ -313,46 +275,18 @@ export function TasksTimesheetView({
                                 </button>
                               ))
                             )}
-                            {dayHours > 0 ? (
-                              <div className="pt-0.5 text-end text-[10px] font-semibold text-muted-foreground">
-                                {roundHours(dayHours)}
-                                {memberView ? "س" : "h"}
-                              </div>
-                            ) : null}
                           </div>
                         </td>
                       );
                     })}
-                    <td className="border-b p-2 text-center text-sm font-semibold">
-                      {roundHours(rowTotal) || "—"}
-                    </td>
                   </tr>
                 );
               })
             )}
           </tbody>
-          {rows.length > 0 ? (
-            <tfoot>
-              <tr className="bg-muted/30">
-                <th className="sticky start-0 z-10 border-e bg-muted/30 p-2 text-start text-xs font-semibold uppercase">
-                  {memberView ? "إجمالي اليوم" : "Day total"}
-                </th>
-                {columnTotals.map((total, i) => (
-                  <td
-                    key={i}
-                    className="border-e p-2 text-center text-sm font-semibold last:border-e-0"
-                  >
-                    {roundHours(total) || "—"}
-                  </td>
-                ))}
-                <td className="p-2 text-center text-sm font-bold">{roundHours(grandTotal) || "—"}</td>
-              </tr>
-            </tfoot>
-          ) : null}
         </table>
       </div>
 
-      {/* Legend */}
       <div className="flex flex-wrap items-center gap-2 border-t p-2">
         <span className="text-muted-foreground me-1 text-xs">
           {memberView ? "الأولوية:" : "Priority:"}
@@ -368,10 +302,9 @@ export function TasksTimesheetView({
         ))}
         <span className="text-muted-foreground ms-auto text-xs">
           {memberView
-            ? "الساعات موزعة على مدى المهمة (من البدء إلى الاستحقاق)."
-            : "Hours are spread evenly across each task's start→due range."}
+            ? "المهام تظهر في الأيام بين تاريخ البدء وتاريخ الاستحقاق (أو في يوم الاستحقاق فقط)."
+            : "Tasks appear on days from start date through due date (or on the due date only)."}
         </span>
-        {/* keep status class referenced for tree-shaking stability */}
         <span className="sr-only">{TASK_STATUS_BADGE_CLASS.todo}</span>
       </div>
     </div>

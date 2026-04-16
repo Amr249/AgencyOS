@@ -97,7 +97,6 @@ export async function getWorkspaceBoard(projectId: string) {
         sortOrder: tasks.sortOrder,
         startDate: tasks.startDate,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
         notes: tasks.notes,
         actualHours: tasks.actualHours,
         createdAt: tasks.createdAt,
@@ -145,7 +144,6 @@ export async function getWorkspaceBoard(projectId: string) {
       priority: r.priority,
       startDate: r.startDate,
       dueDate: r.dueDate,
-      estimatedHours: r.estimatedHours,
       notes: r.notes,
       createdAt: r.createdAt,
       actualHours: r.actualHours,
@@ -228,7 +226,6 @@ export async function getWorkspaceBoardForProjects(projectIds: string[]) {
         sortOrder: tasks.sortOrder,
         startDate: tasks.startDate,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
         notes: tasks.notes,
         actualHours: tasks.actualHours,
         createdAt: tasks.createdAt,
@@ -270,7 +267,6 @@ export async function getWorkspaceBoardForProjects(projectIds: string[]) {
       priority: r.priority,
       startDate: r.startDate,
       dueDate: r.dueDate,
-      estimatedHours: r.estimatedHours,
       notes: r.notes,
       createdAt: r.createdAt,
       actualHours: r.actualHours,
@@ -396,7 +392,6 @@ export async function getWorkspaceCalendar(month: string) {
         status: tasks.status,
         priority: tasks.priority,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
         actualHours: tasks.actualHours,
         description: tasks.description,
         assigneeId: tasks.assigneeId,
@@ -430,7 +425,6 @@ export type WorkspaceMyTaskRow = {
   assigneeAvatarUrl: string | null;
   assigneeId: string | null;
   actualHours: string | null;
-  estimatedHours: string | null;
   description: string | null;
 };
 
@@ -544,7 +538,6 @@ export async function getWorkspaceMyTasks(): Promise<
         assigneeAvatarUrl: teamMembers.avatarUrl,
         assigneeId: tasks.assigneeId,
         actualHours: tasks.actualHours,
-        estimatedHours: tasks.estimatedHours,
         description: tasks.description,
       })
       .from(tasks)
@@ -589,7 +582,6 @@ export type WorkloadCapacityTaskRow = {
   status: string;
   priority: string;
   dueDate: string | null;
-  estimatedHours: string | null;
   actualHours: string | null;
   assigneeId: string | null;
 };
@@ -654,7 +646,6 @@ export async function getWorkspaceWorkloadCapacity(): Promise<
         id: tasks.id,
         title: tasks.title,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
         actualHours: tasks.actualHours,
         assigneeId: tasks.assigneeId,
         projectId: tasks.projectId,
@@ -712,10 +703,9 @@ export async function getWorkspaceWorkloadCapacity(): Promise<
       const mTasks = taskRows.filter((t) => t.assigneeId === member.id);
       let assignedSum = 0;
       const capacityTasks: WorkloadCapacityTaskRow[] = mTasks.map((t) => {
-        const est = toNumber(t.estimatedHours);
         const weekL = logWeekMap[t.id] ?? 0;
         const totalL = logTotalMap[t.id] ?? 0;
-        const hours = est > 0 ? est : weekL > 0 ? weekL : totalL > 0 ? totalL : 0;
+        const hours = weekL > 0 ? weekL : totalL > 0 ? totalL : 0;
         assignedSum += hours;
         return {
           id: t.id,
@@ -725,7 +715,6 @@ export async function getWorkspaceWorkloadCapacity(): Promise<
           status: t.status,
           priority: t.priority,
           dueDate: t.dueDate,
-          estimatedHours: t.estimatedHours,
           actualHours: t.actualHours,
           assigneeId: t.assigneeId,
         };

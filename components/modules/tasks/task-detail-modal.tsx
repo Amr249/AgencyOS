@@ -65,7 +65,6 @@ type TaskWithSubtasks = {
   status: "todo" | "in_progress" | "in_review" | "done" | "blocked";
   priority: "low" | "medium" | "high" | "urgent";
   dueDate: string | null;
-  estimatedHours: string | null;
   notes: string | null;
   createdAt: Date;
   subtasks: Array<{
@@ -78,7 +77,6 @@ type TaskWithSubtasks = {
     status: "todo" | "in_progress" | "in_review" | "done" | "blocked";
     priority: string;
     dueDate: string | null;
-    estimatedHours: string | null;
     notes: string | null;
     createdAt: Date;
     deletedAt: Date | null;
