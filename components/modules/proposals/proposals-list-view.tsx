@@ -75,6 +75,7 @@ type Stats = {
 type ChartData = {
   byMonth: { monthKey: string; monthLabel: string; won: number; total: number; ratio: number }[];
   statusDistribution: { status: string; count: number }[];
+  serviceDistribution: { service: string; count: number }[];
 };
 
 const STATUS_OPTIONS = [
@@ -448,10 +449,13 @@ export function ProposalsListView({
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Proposals by status</CardTitle>
+            <CardTitle className="text-base">Proposals distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <ProposalsStatusChart data={chartData.statusDistribution} />
+            <ProposalsStatusChart
+              statusDistribution={chartData.statusDistribution}
+              serviceDistribution={chartData.serviceDistribution}
+            />
           </CardContent>
         </Card>
       </div>

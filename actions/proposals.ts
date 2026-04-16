@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { format } from "date-fns";
 import { z } from "zod";
-import { eq, and, gte, lte, ilike, desc, inArray, asc } from "drizzle-orm";
+import { eq, and, gte, lte, ilike, desc, inArray, asc, count, notExists } from "drizzle-orm";
 import { db, proposals, proposalServices, services } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { createClient } from "@/actions/clients";
@@ -236,6 +236,34 @@ export async function getProposalStatsForCharts() {
       status,
       count,
     }));
+
+    const [serviceGroups, noServiceRows] = await Promise.all([
+      db
+        .select({
+          name: services.name,
+          cnt: count(proposalServices.id),
+        })
+        .from(proposalServices)
+        .innerJoin(services, eq(proposalServices.serviceId, services.id))
+        .groupBy(services.name),
+      db
+        .select({ n: count() })
+        .from(proposals)
+        .where(
+          notExists(
+            db.select().from(proposalServices).where(eq(proposalServices.proposalId, proposals.id))
+          )
+        ),
+    ]);
+
+    const noServiceCount = Number(noServiceRows[0]?.n ?? 0);
+    const serviceDistribution = serviceGroups
+      .map((r) => ({ service: r.name, count: Number(r.cnt) }))
+      .sort((a, b) => b.count - a.count);
+    if (noServiceCount > 0) {
+      serviceDistribution.push({ service: "No service", count: noServiceCount });
+    }
+
     return {
       ok: true as const,
       data: {
@@ -244,6 +272,7 @@ export async function getProposalStatsForCharts() {
           ratio: m.total > 0 ? Math.round((m.won / m.total) * 100) : 0,
         })),
         statusDistribution,
+        serviceDistribution,
       },
     };
   } catch (e) {

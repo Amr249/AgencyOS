@@ -51,7 +51,7 @@ export default async function ProposalsPage({ searchParams }: PageProps) {
       };
   const chartData = chartsResult.ok
     ? chartsResult.data
-    : { byMonth: [], statusDistribution: [] };
+    : { byMonth: [], statusDistribution: [], serviceDistribution: [] };
 
   const serviceOptions =
     servicesResult.ok
