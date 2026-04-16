@@ -203,6 +203,7 @@ export function TaskDetailModal({
       setSubtaskIdToDelete(null);
       return;
     }
+    setTask(null);
     setLoading(true);
     Promise.all([
       getTaskById(taskId),
@@ -235,6 +236,19 @@ export function TaskDetailModal({
               setCandidateTasks([]);
             }
           });
+        } else {
+          setTask(null);
+          const err = taskRes.error;
+          toast.error(
+            err === "Forbidden"
+              ? "You cannot open this task."
+              : err === "Task not found"
+                ? "Task not found."
+                : err === "Invalid task id"
+                  ? "Invalid task."
+                  : "Could not load task."
+          );
+          onClose();
         }
         if (assigneesRes.data) {
           setCurrentAssignees(assigneesRes.data);
@@ -911,7 +925,9 @@ export function TaskDetailModal({
                 Delete task
               </Button>
             </div>
-          ) : null}
+          ) : (
+            <p className="text-muted-foreground py-8 text-center text-sm">Could not load this task.</p>
+          )}
         </DialogContent>
       </Dialog>
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { getServerSession } from "next-auth";
 import { getProjects, getProjectTaskCounts } from "@/actions/projects";
@@ -9,7 +8,9 @@ import { getProjectMemberIdsByProjectIds, getTeamMembers } from "@/actions/team-
 import { getServices } from "@/actions/services";
 import { getServiceIdsByProjectIds } from "@/actions/project-services";
 import { getProjectsHealthMap } from "@/actions/project-health";
+import { getMemberDashboardData } from "@/actions/member-dashboard";
 import { ProjectsListView } from "@/components/modules/projects/projects-list-view";
+import { MemberProjectsPageContent } from "@/components/member-dashboard/member-projects-page-content";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 
@@ -24,16 +25,30 @@ type PageProps = {
 
 export default async function ProjectsPage({ searchParams }: PageProps) {
   const { search, status, clientId } = await searchParams;
+
+  const session = await getServerSession(authOptions);
+  if (sessionUserRole(session) === "member") {
+    const memberRes = await getMemberDashboardData();
+    if (!memberRes.ok) {
+      return (
+        <div className="space-y-4" dir="rtl" lang="ar">
+          <h1 className="text-2xl font-bold tracking-tight">المشاريع</h1>
+          <p className="text-destructive">تعذّر تحميل المشاريع.</p>
+        </div>
+      );
+    }
+    return (
+      <Suspense fallback={<div className="text-muted-foreground">جارٍ التحميل…</div>}>
+        <MemberProjectsPageContent projects={memberRes.data.projects} />
+      </Suspense>
+    );
+  }
+
   const filters = {
     search: search ?? undefined,
     status: status ?? undefined,
     clientId: clientId && clientId !== "all" ? clientId : undefined,
   };
-
-  const session = await getServerSession(authOptions);
-  if (sessionUserRole(session) === "member") {
-    redirect("/dashboard/tasks");
-  }
 
   const [projectsResult, clientsResult, settingsResult, servicesResult] = await Promise.all([
     getProjects(filters),

@@ -113,8 +113,38 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: userRoleEnum("role").notNull().default("member"),
   avatarUrl: text("avatar_url"),
+  /** User's UI theme preference. One of 'light' | 'dark' | 'system'. Null = not yet set. */
+  themePreference: text("theme_preference"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/**
+ * In-app notifications. One row per recipient user.
+ * `actorId` is the user who triggered the event (may be self, may be an admin editing a member).
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Machine-readable event key, e.g. "profile.email_changed". */
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    /** Optional deep-link (e.g. /dashboard/account). */
+    linkUrl: text("link_url"),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("notifications_user_id_idx").on(table.userId),
+    index("notifications_user_read_idx").on(table.userId, table.readAt),
+    index("notifications_created_at_idx").on(table.createdAt),
+  ]
+);
 
 // clients
 export const clients = pgTable("clients", {

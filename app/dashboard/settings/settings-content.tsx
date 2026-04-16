@@ -167,7 +167,7 @@ export function SettingsContent({
                     <FormItem>
                       <FormLabel>Current password</FormLabel>
                       <FormControl>
-                        <div className="relative">
+                        <div className="relative" dir="ltr">
                           <Input
                             type={showCurrentPassword ? "text" : "password"}
                             autoComplete="current-password"
@@ -199,7 +199,7 @@ export function SettingsContent({
                     <FormItem>
                       <FormLabel>New password</FormLabel>
                       <FormControl>
-                        <div className="relative">
+                        <div className="relative" dir="ltr">
                           <Input
                             type={showNewPasswordField ? "text" : "password"}
                             autoComplete="new-password"
@@ -231,7 +231,7 @@ export function SettingsContent({
                     <FormItem>
                       <FormLabel>Confirm new password</FormLabel>
                       <FormControl>
-                        <div className="relative">
+                        <div className="relative" dir="ltr">
                           <Input
                             type={showConfirmPassword ? "text" : "password"}
                             autoComplete="new-password"

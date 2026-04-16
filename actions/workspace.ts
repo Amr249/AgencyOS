@@ -22,8 +22,11 @@ import { revalidateTimeTrackingCaches } from "@/lib/revalidate-time-tracking-cac
 import { DEFAULT_WEEKLY_CAPACITY_HOURS } from "@/lib/workspace-constants";
 import type { TaskWithProject } from "@/actions/tasks";
 import {
+  getMemberProjectIdsForUser,
   getTeamMemberIdsForSessionUser,
   memberCanAccessTask,
+  memberHasProjectAccess,
+  memberIsAssignedToTask,
 } from "@/lib/member-context";
 import { sessionUserRole } from "@/lib/auth-helpers";
 
@@ -72,6 +75,13 @@ export async function getWorkspaceBoard(projectId: string) {
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
 
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (sessionUserRole(session) === "member" && userId) {
+      const allowed = await memberHasProjectAccess(userId, parsed.data);
+      if (!allowed) return { ok: false as const, error: "Forbidden" };
+    }
+
     const rows = await db
       .select({
         id: tasks.id,
@@ -184,7 +194,25 @@ export async function getWorkspaceBoardForProjects(projectIds: string[]) {
     };
   }
   try {
-    const ids = parsed.data;
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    let ids = parsed.data;
+    if (sessionUserRole(session) === "member" && userId) {
+      const allowed = new Set(await getMemberProjectIdsForUser(userId));
+      ids = ids.filter((id) => allowed.has(id));
+      if (ids.length === 0) {
+        return {
+          ok: true as const,
+          data: {
+            columns: TASK_STATUSES.map((status) => ({
+              status,
+              tasks: [] as WorkspaceBoardTask[],
+            })),
+          },
+        };
+      }
+    }
+
     const rows = await db
       .select({
         id: tasks.id,
@@ -280,6 +308,13 @@ export async function getWorkspaceTimeline(projectId: string) {
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (sessionUserRole(session) === "member" && userId) {
+      const allowed = await memberHasProjectAccess(userId, parsed.data);
+      if (!allowed) return { ok: false as const, error: "Forbidden" };
+    }
+
     const data = await db
       .select({
         id: tasks.id,
@@ -336,6 +371,24 @@ export async function getWorkspaceCalendar(month: string) {
   const startDate = toIsoDateLocal(gridStart);
   const endDate = toIsoDateLocal(gridEnd);
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    const role = sessionUserRole(session);
+    const memberProjectIds =
+      role === "member" && userId ? await getMemberProjectIdsForUser(userId) : null;
+
+    const calendarParts = [
+      isNull(tasks.deletedAt),
+      sql`${tasks.dueDate} is not null`,
+      between(tasks.dueDate, startDate, endDate),
+    ];
+    if (memberProjectIds && memberProjectIds.length > 0) {
+      calendarParts.push(inArray(tasks.projectId, memberProjectIds));
+    } else if (memberProjectIds && memberProjectIds.length === 0) {
+      calendarParts.push(sql`1 = 0`);
+    }
+    const conditions = and(...calendarParts);
+
     const data = await db
       .select({
         id: tasks.id,
@@ -353,13 +406,7 @@ export async function getWorkspaceCalendar(month: string) {
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
-      .where(
-        and(
-          isNull(tasks.deletedAt),
-          sql`${tasks.dueDate} is not null`,
-          between(tasks.dueDate, startDate, endDate)
-        )
-      )
+      .where(conditions)
       .orderBy(asc(tasks.dueDate), asc(tasks.sortOrder));
 
     return { ok: true as const, data };
@@ -445,6 +492,12 @@ export async function getWorkspaceMyTasks(): Promise<
     }
 
     const userId = session.user.id;
+    const role = sessionUserRole(session);
+    const memberProjectIds =
+      role === "member" ? await getMemberProjectIdsForUser(userId) : null;
+    if (role === "member" && (!memberProjectIds || memberProjectIds.length === 0)) {
+      return { ok: true as const, data: { ...EMPTY_MY_TASK_GROUPS } };
+    }
 
     const taskIdSet = new Set<string>();
 
@@ -468,6 +521,14 @@ export async function getWorkspaceMyTasks(): Promise<
       return { ok: true as const, data: { ...EMPTY_MY_TASK_GROUPS } };
     }
 
+    const taskWhere = memberProjectIds?.length
+      ? and(
+          inArray(tasks.id, taskIds),
+          isNull(tasks.deletedAt),
+          inArray(tasks.projectId, memberProjectIds)
+        )
+      : and(inArray(tasks.id, taskIds), isNull(tasks.deletedAt));
+
     const rows = await db
       .select({
         id: tasks.id,
@@ -490,7 +551,7 @@ export async function getWorkspaceMyTasks(): Promise<
       .innerJoin(projects, eq(tasks.projectId, projects.id))
       .innerJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
-      .where(and(inArray(tasks.id, taskIds), isNull(tasks.deletedAt)))
+      .where(taskWhere)
       .orderBy(asc(tasks.dueDate), desc(tasks.createdAt));
 
     const todayStart = new Date();
@@ -708,6 +769,17 @@ export async function updateTaskSortOrder(updates: Array<{ id: string; sortOrder
   const parsed = sortOrderSchema.safeParse(updates);
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      for (const item of parsed.data) {
+        const can = await memberCanAccessTask(item.id, session.user.id);
+        if (!can) return { ok: false as const, error: "Forbidden" };
+        const owns = await memberIsAssignedToTask(item.id, session.user.id);
+        if (!owns) return { ok: false as const, error: "Forbidden" };
+      }
+    }
+
     await db.transaction(async (tx) => {
       for (const item of parsed.data) {
         await tx
@@ -717,6 +789,7 @@ export async function updateTaskSortOrder(updates: Array<{ id: string; sortOrder
       }
     });
     revalidatePath("/dashboard/workspace");
+    revalidatePath("/dashboard/me");
     return { ok: true as const };
   } catch (error) {
     console.error("updateTaskSortOrder", error);
@@ -739,6 +812,8 @@ export async function logTime(input: {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const can = await memberCanAccessTask(parsed.data.taskId, session.user.id);
       if (!can) return { ok: false as const, error: "Forbidden" };
+      const owns = await memberIsAssignedToTask(parsed.data.taskId, session.user.id);
+      if (!owns) return { ok: false as const, error: "Forbidden" };
       const mids = await getTeamMemberIdsForSessionUser(session.user.id);
       if (
         parsed.data.teamMemberId != null &&
@@ -790,6 +865,8 @@ export async function deleteTimeLog(id: string) {
       if (!existingLog?.taskId) return { ok: false as const, error: "Not found" };
       const can = await memberCanAccessTask(existingLog.taskId, session.user.id);
       if (!can) return { ok: false as const, error: "Forbidden" };
+      const owns = await memberIsAssignedToTask(existingLog.taskId, session.user.id);
+      if (!owns) return { ok: false as const, error: "Forbidden" };
     }
 
     const [deleted] = await db
@@ -914,10 +991,13 @@ export async function deleteTaskComment(id: string) {
       if (!c?.taskId) return { ok: false as const, error: "Not found" };
       const can = await memberCanAccessTask(c.taskId, session.user.id);
       if (!can) return { ok: false as const, error: "Forbidden" };
+      const owns = await memberIsAssignedToTask(c.taskId, session.user.id);
+      if (!owns) return { ok: false as const, error: "Forbidden" };
     }
 
     await db.delete(taskComments).where(eq(taskComments.id, parsed.data));
     revalidatePath("/dashboard/workspace");
+    revalidatePath("/dashboard/me");
     return { ok: true as const };
   } catch (error) {
     console.error("deleteTaskComment", error);
@@ -936,6 +1016,8 @@ export async function assignTask(taskId: string, teamMemberId: string | null) {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const can = await memberCanAccessTask(parsed.data.taskId, session.user.id);
       if (!can) return { ok: false as const, error: "Forbidden" };
+      const owns = await memberIsAssignedToTask(parsed.data.taskId, session.user.id);
+      if (!owns) return { ok: false as const, error: "Forbidden" };
       const mids = await getTeamMemberIdsForSessionUser(session.user.id);
       if (
         parsed.data.teamMemberId != null &&
@@ -950,6 +1032,7 @@ export async function assignTask(taskId: string, teamMemberId: string | null) {
       .set({ assigneeId: parsed.data.teamMemberId })
       .where(eq(tasks.id, parsed.data.taskId));
     revalidatePath("/dashboard/workspace");
+    revalidatePath("/dashboard/me");
     return { ok: true as const };
   } catch (error) {
     console.error("assignTask", error);

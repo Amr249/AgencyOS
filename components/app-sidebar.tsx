@@ -12,9 +12,9 @@ import {
   IconReceipt,
   IconReport,
   IconLayoutKanban,
+  IconUserCircle,
   IconUsers,
   IconWallet,
-  IconTemplate,
 } from "@tabler/icons-react";
 import { Building2, FolderKanban, UserCog, Wallet } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -57,8 +57,10 @@ export function AppSidebar({
           label: t("memberWork"),
           icon: FolderKanban,
                    children: [
-            { title: t("allTasks"), url: "/dashboard/tasks", icon: IconListDetails },
+            { title: t("projects"), url: "/dashboard/projects", icon: IconFolder },
+            { title: t("workspace"), url: "/dashboard/workspace", icon: IconListDetails },
             { title: t("payments"), url: "/dashboard/payments", icon: IconReceipt },
+            { title: t("account"), url: "/dashboard/account", icon: IconUserCircle },
           ],
         },
       ]
@@ -70,7 +72,6 @@ export function AppSidebar({
       children: [
         { title: t("clients"), url: "/dashboard/clients", icon: IconBuilding },
         { title: t("pipeline"), url: "/dashboard/crm/pipeline", icon: IconLayoutKanban },
-        { title: t("winLoss"), url: "/dashboard/crm/win-loss", icon: IconReport },
         { title: t("proposals"), url: "/dashboard/proposals", icon: IconFileText },
       ],
     },
@@ -80,9 +81,7 @@ export function AppSidebar({
       icon: FolderKanban,
       children: [
         { title: t("projects"), url: "/dashboard/projects", icon: IconFolder },
-        { title: "Templates", url: "/dashboard/templates", icon: IconTemplate },
-        { title: t("allTasks"), url: "/dashboard/tasks", icon: IconListDetails },
-        { title: t("workspace"), url: "/dashboard/workspace", icon: IconLayoutKanban },
+        { title: t("workspace"), url: "/dashboard/workspace", icon: IconListDetails },
       ],
     },
     {
@@ -142,6 +141,7 @@ export function AppSidebar({
           settings={settings}
           groups={groups}
           showSettings={!isMember}
+          collapsibleGroups={!isMember}
         />
       </SidebarContent>
       <SidebarFooter>

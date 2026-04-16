@@ -10,7 +10,6 @@ import {
   IconFolder,
   IconReceipt,
   IconListDetails,
-  IconLayoutKanban,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
@@ -28,16 +27,16 @@ export function MobileBottomNav({ userRole = "admin" }: MobileBottomNavProps) {
     userRole === "member"
       ? [
           { href: "/dashboard/me", label: t("myDashboard"), icon: IconLayoutDashboard },
-          { href: "/dashboard/tasks", label: t("allTasks"), icon: IconListDetails },
+          { href: "/dashboard/projects", label: t("projects"), icon: IconFolder },
+          { href: "/dashboard/workspace", label: t("workspace"), icon: IconListDetails },
           { href: "/dashboard/payments", label: t("payments"), icon: IconReceipt },
         ]
       : [
           { href: "/dashboard", label: t("dashboard"), icon: IconLayoutDashboard },
           { href: "/dashboard/clients", label: t("clients"), icon: IconUsers },
-          { href: "/dashboard/workspace", label: t("workspace"), icon: IconLayoutKanban },
           { href: "/dashboard/projects", label: t("projects"), icon: IconFolder },
           { href: "/dashboard/invoices", label: t("invoices"), icon: IconReceipt },
-          { href: "/dashboard/tasks", label: t("allTasks"), icon: IconListDetails },
+          { href: "/dashboard/workspace", label: t("workspace"), icon: IconListDetails },
         ];
 
   return (

@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { and, asc, between, eq, inArray } from "drizzle-orm";
 import { addDays, format, parseISO } from "date-fns";
@@ -69,8 +68,6 @@ export async function markUnavailable(
 
     if (!row) return { ok: false, error: "Could not save availability" };
 
-    revalidatePath("/dashboard/workspace/workload");
-    revalidatePath("/dashboard/workspace/availability");
     return { ok: true, data: row };
   } catch (e) {
     console.error("markUnavailable", e);
@@ -92,8 +89,6 @@ export async function markAvailable(
       .returning({ id: teamAvailability.id });
     if (!removed.length) return { ok: false, error: "Entry not found" };
 
-    revalidatePath("/dashboard/workspace/workload");
-    revalidatePath("/dashboard/workspace/availability");
     return { ok: true };
   } catch (e) {
     console.error("markAvailable", e);

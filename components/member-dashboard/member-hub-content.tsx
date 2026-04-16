@@ -17,9 +17,8 @@ import {
 import type { MemberProjectRow, MemberSalaryExpenseRow } from "@/actions/member-dashboard";
 import { MemberPaymentsDataTable } from "@/components/member-dashboard/member-financial-tables";
 import { MemberTaskCharts, MemberEarningsChart } from "@/components/member-dashboard/member-hub-charts";
-import { WorkspaceMyTasksView } from "@/components/modules/workspace/workspace-my-tasks-view";
+import { MemberMyTasksList } from "@/components/member-dashboard/member-my-tasks-list";
 import type { WorkspaceMyTaskGroups } from "@/actions/workspace";
-import type { TeamMemberInput } from "@/components/modules/workspace/workspace-my-tasks-view";
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_PILL_CLASS } from "@/types";
 import { AvatarStack } from "@/components/ui/avatar-stack";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -28,8 +27,6 @@ import { cn } from "@/lib/utils";
 type MemberHubContentProps = {
   displayName: string;
   groups: WorkspaceMyTaskGroups;
-  teamMembers: TeamMemberInput[];
-  projectPickerOptions: { id: string; name: string }[];
   projects: MemberProjectRow[];
   salaryExpenses: MemberSalaryExpenseRow[];
 };
@@ -39,8 +36,6 @@ const DUE_SECTION_KEYS = ["overdue", "today", "tomorrow", "this_week", "later", 
 export async function MemberHubContent({
   displayName,
   groups,
-  teamMembers,
-  projectPickerOptions,
   projects,
   salaryExpenses,
 }: MemberHubContentProps) {
@@ -185,13 +180,8 @@ export async function MemberHubContent({
           <CardTitle>{t("tasks")}</CardTitle>
           <CardDescription>{t("tasksHint")}</CardDescription>
         </CardHeader>
-        <CardContent className="px-0 sm:px-6">
-          <WorkspaceMyTasksView
-            groups={groups}
-            teamMembers={teamMembers}
-            projects={projectPickerOptions}
-            isArabic
-          />
+        <CardContent className="px-2 sm:px-6">
+          <MemberMyTasksList groups={groups} />
         </CardContent>
       </Card>
 

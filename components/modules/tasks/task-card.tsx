@@ -13,6 +13,7 @@ import {
   TASK_PRIORITY_LABELS,
   TASK_PRIORITY_LABELS_EN,
   TASK_PRIORITY_BADGE_CLASS,
+  isTaskOverdue,
 } from "@/types";
 import { cn } from "@/lib/utils";
 import { Clock, MoreHorizontal } from "lucide-react";
@@ -33,14 +34,6 @@ function formatDate(d: string | null, locale: "ar" | "en") {
   }
 }
 
-function isOverdue(dueDate: string | null) {
-  if (!dueDate) return false;
-  try {
-    return new Date(dueDate) < new Date(new Date().toDateString());
-  } catch {
-    return false;
-  }
-}
 
 function formatHours(hours: number): string {
   const rounded = Math.round(hours * 100) / 100;
@@ -112,6 +105,8 @@ type TaskCardProps = {
   copyLocale?: "ar" | "en";
   /** Team members: show project name only (no link to project pages). */
   hideProjectLink?: boolean;
+  /** Extra classes on the root (e.g. room for a Kanban drag handle). */
+  className?: string;
 };
 
 export function TaskCard({
@@ -121,8 +116,9 @@ export function TaskCard({
   onDelete,
   copyLocale = "ar",
   hideProjectLink = false,
+  className,
 }: TaskCardProps) {
-  const overdue = isOverdue(task.dueDate);
+  const overdue = isTaskOverdue(task.dueDate, task.status);
   const dueStr = formatDate(task.dueDate, copyLocale);
   const subtaskCount = task.subtaskCount ?? 0;
   const prioLabel =
@@ -137,7 +133,10 @@ export function TaskCard({
       role="button"
       tabIndex={0}
       dir={copyLocale === "en" ? "ltr" : undefined}
-      className="group relative rounded-xl border bg-card p-4 pe-11 shadow-sm transition-colors hover:bg-muted/40"
+      className={cn(
+        "group relative rounded-xl border bg-card p-4 pe-11 shadow-sm transition-colors hover:bg-muted/40",
+        className
+      )}
       onClick={onEdit}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {

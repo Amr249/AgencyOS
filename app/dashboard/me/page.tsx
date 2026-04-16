@@ -6,7 +6,6 @@ import { sessionUserRole } from "@/lib/auth-helpers";
 import { getWorkspaceMyTasks, type WorkspaceMyTaskGroups } from "@/actions/workspace";
 import { getMemberDashboardData } from "@/actions/member-dashboard";
 import { MemberHubContent } from "@/components/member-dashboard/member-hub-content";
-import { getTeamMemberRowsForSessionUser } from "@/lib/member-context";
 
 const EMPTY_GROUPS: WorkspaceMyTaskGroups = {
   overdue: [],
@@ -25,10 +24,9 @@ export default async function MemberDashboardPage() {
     redirect("/dashboard");
   }
 
-  const [tasksRes, dashRes, rosterRows] = await Promise.all([
+  const [tasksRes, dashRes] = await Promise.all([
     getWorkspaceMyTasks(),
     getMemberDashboardData(),
-    getTeamMemberRowsForSessionUser(session.user.id),
   ]);
 
   if (!dashRes.ok) {
@@ -46,21 +44,10 @@ export default async function MemberDashboardPage() {
     );
   }
 
-  const teamMembers = rosterRows.map((m) => ({
-    id: m.id,
-    name: m.name,
-    avatarUrl: m.avatarUrl ?? undefined,
-    role: m.role ?? undefined,
-  }));
-
-  const projectPicker = dashRes.data.projects.map((p) => ({ id: p.id, name: p.name }));
-
   return (
     <MemberHubContent
       displayName={session.user.name ?? ""}
       groups={tasksRes.ok ? tasksRes.data : EMPTY_GROUPS}
-      teamMembers={teamMembers}
-      projectPickerOptions={projectPicker}
       projects={dashRes.data.projects}
       salaryExpenses={dashRes.data.salaryExpenses}
     />

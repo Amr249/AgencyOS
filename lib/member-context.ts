@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import {
   projectMembers,
   projectUserMembers,
+  taskAssignments,
   tasks,
   teamMembers,
   users,
@@ -94,4 +95,55 @@ export async function memberCanAccessTask(taskId: string, userId: string): Promi
     .limit(1);
   if (!taskRow?.projectId) return false;
   return memberHasProjectAccess(userId, taskRow.projectId);
+}
+
+/**
+ * Whether this task is assigned to the user (primary assignee or `task_assignments`).
+ * For subtasks with no assignee and no junction rows, walks `parent_task_id` until a definitive assignment.
+ * Used to restrict edit/delete to own work only (not teammates' tasks on the same project).
+ */
+export async function memberIsAssignedToTask(taskId: string, userId: string): Promise<boolean> {
+  const memberIds = await getTeamMemberIdsForSessionUser(userId);
+  if (memberIds.length === 0) return false;
+
+  let currentId: string | null = taskId;
+  const visited = new Set<string>();
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+
+    const [t] = await db
+      .select({
+        assigneeId: tasks.assigneeId,
+        parentTaskId: tasks.parentTaskId,
+      })
+      .from(tasks)
+      .where(eq(tasks.id, currentId))
+      .limit(1);
+    if (!t) return false;
+
+    if (t.assigneeId != null) {
+      return memberIds.includes(t.assigneeId);
+    }
+
+    const myRow = await db
+      .select({ id: taskAssignments.id })
+      .from(taskAssignments)
+      .where(and(eq(taskAssignments.taskId, currentId), inArray(taskAssignments.teamMemberId, memberIds)))
+      .limit(1);
+    if (myRow.length > 0) return true;
+
+    const anyRow = await db
+      .select({ id: taskAssignments.id })
+      .from(taskAssignments)
+      .where(eq(taskAssignments.taskId, currentId))
+      .limit(1);
+    if (anyRow.length > 0) {
+      return false;
+    }
+
+    currentId = t.parentTaskId;
+  }
+
+  return false;
 }

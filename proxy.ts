@@ -2,15 +2,15 @@ import { getToken } from "next-auth/jwt";
 import { NextResponse, type NextRequest } from "next/server";
 
 const MEMBER_HOME = "/dashboard/me";
+const MEMBER_ACCOUNT = "/dashboard/account";
 
 function isMemberAllowedPath(pathname: string): boolean {
   if (pathname === "/dashboard" || pathname === "/dashboard/") return true;
-  if (pathname === "/dashboard/my-tasks" || pathname.startsWith("/dashboard/my-tasks/"))
-    return true;
   if (pathname === MEMBER_HOME || pathname.startsWith(`${MEMBER_HOME}/`)) return true;
+  if (pathname === MEMBER_ACCOUNT || pathname.startsWith(`${MEMBER_ACCOUNT}/`)) return true;
   if (pathname === "/dashboard/projects" || pathname.startsWith("/dashboard/projects/"))
     return true;
-  if (pathname === "/dashboard/tasks" || pathname.startsWith("/dashboard/tasks/")) return true;
+  if (pathname === "/dashboard/workspace" || pathname.startsWith("/dashboard/workspace/")) return true;
   if (pathname === "/dashboard/payments" || pathname.startsWith("/dashboard/payments/"))
     return true;
   return false;
@@ -41,8 +41,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === "/dashboard/my-tasks" || pathname.startsWith("/dashboard/my-tasks/")) {
-    return NextResponse.redirect(new URL(MEMBER_HOME, request.url));
+  if (pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/")) {
+    return NextResponse.redirect(new URL(MEMBER_ACCOUNT, request.url));
   }
 
   if (isMemberAllowedPath(pathname)) {

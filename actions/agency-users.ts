@@ -8,6 +8,7 @@ import { assertAdminSession } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { teamMembers, users } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { notifyUserAndAdmins } from "@/actions/notifications";
 
 const createUserManualSchema = z.object({
   source: z.literal("manual"),
@@ -314,6 +315,12 @@ export async function updateAgencyUser(
       return { ok: false, error: "email_exists" };
     }
 
+    const [before] = await db
+      .select({ email: users.email, name: users.name })
+      .from(users)
+      .where(eq(users.id, parsed.data.userId))
+      .limit(1);
+
     const updatePayload: { name: string; email: string; passwordHash?: string } = {
       name: parsed.data.name.trim(),
       email: emailNorm,
@@ -328,6 +335,29 @@ export async function updateAgencyUser(
       .where(eq(users.id, parsed.data.userId))
       .returning({ id: users.id });
     if (!updated) return { ok: false, error: "unknown" };
+
+    const emailChanged = before ? before.email.toLowerCase() !== emailNorm : false;
+    const displayName = parsed.data.name.trim() || before?.name || "المستخدم";
+    if (emailChanged) {
+      await notifyUserAndAdmins({
+        targetUserId: parsed.data.userId,
+        actorId: gate.userId,
+        type: "profile.email_changed_by_admin",
+        title: "تم تحديث البريد الإلكتروني",
+        body: `قام المشرف بتحديث البريد الإلكتروني لـ ${displayName} إلى ${emailNorm}.`,
+        linkUrl: "/dashboard/account",
+      });
+    }
+    if (pwd) {
+      await notifyUserAndAdmins({
+        targetUserId: parsed.data.userId,
+        actorId: gate.userId,
+        type: "profile.password_changed_by_admin",
+        title: "تم تغيير كلمة المرور",
+        body: `قام المشرف بتحديث كلمة المرور لـ ${displayName}.`,
+        linkUrl: "/dashboard/account",
+      });
+    }
 
     const [tm] = await db
       .select({ id: teamMembers.id })

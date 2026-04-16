@@ -18,7 +18,7 @@ export const page_routes: PageRoutesType[] = [
       { title: "Dashboard", href: "/dashboard", icon: "PieChart" },
       { title: "Clients", href: "/dashboard/clients", icon: "Building" },
       { title: "Projects", href: "/dashboard/projects", icon: "Folder" },
-      { title: "Tasks", href: "/dashboard/tasks", icon: "List" },
+      { title: "Workspace", href: "/dashboard/workspace", icon: "List" },
       { title: "Invoices", href: "/dashboard/invoices", icon: "Receipt" },
       { title: "Reports", href: "/dashboard/reports", icon: "Report" },
       { title: "Settings", href: "/dashboard/settings", icon: "Settings" },

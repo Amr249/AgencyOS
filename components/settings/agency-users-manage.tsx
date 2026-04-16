@@ -301,6 +301,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     setEditName(u.name);
     setEditEmail(u.email);
     setEditPassword("");
+    setShowEditPassword(true);
     setEditOpen(true);
   }
 

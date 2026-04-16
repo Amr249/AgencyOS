@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TaskCard } from "./task-card";
 import { TASK_STATUS_LABELS_EN, TASK_STATUS_LABELS, TASK_STATUS_HEADER_CLASS } from "@/types";
-import { Plus } from "lucide-react";
+import { GripVertical, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithProject } from "@/actions/tasks";
 
@@ -48,6 +48,10 @@ function parseColumnDropId(id: string): KanbanStatus | null {
 }
 
 const taskDragId = (taskId: string) => `${TASK_PREFIX}${taskId}` as const;
+
+/** Board fills the viewport; each column scrolls internally. Extra space on small screens for bottom nav. */
+const KANBAN_BOARD_ROW_HEIGHT =
+  "h-[calc(100dvh-15rem)] max-h-[calc(100dvh-15rem)] md:h-[calc(100dvh-12rem)] md:max-h-[calc(100dvh-12rem)]";
 
 const kanbanCollision: CollisionDetection = (args) => {
   const hits = pointerWithin(args);
@@ -96,15 +100,18 @@ function KanbanDroppableColumn({
   });
 
   return (
-    <div ref={setNodeRef} className="min-w-[300px] max-w-[300px] shrink-0">
+    <div
+      ref={setNodeRef}
+      className="flex h-full min-h-0 min-w-[300px] max-w-[300px] shrink-0 flex-col"
+    >
       <Card
         className={cn(
-          "flex h-full min-h-[min(70vh,520px)] flex-col gap-0 border-2 py-0 shadow-sm transition-[box-shadow,ring]",
+          "flex h-full min-h-0 flex-col gap-0 overflow-hidden border-2 py-0 shadow-sm transition-[box-shadow,ring]",
           TASK_STATUS_HEADER_CLASS[status] ?? "",
           isOver && "ring-2 ring-primary ring-offset-2 ring-offset-background"
         )}
       >
-        <CardHeader className="border-b border-border/30 px-4 py-3.5">
+        <CardHeader className="shrink-0 border-b border-border/30 px-4 py-3.5">
           <div className="flex items-center gap-2.5">
             <span
               className={cn(
@@ -120,17 +127,21 @@ function KanbanDroppableColumn({
             <span className="text-muted-foreground text-sm tabular-nums">({count})</span>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 pb-4 pt-3">
-          {children}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-auto justify-start gap-2 rounded-lg px-2 py-2 text-muted-foreground hover:text-foreground"
-            onClick={() => onAddTask(status)}
-          >
-            <Plus className="h-4 w-4" />
-            {addTaskLabel}
-          </Button>
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
+          <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pt-3 pb-2">
+            <div className="flex flex-col gap-3">{children}</div>
+          </div>
+          <div className="bg-card shrink-0 rounded-b-xl border-t border-border/30 px-3 py-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start gap-2 rounded-xl px-2 py-2 text-muted-foreground hover:text-foreground"
+              onClick={() => onAddTask(status)}
+            >
+              <Plus className="h-4 w-4" />
+              {addTaskLabel}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -160,19 +171,25 @@ function KanbanDraggableTask({
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={cn(
-        "touch-none",
-        "cursor-grab active:cursor-grabbing",
-        isDragging && "opacity-40"
-      )}
-    >
+    <div ref={setNodeRef} className={cn("relative", isDragging && "opacity-40")}>
+      <button
+        type="button"
+        className={cn(
+          "absolute inset-s-1 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-md",
+          "text-muted-foreground hover:bg-muted hover:text-foreground",
+          "touch-none cursor-grab active:cursor-grabbing",
+          "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+        )}
+        aria-label={memberView ? "سحب لنقل المهمة" : "Drag to move task"}
+        {...listeners}
+        {...attributes}
+      >
+        <GripVertical className="h-4 w-4 shrink-0" />
+      </button>
       <TaskCard
         task={task}
         assignees={assignees}
+        className="ps-10"
         copyLocale={memberView ? "ar" : "en"}
         hideProjectLink={memberView}
         onEdit={() => onOpenTask(task.id)}
@@ -242,7 +259,12 @@ export function TasksKanban({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveTask(null)}
     >
-      <div className="flex gap-5 overflow-x-auto pb-2 pt-1">
+      <div
+        className={cn(
+          "scrollbar-none flex min-h-0 gap-5 overflow-x-auto overflow-y-hidden pb-2 pt-1",
+          KANBAN_BOARD_ROW_HEIGHT
+        )}
+      >
         {KANBAN_STATUSES.map((status) => (
           <KanbanDroppableColumn
             key={status}

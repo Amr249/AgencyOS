@@ -186,7 +186,7 @@ export function GlobalSearch() {
               {results.tasks.map((task) => (
                 <CommandItem
                   key={task.id}
-                  onSelect={() => navigate(`/dashboard/tasks?task=${task.id}`)}
+                  onSelect={() => navigate(`/dashboard/workspace?task=${task.id}`)}
                   className="flex cursor-pointer items-center justify-between gap-2"
                   dir={dir}
                 >

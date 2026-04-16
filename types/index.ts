@@ -113,6 +113,31 @@ export const TASK_STATUS_LABELS: Record<string, string> = {
   blocked: "موقوف",
 };
 
+/** Inline status pill for tables/lists (softer than Kanban column headers). */
+export const TASK_STATUS_BADGE_CLASS: Record<string, string> = {
+  todo: "border-transparent bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
+  in_progress:
+    "border-transparent bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
+  in_review:
+    "border-transparent bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200",
+  done: "border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+  blocked:
+    "border-transparent bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+};
+
+/** Task statuses that should NOT be treated as "overdue" regardless of due date. */
+export const TASK_CLOSED_STATUSES = ["done", "cancelled"] as const;
+
+export function isTaskOverdue(dueDate: string | null, status: string | null | undefined): boolean {
+  if (!dueDate) return false;
+  if (status && (TASK_CLOSED_STATUSES as readonly string[]).includes(status)) return false;
+  try {
+    return new Date(dueDate) < new Date(new Date().toDateString());
+  } catch {
+    return false;
+  }
+}
+
 // Kanban column header background (blue, amber, purple, green, red)
 export const TASK_STATUS_HEADER_CLASS: Record<string, string> = {
   todo: "bg-blue-100 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800",

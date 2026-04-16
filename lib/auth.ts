@@ -39,18 +39,37 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
-        const u = user as unknown as { role: string; avatarUrl: string | null };
+        const u = user as unknown as {
+          role: string;
+          avatarUrl: string | null;
+          name?: string | null;
+          email?: string | null;
+        };
         token.role = u.role;
         token.avatarUrl = u.avatarUrl;
+        if (u.name != null) token.name = u.name;
+        if (u.email != null) token.email = u.email;
+      }
+      if (trigger === "update" && session?.user) {
+        const u = session.user as {
+          name?: string | null;
+          email?: string | null;
+          avatarUrl?: string | null;
+        };
+        if (u.name != null) token.name = u.name;
+        if (u.email != null) token.email = u.email;
+        if (u.avatarUrl !== undefined) token.avatarUrl = u.avatarUrl;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
+        session.user.name = (token.name as string | undefined) ?? session.user.name ?? "";
+        session.user.email = (token.email as string | undefined) ?? session.user.email ?? "";
         session.user.role = token.role as string;
         session.user.avatarUrl = token.avatarUrl as string | null;
         (session.user as { image?: string }).image = (token.avatarUrl as string) ?? undefined;

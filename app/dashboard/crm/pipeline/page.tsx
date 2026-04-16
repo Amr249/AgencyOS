@@ -3,8 +3,6 @@ import { getTranslations } from "next-intl/server";
 import { getClientsForPipeline } from "@/actions/clients";
 import { getWinLossReasons } from "@/actions/win-loss";
 import { LeadPipeline } from "@/components/modules/crm/lead-pipeline";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { isDbErrorKey } from "@/lib/i18n-errors";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -46,14 +44,9 @@ export default async function CrmPipelinePage() {
 
   return (
     <div className="space-y-5" dir="auto">
-      <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-medium text-neutral-900">{t("pipelineTitle")}</h1>
-          <p className="text-muted-foreground mt-1 text-sm">{t("pipelineSubtitle")}</p>
-        </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/dashboard/crm/win-loss">{t("winLossReportTitle")}</Link>
-        </Button>
+      <div className="mb-2">
+        <h1 className="text-2xl font-medium text-neutral-900">{t("pipelineTitle")}</h1>
+        <p className="text-muted-foreground mt-1 text-sm">{t("pipelineSubtitle")}</p>
       </div>
       <LeadPipeline initialClients={result.data} wonReasons={wonReasons} />
     </div>

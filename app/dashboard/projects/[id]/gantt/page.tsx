@@ -25,7 +25,7 @@ export default async function ProjectGanttPage({ params }: Props) {
 
   const session = await getServerSession(authOptions);
   if (sessionUserRole(session) === "member") {
-    redirect("/dashboard/tasks");
+    redirect("/dashboard/workspace");
   }
 
   const [projectResult, tasksResult, teamMembersResult] = await Promise.all([

@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
-import { eq, isNull, and, sql, ilike, desc, inArray } from "drizzle-orm";
+import { eq, isNull, and, or, ilike, desc, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { tasks, projects, milestones, clients, projectMembers } from "@/lib/db";
+import { tasks, projects, milestones, clients, projectMembers, taskAssignments } from "@/lib/db";
 import { logActivityWithActor } from "@/actions/activity-log";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
@@ -14,6 +14,7 @@ import {
   getMemberProjectIdsForUser,
   memberCanAccessTask,
   memberHasProjectAccess,
+  memberIsAssignedToTask,
 } from "@/lib/member-context";
 
 const taskStatusValues = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
@@ -51,6 +52,8 @@ const getTasksFiltersSchema = z.object({
   status: z.enum(taskStatusValues).optional(),
   priority: z.enum(taskPriorityValues).optional(),
   search: z.string().optional(),
+  /** Team member id: tasks assigned via `tasks.assignee_id` or `task_assignments`. */
+  teamMemberId: z.string().uuid().optional(),
 });
 
 const createSubtaskSchema = z.object({
@@ -137,6 +140,14 @@ export async function getTasks(filters?: GetTasksFilters) {
     if (f.priority) conditions.push(eq(tasks.priority, f.priority));
     if (f.search?.trim()) {
       conditions.push(ilike(tasks.title, `%${f.search.trim()}%`));
+    }
+
+    if (f.teamMemberId) {
+      const assignedViaJunction = db
+        .select({ taskId: taskAssignments.taskId })
+        .from(taskAssignments)
+        .where(eq(taskAssignments.teamMemberId, f.teamMemberId));
+      conditions.push(or(eq(tasks.assigneeId, f.teamMemberId), inArray(tasks.id, assignedViaJunction))!);
     }
 
     const rows = await db
@@ -349,17 +360,30 @@ export async function createTask(input: CreateTaskInput) {
       })
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["Failed to create task"] } };
+
+    // Also populate the junction table so the AssigneePicker (which reads from
+    // task_assignments) shows the person chosen at creation time.
+    if (data.assigneeId) {
+      await db
+        .insert(taskAssignments)
+        .values({
+          taskId: row.id,
+          teamMemberId: data.assigneeId,
+          assignedBy: session?.user?.id ?? null,
+        })
+        .onConflictDoNothing();
+    }
+
     await logActivityWithActor({
       entityType: "task",
       entityId: row.id,
       action: "created",
       metadata: { title: row.title, projectId: row.projectId },
     });
-    revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${data.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
-    revalidatePath("/dashboard/workspace");
     revalidatePath("/dashboard/my-tasks");
     revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
@@ -386,6 +410,10 @@ export async function updateTask(input: UpdateTaskInput) {
       }
       const can = await memberCanAccessTask(id, session.user.id);
       if (!can) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      const owns = await memberIsAssignedToTask(id, session.user.id);
+      if (!owns) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
       }
       if (data.assigneeId !== undefined && data.assigneeId !== null) {
@@ -478,14 +506,13 @@ export async function updateTask(input: UpdateTaskInput) {
         },
       });
     }
-    revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${row.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard/reports");
     revalidatePath("/dashboard");
     if (data.assigneeId !== undefined) {
-      revalidatePath("/dashboard/workspace");
-      revalidatePath("/dashboard/workspace/workload");
+      revalidatePath("/dashboard/my-tasks");
     }
     revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
@@ -513,6 +540,8 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const can = await memberCanAccessTask(idParsed.data, session.user.id);
       if (!can) return { ok: false as const, error: "Forbidden" };
+      const owns = await memberIsAssignedToTask(idParsed.data, session.user.id);
+      if (!owns) return { ok: false as const, error: "Forbidden" };
     }
 
     const [prevRow] = await db
@@ -539,12 +568,11 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
         },
       });
     }
-    revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${row.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard/reports");
     revalidatePath("/dashboard");
-    revalidatePath("/dashboard/workspace");
     revalidatePath("/dashboard/my-tasks");
     revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
@@ -566,6 +594,8 @@ export async function deleteTask(id: string) {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const can = await memberCanAccessTask(parsed.data, session.user.id);
       if (!can) return { ok: false as const, error: "Forbidden" };
+      const owns = await memberIsAssignedToTask(parsed.data, session.user.id);
+      if (!owns) return { ok: false as const, error: "Forbidden" };
     }
 
     const [existing] = await db
@@ -586,7 +616,7 @@ export async function deleteTask(id: string) {
       action: "deleted",
       metadata: { title: existing.title, projectId: existing.projectId },
     });
-    revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${row.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
@@ -614,6 +644,8 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
       }
       const can = await memberCanAccessTask(parsed.data.parentId, session.user.id);
       if (!can) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const ownsParent = await memberIsAssignedToTask(parsed.data.parentId, session.user.id);
+      if (!ownsParent) return { ok: false as const, error: { _form: ["Forbidden"] } };
     }
 
     const [parent] = await db
@@ -634,7 +666,7 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
       })
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["Failed to create subtask"] } };
-    revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${parent.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
@@ -661,6 +693,8 @@ export async function toggleSubtask(id: string) {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const can = await memberCanAccessTask(parsed.data, session.user.id);
       if (!can) return { ok: false as const, error: "Forbidden" };
+      const owns = await memberIsAssignedToTask(parsed.data, session.user.id);
+      if (!owns) return { ok: false as const, error: "Forbidden" };
     }
 
     const [current] = await db
@@ -676,7 +710,7 @@ export async function toggleSubtask(id: string) {
       .where(eq(tasks.id, parsed.data))
       .returning();
     if (!row) return { ok: false as const, error: "Task not found" };
-    revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${row.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");

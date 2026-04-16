@@ -3,7 +3,6 @@ import { SidebarNav } from "./sidebar-nav";
 const SETTINGS_NAV_ITEMS = [
   { href: "/dashboard/settings", title: "Settings", exact: true as const },
   { href: "/dashboard/settings/users", title: "Users" },
-  { href: "/dashboard/settings/templates", title: "Templates" },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

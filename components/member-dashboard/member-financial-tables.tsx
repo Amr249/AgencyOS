@@ -171,7 +171,7 @@ export function MemberPaymentsDataTable({ data, emptyMessage }: PaymentsTablePro
   return (
     <>
       <div dir="rtl" lang="ar">
-        <div className="overflow-hidden rounded-xl border border-neutral-100 bg-white">
+        <div className="bg-card overflow-hidden rounded-xl border">
           <div className="p-4">
             <SortableDataTable<MemberSalaryExpenseRow>
               columns={columns}
@@ -185,6 +185,12 @@ export function MemberPaymentsDataTable({ data, emptyMessage }: PaymentsTablePro
                 serviceNames: AR.service,
                 date: AR.date,
                 amount: AR.amount,
+              }}
+              sortToolbarLabels={{
+                none: "بدون ترتيب",
+                sortPlaceholder: "فرز",
+                sortedBy: "مرتب حسب:",
+                clearSortAria: "إزالة الترتيب",
               }}
               enablePagination={false}
               enableSavedViews={false}

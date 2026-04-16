@@ -1,11 +1,10 @@
 import { revalidatePath } from "next/cache";
 
-/** Invalidate workspace, timesheet, home dashboard, reports, and optional project page. */
+/** Invalidate home dashboard, reports, tasks, and optional project page. */
 export function revalidateTimeTrackingCaches(projectId?: string | null) {
-  revalidatePath("/dashboard/workspace");
-  revalidatePath("/dashboard/workspace/timesheet");
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/reports");
+  revalidatePath("/dashboard/workspace");
   if (projectId) {
     revalidatePath(`/dashboard/projects/${projectId}`);
   }

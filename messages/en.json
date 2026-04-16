@@ -14,10 +14,10 @@
     "settings": "Settings",
     "workspace": "Workspace",
     "pipeline": "Pipeline",
-    "winLoss": "Win / loss",
     "myDashboard": "Home",
     "memberWork": "My work",
-    "payments": "Payments"
+    "payments": "Payments",
+    "account": "Account"
   },
   "common": {
     "search": "Search...",
@@ -215,9 +215,7 @@
     "pipelineLostSaved": "Marked as lost",
     "pipelineWinLossError": "Could not save outcome",
     "pipelineCancel": "Cancel",
-    "pipelineSaveOutcome": "Save",
-    "winLossReportTitle": "Win / loss report",
-    "winLossReportSubtitle": "Win rate, reasons, and outcomes over time."
+    "pipelineSaveOutcome": "Save"
   },
   "projects": {
     "title": "Projects",

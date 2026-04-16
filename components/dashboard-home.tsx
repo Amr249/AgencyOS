@@ -487,7 +487,7 @@ export function DashboardHome({ data }: { data: DashboardData }) {
               </Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link href="/dashboard/tasks">
+              <Link href="/dashboard/workspace">
                 <PlusCircle className="me-2 h-4 w-4" />
                 مهمة جديدة
               </Link>

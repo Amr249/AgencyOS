@@ -1,37 +1,57 @@
+import type { Metadata } from "next";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
+import { getTasks } from "@/actions/tasks";
 import { getProjects } from "@/actions/projects";
-import { getTeamMembers } from "@/actions/team-members";
-import { getWorkspaceMyTasks } from "@/actions/workspace";
-import { WorkspaceMyTasksView } from "@/components/modules/workspace/workspace-my-tasks-view";
+import { getTeamMembers, getAssigneesForTaskIds } from "@/actions/assignments";
+import { TasksPageContent } from "@/components/modules/tasks/tasks-page-content";
 
-export default async function WorkspacePage() {
-  const [tasksRes, membersRes, projectsRes] = await Promise.all([
-    getWorkspaceMyTasks(),
-    getTeamMembers(),
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: "Tasks",
+    description: "View and manage tasks in Kanban or list view.",
+  };
+}
+
+export default async function TasksPage() {
+  const session = await getServerSession(authOptions);
+  const isMember = sessionUserRole(session) === "member";
+
+  const [tasksResult, projectsResult, teamMembersResult] = await Promise.all([
+    getTasks({}),
     getProjects({}),
+    getTeamMembers(),
   ]);
 
+  const tasks = tasksResult.ok ? tasksResult.data : [];
+  const projects = projectsResult.ok ? projectsResult.data : [];
+  const teamMembersRaw = teamMembersResult.data ?? [];
+  const teamMembers = teamMembersRaw.map((m) => ({
+    id: m.id,
+    name: m.name,
+    email: m.email ?? "",
+    avatarUrl: m.avatarUrl,
+    role: m.role ?? "",
+  }));
+
+  const taskIds = tasks.map((t) => t.id);
+  const assigneesResult = await getAssigneesForTaskIds(taskIds);
+  const assigneesByTaskId = assigneesResult.data ?? {};
+
   return (
-    <div dir="ltr" lang="en" className="h-full">
-      <WorkspaceMyTasksView
-        groups={
-          tasksRes.ok
-            ? tasksRes.data
-            : {
-                overdue: [],
-                today: [],
-                tomorrow: [],
-                this_week: [],
-                later: [],
-                no_date: [],
-              }
-        }
-        teamMembers={membersRes.ok ? membersRes.data : []}
-        projects={(projectsRes.ok ? projectsRes.data : []).map((p) => ({
+    <div className="flex flex-col gap-4">
+      <TasksPageContent
+        initialTasks={tasks}
+        projects={projects.map((p) => ({
           id: p.id,
           name: p.name,
           coverImageUrl: p.coverImageUrl,
           clientLogoUrl: p.clientLogoUrl,
         }))}
+        teamMembers={teamMembers}
+        assigneesByTaskId={assigneesByTaskId}
+        memberView={isMember}
       />
     </div>
   );

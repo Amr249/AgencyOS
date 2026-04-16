@@ -68,8 +68,7 @@ export async function assignTask(taskId: string, teamMemberId: string) {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/my-tasks");
     revalidatePath("/dashboard/me");
-    revalidatePath("/dashboard/tasks");
-    revalidatePath("/dashboard/workspace/board");
+    revalidatePath("/dashboard/workspace");
     return { success: true, error: null };
   } catch (error) {
     console.error("assignTask", error);
@@ -97,11 +96,18 @@ export async function unassignTask(taskId: string, teamMemberId: string) {
         and(eq(taskAssignments.taskId, taskId), eq(taskAssignments.teamMemberId, teamMemberId))
       );
 
+    // Keep the legacy single-assignee column in sync: if it still points to
+    // this member, clear it so task cards (which merge both sources) don't
+    // keep showing the removed person.
+    await db
+      .update(tasks)
+      .set({ assigneeId: null })
+      .where(and(eq(tasks.id, taskId), eq(tasks.assigneeId, teamMemberId)));
+
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/my-tasks");
     revalidatePath("/dashboard/me");
-    revalidatePath("/dashboard/tasks");
-    revalidatePath("/dashboard/workspace/board");
+    revalidatePath("/dashboard/workspace");
     return { success: true, error: null };
   } catch (error) {
     console.error("unassignTask", error);

@@ -11,20 +11,44 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SortableDataTable, type TableColumnFilterMeta } from "@/components/ui/sortable-data-table";
 import {
   TASK_STATUS_LABELS_EN,
   TASK_STATUS_LABELS,
+  TASK_STATUS_BADGE_CLASS,
   TASK_PRIORITY_LABELS_EN,
   TASK_PRIORITY_LABELS,
   TASK_PRIORITY_BADGE_CLASS,
+  isTaskOverdue,
 } from "@/types";
 import { cn } from "@/lib/utils";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
+import { toast } from "sonner";
 import type { TaskWithProject } from "@/actions/tasks";
+import { updateTask, updateTaskStatus } from "@/actions/tasks";
+import { assignTask, unassignTask } from "@/actions/assignments";
 import { EntityTableShell } from "@/components/ui/entity-table-shell";
 import { AvatarStack } from "@/components/ui/avatar-stack";
 import { ProjectSelectThumb, type ProjectPickerOption } from "@/components/entity-select-option";
+
+const TASK_STATUS_VALUES = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
+const TASK_PRIORITY_VALUES = ["low", "medium", "high", "urgent"] as const;
+type TaskStatusValue = (typeof TASK_STATUS_VALUES)[number];
+type TaskPriorityValue = (typeof TASK_PRIORITY_VALUES)[number];
 
 function formatDate(d: string | null, locale = "en-US") {
   if (!d) return "—";
@@ -39,19 +63,36 @@ function formatDate(d: string | null, locale = "en-US") {
   }
 }
 
-function isOverdue(dueDate: string | null) {
-  if (!dueDate) return false;
-  try {
-    return new Date(dueDate) < new Date(new Date().toDateString());
-  } catch {
-    return false;
-  }
+function toIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function initials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .map((p) => p[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?"
+  );
 }
 
 type AssigneeForCard = {
   userId: string;
   name: string;
   avatarUrl: string | null;
+};
+
+type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role?: string;
 };
 
 export type TaskTableRow = TaskWithProject & { assigneeSortKey: string };
@@ -61,10 +102,14 @@ type ProjectFilterOption = ProjectPickerOption;
 type TasksListViewProps = {
   tasks: TaskWithProject[];
   assigneesByTaskId: Record<string, AssigneeForCard[]>;
-  /** Used for project column filter (id → label). */
   projectOptions: ProjectFilterOption[];
+  teamMembers?: TeamMember[];
   onOpenTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
+  /** Called after an inline field update so the parent can patch its tasks state. */
+  onTaskPatched?: (id: string, patch: Partial<TaskWithProject>) => void;
+  /** Called after an assignment change so the parent can refetch assigneesByTaskId. */
+  onAssigneesRefresh?: () => void;
   memberView?: boolean;
 };
 
@@ -74,14 +119,372 @@ function titleFilterMeta(memberView: boolean): TableColumnFilterMeta {
   return { variant: "text", placeholder: memberView ? "البحث باسم المهمة" : "Search by task name" };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline editable cells
+
+type PriorityCellProps = {
+  task: TaskTableRow;
+  labels: Record<string, string>;
+  editable: boolean;
+  onPatched?: (id: string, patch: Partial<TaskWithProject>) => void;
+};
+
+function PriorityCell({ task, labels, editable, onPatched }: PriorityCellProps) {
+  const [saving, setSaving] = React.useState(false);
+  const badge = (
+    <Badge
+      variant="secondary"
+      className={cn(
+        "text-xs",
+        TASK_PRIORITY_BADGE_CLASS[task.priority] ?? "",
+        editable && "cursor-pointer hover:opacity-80",
+        saving && "opacity-60"
+      )}
+    >
+      {labels[task.priority] ?? task.priority}
+    </Badge>
+  );
+  if (!editable) return badge;
+  return (
+    <Select
+      value={task.priority}
+      disabled={saving}
+      onValueChange={async (v) => {
+        const next = v as TaskPriorityValue;
+        if (next === task.priority) return;
+        const prev = task.priority;
+        onPatched?.(task.id, { priority: next });
+        setSaving(true);
+        const res = await updateTask({ id: task.id, priority: next });
+        setSaving(false);
+        if (!res.ok) {
+          onPatched?.(task.id, { priority: prev });
+          toast.error("Could not update priority");
+        }
+      }}
+    >
+      <SelectTrigger
+        aria-label="Priority"
+        hideChevron
+        className={cn(
+          "inline-flex h-auto w-auto min-h-0 items-center gap-1 rounded-md border-0 px-2 py-0.5 text-xs font-medium shadow-none focus:ring-0 focus:ring-offset-0",
+          TASK_PRIORITY_BADGE_CLASS[task.priority] ?? ""
+        )}
+      >
+        <SelectValue>{labels[task.priority] ?? task.priority}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {TASK_PRIORITY_VALUES.map((p) => (
+          <SelectItem key={p} value={p}>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-block h-2 w-2 rounded-full",
+                  p === "low" && "bg-gray-400",
+                  p === "medium" && "bg-blue-500",
+                  p === "high" && "bg-amber-500",
+                  p === "urgent" && "bg-red-500"
+                )}
+              />
+              {labels[p] ?? p}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+type StatusCellProps = {
+  task: TaskTableRow;
+  labels: Record<string, string>;
+  editable: boolean;
+  onPatched?: (id: string, patch: Partial<TaskWithProject>) => void;
+};
+
+function StatusCell({ task, labels, editable, onPatched }: StatusCellProps) {
+  const [saving, setSaving] = React.useState(false);
+  const badge = (
+    <Badge
+      variant="secondary"
+      className={cn(
+        "text-xs",
+        TASK_STATUS_BADGE_CLASS[task.status] ?? "",
+        editable && "cursor-pointer hover:opacity-80",
+        saving && "opacity-60"
+      )}
+    >
+      {labels[task.status] ?? task.status}
+    </Badge>
+  );
+  if (!editable) return badge;
+  return (
+    <Select
+      value={task.status}
+      disabled={saving}
+      onValueChange={async (v) => {
+        const next = v as TaskStatusValue;
+        if (next === task.status) return;
+        const prev = task.status;
+        onPatched?.(task.id, { status: next });
+        setSaving(true);
+        const res = await updateTaskStatus(task.id, next);
+        setSaving(false);
+        if (!res.ok) {
+          onPatched?.(task.id, { status: prev });
+          toast.error("Could not update status");
+        }
+      }}
+    >
+      <SelectTrigger
+        aria-label="Status"
+        hideChevron
+        className={cn(
+          "inline-flex h-auto w-auto min-h-0 items-center gap-1 rounded-md border-0 px-2 py-0.5 text-xs font-medium shadow-none focus:ring-0 focus:ring-offset-0",
+          TASK_STATUS_BADGE_CLASS[task.status] ?? ""
+        )}
+      >
+        <SelectValue>{labels[task.status] ?? task.status}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {TASK_STATUS_VALUES.map((s) => (
+          <SelectItem key={s} value={s}>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-block h-2 w-2 rounded-full",
+                  s === "todo" && "bg-slate-400",
+                  s === "in_progress" && "bg-blue-500",
+                  s === "in_review" && "bg-purple-500",
+                  s === "done" && "bg-emerald-500",
+                  s === "blocked" && "bg-red-500"
+                )}
+              />
+              {labels[s] ?? s}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+type DueDateCellProps = {
+  task: TaskTableRow;
+  editable: boolean;
+  onPatched?: (id: string, patch: Partial<TaskWithProject>) => void;
+};
+
+function DueDateCell({ task, editable, onPatched }: DueDateCellProps) {
+  const [open, setOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const overdue = isTaskOverdue(task.dueDate, task.status);
+  const label = (
+    <span className={cn("text-sm", overdue && "font-medium text-red-600")}>
+      {formatDate(task.dueDate)}
+      {overdue && " (overdue)"}
+    </span>
+  );
+  if (!editable) return label;
+
+  const selected = task.dueDate ? new Date(task.dueDate + "T12:00:00") : undefined;
+
+  async function save(next: string | null) {
+    if (next === task.dueDate) return;
+    const prev = task.dueDate;
+    onPatched?.(task.id, { dueDate: next });
+    setSaving(true);
+    const res = await updateTask({ id: task.id, dueDate: next ?? null });
+    setSaving(false);
+    if (!res.ok) {
+      onPatched?.(task.id, { dueDate: prev });
+      toast.error("Could not update due date");
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={saving}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent",
+            overdue && "font-medium text-red-600",
+            !task.dueDate && "text-muted-foreground",
+            saving && "opacity-60"
+          )}
+        >
+          {formatDate(task.dueDate)}
+          {overdue && " (overdue)"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          onSelect={(d) => {
+            void save(d ? toIsoDate(d) : null);
+            setOpen(false);
+          }}
+          initialFocus
+        />
+        {task.dueDate ? (
+          <div className="flex items-center justify-end border-t p-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                void save(null);
+                setOpen(false);
+              }}
+            >
+              Clear date
+            </Button>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+type AssigneesCellProps = {
+  task: TaskTableRow;
+  assignees: AssigneeForCard[];
+  editable: boolean;
+  teamMembers: TeamMember[];
+  onChanged?: () => void;
+};
+
+function AssigneesCell({
+  task,
+  assignees,
+  editable,
+  teamMembers,
+  onChanged,
+}: AssigneesCellProps) {
+  const [open, setOpen] = React.useState(false);
+  const [pendingId, setPendingId] = React.useState<string | null>(null);
+  const [localIds, setLocalIds] = React.useState<Set<string>>(
+    () => new Set(assignees.map((a) => a.userId))
+  );
+
+  React.useEffect(() => {
+    setLocalIds(new Set(assignees.map((a) => a.userId)));
+  }, [assignees, task.id]);
+
+  const members = assignees.map((a) => ({
+    id: a.userId,
+    name: a.name,
+    avatarUrl: a.avatarUrl,
+  }));
+
+  const stack = (
+    <AvatarStack members={members} max={3} direction="ltr" className="justify-start" />
+  );
+  if (!editable) return stack;
+
+  async function handleToggle(member: TeamMember) {
+    setPendingId(member.id);
+    const was = localIds.has(member.id);
+    const nextIds = new Set(localIds);
+    if (was) nextIds.delete(member.id);
+    else nextIds.add(member.id);
+    setLocalIds(nextIds);
+    const res = was
+      ? await unassignTask(task.id, member.id)
+      : await assignTask(task.id, member.id);
+    setPendingId(null);
+    if (!res.success) {
+      setLocalIds(localIds);
+      toast.error(res.error ?? "Could not update assignees");
+      return;
+    }
+    onChanged?.();
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-md px-1 py-0.5 hover:bg-accent"
+          aria-label="Manage assignees"
+        >
+          {members.length === 0 ? (
+            <span className="text-muted-foreground inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed text-sm">
+              <Plus className="h-3.5 w-3.5" />
+            </span>
+          ) : (
+            stack
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="start" dir="ltr">
+        <p className="text-muted-foreground mb-2 border-b px-2 pb-2 text-xs">
+          Assign team members
+        </p>
+        {teamMembers.length === 0 ? (
+          <p className="text-muted-foreground px-2 py-6 text-center text-sm">
+            No team members available.
+          </p>
+        ) : (
+          <div className="max-h-60 space-y-1 overflow-y-auto">
+            {teamMembers.map((m) => {
+              const checked = localIds.has(m.id);
+              const isPending = pendingId === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => void handleToggle(m)}
+                  disabled={isPending}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-md px-2 py-2 text-start transition-colors",
+                    checked
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground hover:bg-secondary",
+                    isPending && "opacity-60"
+                  )}
+                >
+                  <Avatar className="h-7 w-7 shrink-0">
+                    <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
+                    <AvatarFallback className="text-xs">{initials(m.name || "?")}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{m.name || "—"}</p>
+                    {m.email ? (
+                      <p className="text-muted-foreground truncate text-xs">{m.email}</p>
+                    ) : null}
+                  </div>
+                  {checked ? (
+                    <span className="text-primary shrink-0 text-xs">✓</span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function TasksListView({
   tasks,
   assigneesByTaskId,
   projectOptions,
+  teamMembers = [],
   onOpenTask,
   onDeleteTask,
+  onTaskPatched,
+  onAssigneesRefresh,
   memberView = false,
 }: TasksListViewProps) {
+  const editable = !memberView;
   const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
   const priorityLabels = memberView ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
   const rows: TaskTableRow[] = React.useMemo(
@@ -98,7 +501,7 @@ export function TasksListView({
 
   const statusFilterOptions = React.useMemo(
     () =>
-      (["todo", "in_progress", "in_review", "done", "blocked"] as const).map((s) => ({
+      TASK_STATUS_VALUES.map((s) => ({
         value: s,
         label: statusLabels[s] ?? s,
       })),
@@ -107,7 +510,7 @@ export function TasksListView({
 
   const priorityFilterOptions = React.useMemo(
     () =>
-      (["low", "medium", "high", "urgent"] as const).map((p) => ({
+      TASK_PRIORITY_VALUES.map((p) => ({
         value: p,
         label: priorityLabels[p] ?? p,
       })),
@@ -242,12 +645,12 @@ export function TasksListView({
           </Button>
         ),
         cell: ({ row }) => (
-          <Badge
-            variant="secondary"
-            className={cn("text-xs", TASK_PRIORITY_BADGE_CLASS[row.original.priority] ?? "")}
-          >
-            {priorityLabels[row.original.priority] ?? row.original.priority}
-          </Badge>
+          <PriorityCell
+            task={row.original}
+            labels={priorityLabels}
+            editable={editable}
+            onPatched={onTaskPatched}
+          />
         ),
       },
       {
@@ -278,7 +681,12 @@ export function TasksListView({
           </Button>
         ),
         cell: ({ row }) => (
-          <span className="text-sm">{statusLabels[row.original.status] ?? row.original.status}</span>
+          <StatusCell
+            task={row.original}
+            labels={statusLabels}
+            editable={editable}
+            onPatched={onTaskPatched}
+          />
         ),
       },
       {
@@ -305,15 +713,9 @@ export function TasksListView({
             </span>
           </Button>
         ),
-        cell: ({ row }) => {
-          const overdue = isOverdue(row.original.dueDate);
-          return (
-            <span className={cn("text-sm", overdue && "font-medium text-red-600")}>
-              {formatDate(row.original.dueDate)}
-              {overdue && " (overdue)"}
-            </span>
-          );
-        },
+        cell: ({ row }) => (
+          <DueDateCell task={row.original} editable={editable} onPatched={onTaskPatched} />
+        ),
       },
       {
         accessorKey: "assigneeSortKey",
@@ -336,16 +738,15 @@ export function TasksListView({
             </span>
           </Button>
         ),
-        cell: ({ row }) => {
-          const members = (assigneesByTaskId[row.original.id] ?? []).map((a) => ({
-            id: a.userId,
-            name: a.name,
-            avatarUrl: a.avatarUrl,
-          }));
-          return (
-            <AvatarStack members={members} max={3} direction="ltr" className="justify-start" />
-          );
-        },
+        cell: ({ row }) => (
+          <AssigneesCell
+            task={row.original}
+            assignees={assigneesByTaskId[row.original.id] ?? []}
+            editable={editable}
+            teamMembers={teamMembers}
+            onChanged={onAssigneesRefresh}
+          />
+        ),
       },
       {
         id: "actions",
@@ -375,12 +776,16 @@ export function TasksListView({
     [
       onOpenTask,
       onDeleteTask,
+      onTaskPatched,
+      onAssigneesRefresh,
       assigneesByTaskId,
+      teamMembers,
       projectFilterMeta,
       priorityFilterOptions,
       statusFilterOptions,
       assigneeFilterMeta,
       memberView,
+      editable,
       statusLabels,
       priorityLabels,
     ]
@@ -391,71 +796,74 @@ export function TasksListView({
       title=""
       mobileContent={
         <div className="space-y-2 md:hidden">
-          {tasks.map((task) => {
-            const overdue = isOverdue(task.dueDate);
-            return (
-              <div key={task.id} className="flex items-center justify-between rounded-xl border p-4">
-                <div className="min-w-0">
-                  <button
-                    type="button"
-                    className="block text-start font-medium hover:underline"
-                    onClick={() => onOpenTask(task.id)}
-                  >
-                    {task.title}
-                  </button>
-                  <p className="text-muted-foreground mt-0.5 flex items-center gap-2 text-sm">
-                    <ProjectSelectThumb
-                      coverImageUrl={task.projectCoverImageUrl}
-                      clientLogoUrl={task.projectClientLogoUrl}
-                      fallbackName={task.projectName}
-                      className="h-6 w-6"
-                    />
-                    <span className="truncate">{task.projectName}</span>
-                  </p>
-                  <p className={cn("mt-0.5 text-sm", overdue && "font-medium text-red-600")}>
-                    {formatDate(task.dueDate)}
-                    {overdue && " (overdue)"}
-                  </p>
-                  <div className="mt-1.5">
-                    <AvatarStack
-                      members={(assigneesByTaskId[task.id] ?? []).map((a) => ({
-                        id: a.userId,
-                        name: a.name,
-                        avatarUrl: a.avatarUrl,
-                      }))}
-                      max={3}
-                      direction="ltr"
-                      className="justify-start"
-                    />
-                  </div>
+          {rows.map((task) => (
+            <div key={task.id} className="flex items-center justify-between rounded-xl border p-4">
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  className="block text-start font-medium hover:underline"
+                  onClick={() => onOpenTask(task.id)}
+                >
+                  {task.title}
+                </button>
+                <p className="text-muted-foreground mt-0.5 flex items-center gap-2 text-sm">
+                  <ProjectSelectThumb
+                    coverImageUrl={task.projectCoverImageUrl}
+                    clientLogoUrl={task.projectClientLogoUrl}
+                    fallbackName={task.projectName}
+                    className="h-6 w-6"
+                  />
+                  <span className="truncate">{task.projectName}</span>
+                </p>
+                <div className="mt-1">
+                  <DueDateCell task={task} editable={editable} onPatched={onTaskPatched} />
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge
-                    variant="secondary"
-                    className={cn("text-xs", TASK_PRIORITY_BADGE_CLASS[task.priority] ?? "")}
-                  >
-                    {priorityLabels[task.priority] ?? task.priority}
-                  </Badge>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="text-start">
-                      <DropdownMenuItem onClick={() => onOpenTask(task.id)}>Edit</DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={() => onDeleteTask(task.id)}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                <div className="mt-1.5">
+                  <AssigneesCell
+                    task={task}
+                    assignees={assigneesByTaskId[task.id] ?? []}
+                    editable={editable}
+                    teamMembers={teamMembers}
+                    onChanged={onAssigneesRefresh}
+                  />
                 </div>
               </div>
-            );
-          })}
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusCell
+                  task={task}
+                  labels={statusLabels}
+                  editable={editable}
+                  onPatched={onTaskPatched}
+                />
+                <PriorityCell
+                  task={task}
+                  labels={priorityLabels}
+                  editable={editable}
+                  onPatched={onTaskPatched}
+                />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 min-h-[44px] min-w-[44px] md:min-h-9 md:min-w-9"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="text-start">
+                    <DropdownMenuItem onClick={() => onOpenTask(task.id)}>Edit</DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => onDeleteTask(task.id)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          ))}
         </div>
       }
       tableContent={

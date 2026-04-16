@@ -69,6 +69,7 @@ export default async function RootLayout({
       <body
         className={cn(fontClass, "min-h-screen bg-background antialiased")}
         dir={isRTL ? "rtl" : "ltr"}
+        suppressHydrationWarning
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>{children}</Providers>

@@ -5,11 +5,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { createProject, type CreateProjectInput } from "@/actions/projects";
-import {
-  createProjectFromTemplate,
-  getProjectTemplates,
-  type ProjectTemplatePickerRow,
-} from "@/actions/templates";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -59,12 +54,9 @@ const projectStatusOptions = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
-const TEMPLATE_BLANK = "__blank__" as const;
-
 const formSchema = z.object({
   name: z.string().min(1, "Project name is required"),
   clientId: z.string().uuid("Select a client"),
-  templateId: z.string().default(TEMPLATE_BLANK),
   status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -109,8 +101,6 @@ export function NewProjectDialog({
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [coverImageUrl, setCoverImageUrl] = React.useState<string | null>(null);
   const [coverUploading, setCoverUploading] = React.useState(false);
-  const [templateOptions, setTemplateOptions] = React.useState<ProjectTemplatePickerRow[]>([]);
-  const [templatesLoading, setTemplatesLoading] = React.useState(false);
   const coverInputRef = React.useRef<HTMLInputElement>(null);
   const isControlled = open !== undefined && onOpenChange !== undefined;
   const effectiveOpen = isControlled ? open : dialogOpen;
@@ -121,7 +111,6 @@ export function NewProjectDialog({
     defaultValues: {
       name: "",
       clientId: "",
-      templateId: TEMPLATE_BLANK,
       status: "lead",
       startDate: "",
       endDate: "",
@@ -132,8 +121,6 @@ export function NewProjectDialog({
     },
   });
 
-  const selectedTemplateId = form.watch("templateId");
-
   const lockedClient = !!defaultClientId;
   React.useEffect(() => {
     if (effectiveOpen && !form.formState.isDirty) {
@@ -141,7 +128,6 @@ export function NewProjectDialog({
       form.reset({
         name: "",
         clientId: defaultClientId ?? "",
-        templateId: TEMPLATE_BLANK,
         status: "lead",
         startDate: "",
         endDate: "",
@@ -152,25 +138,6 @@ export function NewProjectDialog({
       });
     }
   }, [effectiveOpen, form, defaultClientId]);
-
-  React.useEffect(() => {
-    if (!effectiveOpen) return;
-    setTemplatesLoading(true);
-    void getProjectTemplates().then((r) => {
-      if (r.ok) {
-        setTemplateOptions(r.data);
-      } else {
-        toast.error(r.error);
-        setTemplateOptions([]);
-      }
-      setTemplatesLoading(false);
-    });
-  }, [effectiveOpen]);
-
-  const selectedTemplate =
-    selectedTemplateId && selectedTemplateId !== TEMPLATE_BLANK
-      ? templateOptions.find((t) => t.id === selectedTemplateId)
-      : undefined;
 
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -209,13 +176,10 @@ export function NewProjectDialog({
       serviceIds: values.serviceIds?.length ? values.serviceIds : undefined,
     };
 
-    const useTemplate = values.templateId && values.templateId !== TEMPLATE_BLANK;
-    const result = useTemplate
-      ? await createProjectFromTemplate(values.templateId, payload)
-      : await createProject(payload);
+    const result = await createProject(payload);
 
     if (result.ok) {
-      toast.success(useTemplate ? "Project created from template" : "Project created");
+      toast.success("Project created");
       setEffectiveOpen(false);
       onSuccess?.();
     } else {
@@ -323,64 +287,6 @@ export function NewProjectDialog({
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name="templateId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Start from template</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  value={field.value}
-                  disabled={templatesLoading}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue
-                        placeholder={templatesLoading ? "Loading templates…" : "Blank project"}
-                      />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value={TEMPLATE_BLANK}>Blank project</SelectItem>
-                    {templateOptions.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {`${t.name} (${t.taskCount} ${t.taskCount === 1 ? "task" : "tasks"})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-muted-foreground text-xs">
-                  Optional. Templates include phases and tasks only—no dates or assignees from the template.
-                </p>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          {selectedTemplate ? (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-2">
-              <p className="font-medium text-foreground">Template preview</p>
-              <p className="text-muted-foreground text-xs">
-                {selectedTemplate.taskCount} task{selectedTemplate.taskCount === 1 ? "" : "s"} ·{" "}
-                {(selectedTemplate.defaultPhases ?? []).filter(Boolean).length} phase
-                {(selectedTemplate.defaultPhases ?? []).filter(Boolean).length === 1 ? "" : "s"}
-              </p>
-              {(selectedTemplate.defaultPhases ?? []).filter(Boolean).length > 0 ? (
-                <ol className="list-decimal list-inside text-xs text-muted-foreground space-y-0.5 max-h-28 overflow-y-auto">
-                  {(selectedTemplate.defaultPhases ?? [])
-                    .map((n) => n.trim())
-                    .filter(Boolean)
-                    .map((name, i) => (
-                      <li key={`${i}-${name}`}>
-                        <span className="text-foreground">{name}</span>
-                      </li>
-                    ))}
-                </ol>
-              ) : (
-                <p className="text-muted-foreground text-xs">No phases in this template.</p>
-              )}
-            </div>
-          ) : null}
           <FormField
             control={form.control}
             name="status"

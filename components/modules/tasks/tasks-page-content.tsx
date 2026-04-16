@@ -26,12 +26,16 @@ import { toast } from "sonner";
 import type { TaskWithProject, GetTasksFilters } from "@/actions/tasks";
 import { TasksKanban, type KanbanStatus } from "./tasks-kanban";
 import { TasksListView } from "./tasks-list-view";
+import { TasksCalendarView } from "./tasks-calendar-view";
+import { TasksTimesheetView } from "./tasks-timesheet-view";
 import { NewTaskModal } from "./new-task-modal";
 import { TaskDetailModal } from "./task-detail-modal";
-import { LayoutGrid, List, Plus } from "lucide-react";
+import { CalendarDays, ClipboardList, LayoutGrid, List, Plus, Users } from "lucide-react";
 import { useTranslateActionError } from "@/hooks/use-translate-action-error";
 import { isDbErrorKey } from "@/lib/i18n-errors";
 import { TASK_STATUS_LABELS_EN, TASK_PRIORITY_LABELS_EN } from "@/types";
+import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   ProjectSelectOptionRow,
   type ProjectPickerOption,
@@ -95,13 +99,56 @@ const STATUS_OPTIONS_AR = [
   { value: "blocked", label: "محظور" },
 ] as const;
 
+/** Priority color dots (match list / Kanban inline editors). */
+const PRIORITY_DOT_CLASS: Record<string, string> = {
+  low: "bg-gray-400",
+  medium: "bg-blue-500",
+  high: "bg-amber-500",
+  urgent: "bg-red-500",
+};
+
+function memberInitials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .map((p) => p[0])
+      .filter(Boolean)
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?"
+  );
+}
+
+function PriorityFilterDot({ value }: { value: string }) {
+  if (value === "all") {
+    return (
+      <span
+        className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/35"
+        aria-hidden
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+        PRIORITY_DOT_CLASS[value] ?? "bg-muted-foreground/40"
+      )}
+      aria-hidden
+    />
+  );
+}
+
 const TASKS_AR = {
   tasks: "المهام",
   kanban: "كانبان",
   list: "قائمة",
+  calendar: "تقويم",
+  timesheet: "جدول الساعات",
   newTask: "مهمة جديدة",
   searchPlaceholder: "البحث باسم المهمة",
   allProjects: "جميع المشاريع",
+  allMembers: "كل الأعضاء",
   deleteTitle: "حذف هذه المهمة؟",
   deleteDesc: "سيتم حذف المهمة. لا يمكن التراجع عن هذا الإجراء.",
   cancel: "إلغاء",
@@ -119,11 +166,14 @@ export function TasksPageContent({
   const translateErr = useTranslateActionError();
 
   const [tasks, setTasks] = React.useState<TaskWithProject[]>(initialTasks);
-  const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
+  const [viewMode, setViewMode] = React.useState<
+    "kanban" | "list" | "calendar" | "timesheet"
+  >("kanban");
   const [search, setSearch] = React.useState("");
   const [projectFilter, setProjectFilter] = React.useState<string>("all");
   const [priorityFilter, setPriorityFilter] = React.useState<string>("all");
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [memberFilter, setMemberFilter] = React.useState<string>("all");
   const [newTaskOpen, setNewTaskOpen] = React.useState(false);
   const [newTaskDefaultStatus, setNewTaskDefaultStatus] = React.useState<
     "todo" | "in_progress" | "in_review" | "done" | "blocked"
@@ -137,31 +187,51 @@ export function TasksPageContent({
       projectId: projectFilter === "all" ? undefined : projectFilter,
       priority: priorityFilter === "all" || !priorityFilter ? undefined : priorityFilter,
       status: statusFilter === "all" || !statusFilter ? undefined : statusFilter,
+      teamMemberId: memberFilter === "all" ? undefined : memberFilter,
     } as GetTasksFilters).then((res) => {
       if (res.ok) setTasks(res.data);
     });
     router.refresh();
-  }, [search, projectFilter, priorityFilter, statusFilter, router]);
+  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter, router]);
 
-  const filtersRef = React.useRef({ search, projectFilter, priorityFilter, statusFilter });
+  const filtersRef = React.useRef({
+    search,
+    projectFilter,
+    priorityFilter,
+    statusFilter,
+    memberFilter,
+  });
   React.useEffect(() => {
     const prev = filtersRef.current;
     const same =
       prev.search === search &&
       prev.projectFilter === projectFilter &&
       prev.priorityFilter === priorityFilter &&
-      prev.statusFilter === statusFilter;
-    filtersRef.current = { search, projectFilter, priorityFilter, statusFilter };
+      prev.statusFilter === statusFilter &&
+      prev.memberFilter === memberFilter;
+    filtersRef.current = { search, projectFilter, priorityFilter, statusFilter, memberFilter };
     if (same) return;
     getTasks({
       search: search.trim() || undefined,
       projectId: projectFilter === "all" ? undefined : projectFilter,
       priority: priorityFilter === "all" || !priorityFilter ? undefined : priorityFilter,
       status: statusFilter === "all" || !statusFilter ? undefined : statusFilter,
+      teamMemberId: memberFilter === "all" ? undefined : memberFilter,
     } as GetTasksFilters).then((res) => {
       if (res.ok) setTasks(res.data);
     });
-  }, [search, projectFilter, priorityFilter, statusFilter]);
+  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter]);
+
+  const sortedTeamMembers = React.useMemo(
+    () => [...teamMembers].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })),
+    [teamMembers]
+  );
+
+  const selectedMemberForFilter = React.useMemo(
+    () =>
+      memberFilter === "all" ? null : (sortedTeamMembers.find((m) => m.id === memberFilter) ?? null),
+    [memberFilter, sortedTeamMembers]
+  );
 
   const handleAddTask = (status?: "todo" | "in_progress" | "in_review" | "done" | "blocked") => {
     setNewTaskDefaultStatus(status ?? "todo");
@@ -208,6 +278,18 @@ export function TasksPageContent({
   const dir = memberView ? "rtl" : "ltr";
   const PRIORITY_OPTIONS = memberView ? PRIORITY_OPTIONS_AR : PRIORITY_OPTIONS_EN;
   const STATUS_OPTIONS = memberView ? STATUS_OPTIONS_AR : STATUS_OPTIONS_EN;
+  const priorityFilterLabel =
+    PRIORITY_OPTIONS.find((o) => o.value === priorityFilter)?.label ?? PRIORITY_OPTIONS[0].label;
+  const memberFilterLabel =
+    memberFilter === "all"
+      ? memberView
+        ? TASKS_AR.allMembers
+        : "All members"
+      : selectedMemberForFilter
+        ? selectedMemberForFilter.name || selectedMemberForFilter.email || selectedMemberForFilter.id
+        : memberView
+          ? TASKS_AR.allMembers
+          : "All members";
 
   return (
     <div dir={dir} lang={memberView ? "ar" : "en"} className="space-y-4">
@@ -231,6 +313,24 @@ export function TasksPageContent({
           >
             <List className="me-1 h-4 w-4" />
             {memberView ? TASKS_AR.list : "List"}
+          </Button>
+          <Button
+            variant={viewMode === "calendar" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("calendar")}
+            title={memberView ? TASKS_AR.calendar : "Calendar"}
+          >
+            <CalendarDays className="me-1 h-4 w-4" />
+            {memberView ? TASKS_AR.calendar : "Calendar"}
+          </Button>
+          <Button
+            variant={viewMode === "timesheet" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("timesheet")}
+            title={memberView ? TASKS_AR.timesheet : "Timesheet"}
+          >
+            <ClipboardList className="me-1 h-4 w-4" />
+            {memberView ? TASKS_AR.timesheet : "Timesheet"}
           </Button>
           <Button onClick={() => handleAddTask()}>
             <Plus className="me-1 h-4 w-4" />
@@ -264,18 +364,72 @@ export function TasksPageContent({
           </SelectContent>
         </Select>
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="w-full sm:w-[140px]">
-            <SelectValue />
+          <SelectTrigger
+            className="w-full min-w-0 sm:w-[168px]"
+            aria-label={memberView ? "تصفية حسب الأولوية" : "Filter by priority"}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+              <PriorityFilterDot value={priorityFilter} />
+              <span className="truncate">{priorityFilterLabel}</span>
+            </span>
           </SelectTrigger>
           <SelectContent dir={dir}>
             {PRIORITY_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
+              <SelectItem key={o.value} value={o.value} textValue={o.label}>
+                <span className="inline-flex items-center gap-2">
+                  <PriorityFilterDot value={o.value} />
+                  {o.label}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {viewMode === "list" && (
+        <Select value={memberFilter} onValueChange={setMemberFilter}>
+          <SelectTrigger
+            className="w-full min-w-0 sm:min-w-[200px] sm:max-w-[260px]"
+            aria-label={memberView ? "تصفية حسب العضو" : "Filter by team member"}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+              {memberFilter === "all" ? (
+                <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+                  <Users className="h-4 w-4 shrink-0" aria-hidden />
+                </span>
+              ) : selectedMemberForFilter ? (
+                <Avatar className="h-7 w-7 shrink-0">
+                  <AvatarImage src={selectedMemberForFilter.avatarUrl ?? undefined} alt="" />
+                  <AvatarFallback className="text-[10px]">
+                    {memberInitials(selectedMemberForFilter.name || selectedMemberForFilter.email || "?")}
+                  </AvatarFallback>
+                </Avatar>
+              ) : (
+                <span className="bg-muted flex h-7 w-7 shrink-0 rounded-full" aria-hidden />
+              )}
+              <span className="truncate">{memberFilterLabel}</span>
+            </span>
+          </SelectTrigger>
+          <SelectContent dir={dir}>
+            <SelectItem value="all" textValue={memberView ? TASKS_AR.allMembers : "All members"}>
+              <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+                <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+                  <Users className="h-4 w-4 shrink-0" aria-hidden />
+                </span>
+                <span className="min-w-0 truncate">{memberView ? TASKS_AR.allMembers : "All members"}</span>
+              </span>
+            </SelectItem>
+            {sortedTeamMembers.map((m) => (
+              <SelectItem key={m.id} value={m.id} textValue={m.name || m.email || m.id}>
+                <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+                  <Avatar className="h-7 w-7 shrink-0">
+                    <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
+                    <AvatarFallback className="text-[10px]">{memberInitials(m.name || m.email || "?")}</AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0 truncate">{m.name || m.email || m.id}</span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {(viewMode === "list" || viewMode === "calendar") && (
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue />
@@ -301,13 +455,31 @@ export function TasksPageContent({
           onTaskStatusChange={handleTaskStatusMove}
           memberView={memberView}
         />
-      ) : (
+      ) : viewMode === "list" ? (
         <TasksListView
           tasks={filteredTasksForList}
           assigneesByTaskId={assigneesByTaskId}
           projectOptions={projects}
+          teamMembers={teamMembers}
           onOpenTask={setTaskDetailId}
           onDeleteTask={handleDeleteTask}
+          onTaskPatched={(id, patch) =>
+            setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+          }
+          onAssigneesRefresh={refetch}
+          memberView={memberView}
+        />
+      ) : viewMode === "calendar" ? (
+        <TasksCalendarView
+          tasks={tasks}
+          onOpenTask={setTaskDetailId}
+          memberView={memberView}
+        />
+      ) : (
+        <TasksTimesheetView
+          tasks={tasks}
+          assigneesByTaskId={assigneesByTaskId}
+          onOpenTask={setTaskDetailId}
           memberView={memberView}
         />
       )}

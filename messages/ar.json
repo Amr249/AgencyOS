@@ -12,12 +12,12 @@
     "expenses": "Expenses",
     "reports": "Reports",
     "settings": "الإعدادات",
-    "workspace": "الفضاء",
+    "workspace": "مساحة العمل",
     "pipeline": "المسار",
-    "winLoss": "الفوز / الخسارة",
     "myDashboard": "الرئيسية",
     "memberWork": "عملي",
-    "payments": "المدفوعات"
+    "payments": "المدفوعات",
+    "account": "الحساب"
   },
   "common": {
     "search": "بحث...",
@@ -209,8 +209,6 @@
     "pipelineWinLossError": "تعذر حفظ النتيجة",
     "pipelineCancel": "إلغاء",
     "pipelineSaveOutcome": "حفظ",
-    "winLossReportTitle": "تقرير الفوز والخسارة",
-    "winLossReportSubtitle": "معدل الفوز والأسباب والنتائج عبر الزمن.",
     "lossCategoryLabel": "سبب الخسارة",
     "lossCategoryNotSerious": "العميل لم يكن جادّاً",
     "lossCategoryRejectedWork": "رفضت أنا العمل",

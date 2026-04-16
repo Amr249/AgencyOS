@@ -39,7 +39,6 @@ import {
 } from "@/components/modules/projects/project-activity-feed";
 import { ProjectExpensesTab } from "@/components/modules/projects/project-expenses-tab";
 import { FileManager } from "@/components/modules/files/file-manager";
-import { SaveProjectTemplateDialog } from "@/components/modules/projects/save-project-template-dialog";
 import { ProjectHealthBadge } from "@/components/modules/projects/project-health-badge";
 import { BudgetAlert } from "@/components/modules/projects/budget-alert";
 import { budgetAlertStateFromHealth } from "@/lib/budget-alert";
@@ -93,7 +92,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
 
   const session = await getServerSession(authOptions);
   if (sessionUserRole(session) === "member") {
-    redirect("/dashboard/tasks");
+    redirect("/dashboard/workspace");
   }
 
   const [projectResult, clientsResult, settingsResult] = await Promise.all([
@@ -224,7 +223,6 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 justify-end">
-          <SaveProjectTemplateDialog projectId={id} defaultName={`${project.name} template`} />
           <Button variant="outline" asChild>
             <Link href="/dashboard/projects">Back to list</Link>
           </Button>
