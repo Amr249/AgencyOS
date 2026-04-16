@@ -352,9 +352,12 @@
   },
   "auth": {
     "login": "Sign In",
+    "loginPageTitle": "Sign in",
     "logout": "Sign Out",
     "email": "Email",
+    "emailPlaceholder": "you@company.com",
     "password": "Password",
+    "passwordPlaceholder": "••••••••",
     "loginButton": "Sign In",
     "invalidCredentials": "Invalid email or password",
     "welcomeBack": "Welcome back",

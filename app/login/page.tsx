@@ -40,7 +40,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-row" dir="ltr">
+    <div
+      className="flex min-h-screen flex-row"
+      dir="ltr"
+      lang={locale}
+    >
 
       {/* Left dark panel — 60% */}
       <div className="relative hidden min-h-screen overflow-hidden bg-black md:flex md:w-[60%]">
@@ -85,6 +89,7 @@ export default function LoginPage() {
       <div
         className="flex w-full flex-col justify-center bg-white px-6 py-12 md:w-[40%] md:px-12 lg:px-16"
         dir={formDir}
+        lang={locale}
       >
         <div className="mx-auto w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center text-center">
@@ -110,15 +115,20 @@ export default function LoginPage() {
             className="flex flex-col gap-4"
             onSubmit={handleSubmit}
             noValidate
+            spellCheck={false}
           >
             <div>
-              <label htmlFor="email" className="mb-2 block text-sm text-neutral-700">
+              <label
+                htmlFor="email"
+                className="mb-2 block text-start text-sm text-neutral-700"
+              >
                 {t("email")}
               </label>
               <input
                 type="email"
                 id="email"
-                placeholder="admin@agency.com"
+                autoComplete="email"
+                placeholder={t("emailPlaceholder")}
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-black outline-none transition-colors focus:border-[#c8f542] focus:ring-1 focus:ring-[#c8f542]"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -128,24 +138,28 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label htmlFor="password" className="mb-2 block text-sm text-neutral-700">
+              <label
+                htmlFor="password"
+                className="mb-2 block text-start text-sm text-neutral-700"
+              >
                 {t("password")}
               </label>
-              <div className="relative">
+              {/* LTR wrapper so the visibility toggle stays on the correct side while the form is RTL. */}
+              <div className="relative" dir="ltr">
                 <input
                   type={showPassword ? "text" : "password"}
                   id="password"
-                  placeholder="••••••••"
-                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 pe-10 text-sm text-black outline-none transition-colors focus:border-[#c8f542] focus:ring-1 focus:ring-[#c8f542]"
+                  autoComplete="current-password"
+                  placeholder={t("passwordPlaceholder")}
+                  className="w-full rounded-lg border border-neutral-300 bg-white py-2.5 pe-10 ps-3 text-sm text-black outline-none transition-colors focus:border-[#c8f542] focus:ring-1 focus:ring-[#c8f542]"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  dir="ltr"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-neutral-400 transition-colors hover:text-neutral-700"
+                  className="absolute end-3 top-1/2 -translate-y-1/2 text-neutral-400 transition-colors hover:text-neutral-700"
                   aria-label={showPassword ? t("hidePassword") : t("showPassword")}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -154,7 +168,9 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <p className="text-sm text-red-500">{error}</p>
+              <p className="text-start text-sm text-red-600" role="alert">
+                {error}
+              </p>
             )}
 
             <button
@@ -166,7 +182,10 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-8 flex items-center justify-between">
+          <div
+            className="mt-8 flex items-center justify-between gap-4"
+            dir={formDir}
+          >
             <LanguageToggle />
             <p className="text-xs text-neutral-400">
               AgencyOS © {new Date().getFullYear()}
