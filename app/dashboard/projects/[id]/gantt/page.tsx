@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
 import { getProjectById } from "@/actions/projects";
 import { getTasksByProjectId } from "@/actions/tasks";
 import { getDependenciesForTasks } from "@/actions/task-dependencies";
 import { getTeamMembers } from "@/actions/team-members";
 import { Button } from "@/components/ui/button";
 import { GanttChart } from "@/components/modules/projects/gantt-chart";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,6 +22,11 @@ type Props = { params: Promise<{ id: string }> };
 
 export default async function ProjectGanttPage({ params }: Props) {
   const { id } = await params;
+
+  const session = await getServerSession(authOptions);
+  if (sessionUserRole(session) === "member") {
+    redirect("/dashboard/tasks");
+  }
 
   const [projectResult, tasksResult, teamMembersResult] = await Promise.all([
     getProjectById(id),

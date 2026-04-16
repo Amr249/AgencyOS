@@ -42,7 +42,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ExpenseCategoryBadge, CATEGORY_LABELS } from "./expense-category-badge";
-import { NewExpenseDialog, type ExpenseDialogClient, type ExpenseDialogProject } from "./new-expense-dialog";
+import { NewExpenseDialog, type ExpenseDialogClient, type ExpenseDialogProject, type ExpenseDialogService } from "./new-expense-dialog";
 import { formatAmount } from "@/lib/utils";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -75,6 +75,7 @@ type ExpensesListViewProps = {
   teamMembers?: TeamMemberOption[];
   projects?: ExpenseDialogProject[];
   clients?: ExpenseDialogClient[];
+  services?: ExpenseDialogService[];
 };
 
 function formatDateDDMMYYYY(dateStr: string) {
@@ -146,6 +147,7 @@ export function ExpensesListView({
   teamMembers = [],
   projects = [],
   clients = [],
+  services = [],
 }: ExpensesListViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -766,6 +768,7 @@ export function ExpensesListView({
         teamMembers={teamMembers}
         projects={projects}
         clients={clients}
+        services={services}
       />
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>

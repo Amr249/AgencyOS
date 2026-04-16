@@ -35,12 +35,12 @@ export const metadata: Metadata = {
   description: "OnePixle Agency Operations Dashboard",
   manifest: "/manifest.json",
   icons: {
-    icon: "/Logo1.png",
-    apple: "/Logo1.png",
+    icon: "/logo-512.png",
+    apple: "/logo-512.png",
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "AgencyOS",
   },
   other: {
@@ -49,10 +49,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#000000" },
-  ],
+  themeColor: "#000000",
   width: "device-width",
   initialScale: 1,
 };

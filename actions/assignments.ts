@@ -1,49 +1,24 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { taskAssignments, users, tasks, projects, teamMembers } from "@/lib/db/schema";
-import { eq, and, inArray, isNotNull, sql, asc } from "drizzle-orm";
+import { taskAssignments, tasks, projects, teamMembers } from "@/lib/db/schema";
+import { eq, and, inArray, isNotNull } from "drizzle-orm";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { isDbConnectionError } from "@/lib/db-errors";
+import { getTeamMemberIdsForSessionUser } from "@/lib/member-context";
+import { sessionUserRole } from "@/lib/auth-helpers";
+import { getTeamMembers as loadTeamMembersForSession } from "@/actions/team-members";
 
-function normEmail(e: string | null | undefined): string | null {
-  const s = (e ?? "").trim().toLowerCase();
-  return s.length ? s : null;
-}
-
-/** App users who share an email with a team member (for “my tasks” when logged in). */
-async function teamMemberIdsMatchingUser(userId: string): Promise<string[]> {
-  const [sessionUser] = await db
-    .select({ email: users.email })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-  const em = normEmail(sessionUser?.email);
-  if (!em) return [];
-  const rows = await db
-    .select({ id: teamMembers.id })
-    .from(teamMembers)
-    .where(sql`lower(trim(coalesce(${teamMembers.email}, ''))) = ${em}`);
-  return rows.map((r) => r.id);
-}
-
-// ── Active team members (for assignee picker — no login required) ─────────────
+// ── Active team members (assignee picker; scoped for members) ──────────────────
 export async function getTeamMembers() {
   try {
-    const members = await db
-      .select({
-        id: teamMembers.id,
-        name: teamMembers.name,
-        email: teamMembers.email,
-        avatarUrl: teamMembers.avatarUrl,
-        role: teamMembers.role,
-      })
-      .from(teamMembers)
-      .where(eq(teamMembers.status, "active"))
-      .orderBy(asc(teamMembers.name));
-    return { data: members, error: null };
+    const res = await loadTeamMembersForSession();
+    if (!res.ok) {
+      return { data: null, error: res.error };
+    }
+    return { data: res.data, error: null };
   } catch (error) {
     if (isDbConnectionError(error)) {
       return { data: null, error: "Could not connect to the database. Please try again." };
@@ -58,6 +33,9 @@ export async function assignTask(taskId: string, teamMemberId: string) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return { success: false, error: "Not authorized. Please sign in." };
+    }
+    if (sessionUserRole(session) !== "admin") {
+      return { success: false, error: "Forbidden." };
     }
 
     const [member] = await db
@@ -89,6 +67,7 @@ export async function assignTask(taskId: string, teamMemberId: string) {
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/my-tasks");
+    revalidatePath("/dashboard/me");
     revalidatePath("/dashboard/tasks");
     revalidatePath("/dashboard/workspace/board");
     return { success: true, error: null };
@@ -108,6 +87,9 @@ export async function unassignTask(taskId: string, teamMemberId: string) {
     if (!session?.user?.id) {
       return { success: false, error: "Not authorized. Please sign in." };
     }
+    if (sessionUserRole(session) !== "admin") {
+      return { success: false, error: "Forbidden." };
+    }
 
     await db
       .delete(taskAssignments)
@@ -117,6 +99,7 @@ export async function unassignTask(taskId: string, teamMemberId: string) {
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/my-tasks");
+    revalidatePath("/dashboard/me");
     revalidatePath("/dashboard/tasks");
     revalidatePath("/dashboard/workspace/board");
     return { success: true, error: null };
@@ -137,7 +120,7 @@ export async function getMyTasks() {
       return { data: null, error: "Not authorized. Please sign in." };
     }
 
-    const memberIds = await teamMemberIdsMatchingUser(session.user.id);
+    const memberIds = await getTeamMemberIdsForSessionUser(session.user.id);
     if (memberIds.length === 0) {
       return { data: [], error: null };
     }

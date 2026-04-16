@@ -14,7 +14,7 @@ export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");
   // Members go to their own view
-  if ((session.user as { role?: string }).role === "member") redirect("/dashboard/my-tasks");
+  if ((session.user as { role?: string }).role === "member") redirect("/dashboard/me");
 
   const data = await getDashboardData();
 

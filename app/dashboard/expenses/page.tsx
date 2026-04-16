@@ -4,6 +4,7 @@ import { getExpenses, getExpensesSummary, type ExpenseCategory } from "@/actions
 import { getTeamMembers } from "@/actions/team-members";
 import { getProjects } from "@/actions/projects";
 import { getClientsList } from "@/actions/clients";
+import { getServices } from "@/actions/services";
 import { ExpensesListView } from "@/components/modules/expenses/expenses-list-view";
 
 export const metadata: Metadata = {
@@ -47,12 +48,13 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     clientId: clientIdParsed.success ? clientIdParsed.data : undefined,
   };
 
-  const [expensesResult, summary, teamMembersResult, projectsResult, clientsResult] = await Promise.all([
+  const [expensesResult, summary, teamMembersResult, projectsResult, clientsResult, servicesResult] = await Promise.all([
     getExpenses(filters),
     getExpensesSummary(),
     getTeamMembers(),
     getProjects({}),
     getClientsList(),
+    getServices(),
   ]);
   const expenses = expensesResult.ok ? expensesResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
@@ -72,6 +74,9 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
         logoUrl: c.logoUrl,
       }))
     : [];
+  const servicesList = servicesResult.ok
+    ? servicesResult.data.map((s) => ({ id: s.id, name: s.name }))
+    : [];
 
   return (
     <ExpensesListView
@@ -80,6 +85,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       teamMembers={teamMembers}
       projects={projects}
       clients={clients}
+      services={servicesList}
     />
   );
 }

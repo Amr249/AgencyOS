@@ -139,12 +139,15 @@ function SortableTableRow<T>({
   getRowId,
   dragColumnId = "drag",
   uiVariant = "default",
+  tableDir,
 }: {
   row: Row<T>;
   getRowId: (row: T) => string;
   dragColumnId?: string;
   uiVariant?: "default" | "clients";
+  tableDir: "ltr" | "rtl";
 }) {
+  const clientsTextStart = uiVariant === "clients" && tableDir === "ltr";
   const id = getRowId(row.original);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
@@ -175,12 +178,12 @@ function SortableTableRow<T>({
             key={cell.id}
             className={cn(
               "w-8 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground pr-1",
-              uiVariant === "clients" ? "text-left" : "text-right"
+              clientsTextStart ? "text-left" : "text-right"
             )}
             {...attributes}
             {...listeners}
           >
-            <div className={cn("flex", uiVariant === "clients" ? "justify-start" : "justify-end")}>
+            <div className={cn("flex", clientsTextStart ? "justify-start" : "justify-end")}>
               <GripVertical className="h-4 w-4" />
             </div>
           </TableCell>
@@ -188,7 +191,9 @@ function SortableTableRow<T>({
           <TableCell
             key={cell.id}
             className={cn(
-              uiVariant === "clients" ? "px-4 py-3 text-left text-sm" : "text-right",
+              uiVariant === "clients"
+                ? cn("px-4 py-3 text-sm", clientsTextStart ? "text-left" : "text-right")
+                : "text-right",
               cell.column.id === "actions" && "w-10",
               (cell.column.columnDef.meta as SortableColumnLayoutMeta | undefined)?.cellClassName
             )}
@@ -230,6 +235,21 @@ export type SortableDataTableProps<T> = {
   pageSizeOptions?: number[];
   /** Row shown when the table has no rows (after filters). */
   emptyStateMessage?: string;
+  /** Override table/toolbar direction (default: LTR for `clients`, RTL for `default`). */
+  tableDir?: "ltr" | "rtl";
+  /** Sort toolbar copy (defaults to English). */
+  sortToolbarLabels?: {
+    none: string;
+    sortPlaceholder: string;
+    sortedBy: string;
+    clearSortAria: string;
+  };
+  /** Saved-views toolbar copy (defaults to English). */
+  savedViewsLabels?: {
+    defaultView: string;
+    saveView: string;
+    deleteView: string;
+  };
 };
 
 export function SortableDataTable<T>({
@@ -254,7 +274,24 @@ export function SortableDataTable<T>({
   persistColumnVisibility = false,
   pageSizeOptions,
   emptyStateMessage = "No data.",
+  tableDir: tableDirProp,
+  sortToolbarLabels,
+  savedViewsLabels,
 }: SortableDataTableProps<T>) {
+  const resolvedTableDir: "ltr" | "rtl" = tableDirProp ?? (uiVariant === "clients" ? "ltr" : "rtl");
+  const clientsTextStart = uiVariant === "clients" && resolvedTableDir === "ltr";
+  const sortLbl = sortToolbarLabels ?? {
+    none: "No sorting",
+    sortPlaceholder: "Sort",
+    sortedBy: "Sorted by:",
+    clearSortAria: "Clear sort",
+  };
+  const viewLbl = savedViewsLabels ?? {
+    defaultView: "Default view",
+    saveView: "Save view",
+    deleteView: "Delete view",
+  };
+
   const storageKeySort = `sort-${tableId}`;
   const storageKeyRowOrder = `${ROW_ORDER_KEY}-${tableId}`;
   const storageKeyColumns = `table-columns-${tableId}`;
@@ -461,7 +498,7 @@ export function SortableDataTable<T>({
   return (
     <div className="w-full space-y-2">
       {/* Notion-style sort toolbar */}
-      <div className="flex flex-wrap items-center gap-3 text-sm" dir={uiVariant === "clients" ? "ltr" : "rtl"}>
+      <div className="flex flex-wrap items-center gap-3 text-sm" dir={resolvedTableDir}>
         {enableSavedViews && (
           <>
             <Select value={selectedViewId} onValueChange={applySavedView}>
@@ -469,7 +506,7 @@ export function SortableDataTable<T>({
                 <SelectValue placeholder="Saved view" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Default view</SelectItem>
+                <SelectItem value="none">{viewLbl.defaultView}</SelectItem>
                 {savedViews.map((view) => (
                   <SelectItem key={view.id} value={view.id}>
                     {view.name}
@@ -494,7 +531,7 @@ export function SortableDataTable<T>({
                 setSelectedViewId(id);
               }}
             >
-              Save view
+              {viewLbl.saveView}
             </button>
             <button
               type="button"
@@ -507,7 +544,7 @@ export function SortableDataTable<T>({
                 setSelectedViewId("none");
               }}
             >
-              Delete view
+              {viewLbl.deleteView}
             </button>
           </>
         )}
@@ -539,7 +576,7 @@ export function SortableDataTable<T>({
         )}
         {sorting.length > 0 && (
           <div className="flex items-center gap-2 text-muted-foreground">
-            <span>Sorted by:</span>
+            <span>{sortLbl.sortedBy}</span>
             <span className="font-medium text-foreground">
               {getColumnLabel(sorting[0].id)} {sorting[0].desc ? "↓" : "↑"}
             </span>
@@ -547,7 +584,7 @@ export function SortableDataTable<T>({
               type="button"
               onClick={() => setSorting([])}
               className="hover:text-foreground rounded p-0.5 text-lg leading-none"
-              aria-label="Clear sort"
+              aria-label={sortLbl.clearSortAria}
             >
               ×
             </button>
@@ -567,13 +604,13 @@ export function SortableDataTable<T>({
           <SelectTrigger
             className={cn(
               "h-8 w-[160px] text-muted-foreground",
-              uiVariant === "clients" ? "text-left" : "text-right"
+              clientsTextStart ? "text-left" : "text-right"
             )}
           >
-            <SelectValue placeholder="Sort" />
+            <SelectValue placeholder={sortLbl.sortPlaceholder} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="none">No sorting</SelectItem>
+            <SelectItem value="none">{sortLbl.none}</SelectItem>
             {columns
               .filter((c) => c.enableSorting !== false && (c.id ?? (c as { accessorKey?: string }).accessorKey) && c.id !== dragColumnId)
               .map((col) => {
@@ -596,8 +633,8 @@ export function SortableDataTable<T>({
             className={cn(
               uiVariant === "clients" ? "w-full min-w-[980px] border-collapse" : "border-t"
             )}
-            dir={uiVariant === "clients" ? "ltr" : "rtl"}
-            style={{ direction: uiVariant === "clients" ? "ltr" : "rtl" }}
+            dir={resolvedTableDir}
+            style={{ direction: resolvedTableDir }}
           >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -610,7 +647,10 @@ export function SortableDataTable<T>({
                       key={header.id}
                       className={cn(
                         uiVariant === "clients"
-                          ? "px-4 py-2.5 text-xs font-medium text-neutral-400 text-left"
+                          ? cn(
+                              "px-4 py-2.5 text-xs font-medium text-neutral-400",
+                              clientsTextStart ? "text-left" : "text-right"
+                            )
                           : "text-right",
                         header.column.id === "actions" && "w-10",
                         header.column.id === dragColumnId && "w-8 pr-1",
@@ -636,7 +676,9 @@ export function SortableDataTable<T>({
                         key={`filter-${header.id}`}
                         className={cn(
                           "p-2 align-top",
-                          uiVariant === "clients" ? "px-4 text-left" : "text-right",
+                          uiVariant === "clients"
+                            ? cn("px-4", clientsTextStart ? "text-left" : "text-right")
+                            : "text-right",
                           header.column.id === "actions" && "w-10",
                           header.column.id === dragColumnId && "w-8 pr-1",
                           (header.column.columnDef.meta as SortableColumnLayoutMeta | undefined)
@@ -661,6 +703,7 @@ export function SortableDataTable<T>({
                     getRowId={getRowId}
                     dragColumnId={dragColumnId}
                     uiVariant={uiVariant}
+                    tableDir={resolvedTableDir}
                   />
                 ))}
               </SortableContext>
@@ -670,7 +713,11 @@ export function SortableDataTable<T>({
                   colSpan={columns.length}
                   className={cn(
                     "h-24 text-muted-foreground",
-                    uiVariant === "clients" ? "text-left" : "text-right"
+                    uiVariant === "clients"
+                      ? clientsTextStart
+                        ? "text-left"
+                        : "text-right"
+                      : "text-right"
                   )}
                 >
                   {emptyStateMessage}
@@ -686,13 +733,13 @@ export function SortableDataTable<T>({
         <div
           className={cn(
             "flex flex-col gap-3 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between",
-            uiVariant === "clients" ? "text-left" : "text-right"
+            clientsTextStart ? "text-left" : "text-right"
           )}
         >
           <div
             className={cn(
               "text-muted-foreground text-sm",
-              uiVariant === "clients" ? "text-left" : "text-right"
+              clientsTextStart ? "text-left" : "text-right"
             )}
           >
             {(() => {
@@ -716,7 +763,7 @@ export function SortableDataTable<T>({
           <div
             className={cn(
               "flex flex-wrap items-center gap-2",
-              uiVariant === "clients" ? "justify-start sm:justify-end" : "justify-end"
+              clientsTextStart ? "justify-start sm:justify-end" : "justify-end"
             )}
           >
             {resolvedPageSizes ? (
@@ -730,7 +777,7 @@ export function SortableDataTable<T>({
                 <SelectTrigger
                   className={cn(
                     "h-8 w-[100px]",
-                    uiVariant === "clients" ? "text-left" : "text-right"
+                    clientsTextStart ? "text-left" : "text-right"
                   )}
                 >
                   <SelectValue />

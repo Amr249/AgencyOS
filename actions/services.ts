@@ -28,24 +28,39 @@ export type ServiceRow = {
   projectCount: number;
 };
 
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function getServices(): Promise<
   { ok: true; data: ServiceRow[] } | { ok: false; error: string }
 > {
   try {
-    const rows = await db
-      .select({
-        id: services.id,
-        name: services.name,
-        description: services.description,
-        status: services.status,
-        createdAt: services.createdAt,
-        updatedAt: services.updatedAt,
-        projectCount: sql<number>`count(${projectServices.id})::int`,
-      })
-      .from(services)
-      .leftJoin(projectServices, eq(projectServices.serviceId, services.id))
-      .groupBy(services.id)
-      .orderBy(asc(services.name));
+    const query = () =>
+      db
+        .select({
+          id: services.id,
+          name: services.name,
+          description: services.description,
+          status: services.status,
+          createdAt: services.createdAt,
+          updatedAt: services.updatedAt,
+          projectCount: sql<number>`count(${projectServices.id})::int`,
+        })
+        .from(services)
+        .leftJoin(projectServices, eq(projectServices.serviceId, services.id))
+        .groupBy(services.id)
+        .orderBy(asc(services.name));
+
+    let rows: Awaited<ReturnType<typeof query>>;
+    try {
+      rows = await query();
+    } catch (firstError) {
+      if (!isDbConnectionError(firstError)) throw firstError;
+      await sleep(350);
+      rows = await query();
+    }
+
     return { ok: true as const, data: rows as ServiceRow[] };
   } catch (e) {
     console.error("getServices", e);

@@ -14,7 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { SortableDataTable, type TableColumnFilterMeta } from "@/components/ui/sortable-data-table";
 import {
   TASK_STATUS_LABELS_EN,
+  TASK_STATUS_LABELS,
   TASK_PRIORITY_LABELS_EN,
+  TASK_PRIORITY_LABELS,
   TASK_PRIORITY_BADGE_CLASS,
 } from "@/types";
 import { cn } from "@/lib/utils";
@@ -24,10 +26,10 @@ import { EntityTableShell } from "@/components/ui/entity-table-shell";
 import { AvatarStack } from "@/components/ui/avatar-stack";
 import { ProjectSelectThumb, type ProjectPickerOption } from "@/components/entity-select-option";
 
-function formatDate(d: string | null) {
+function formatDate(d: string | null, locale = "en-US") {
   if (!d) return "—";
   try {
-    return new Date(d + "Z").toLocaleDateString("en-US", {
+    return new Date(d + "Z").toLocaleDateString(locale, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -63,12 +65,13 @@ type TasksListViewProps = {
   projectOptions: ProjectFilterOption[];
   onOpenTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
+  memberView?: boolean;
 };
 
 const ALL = "__all__";
 
-function titleFilterMeta(): TableColumnFilterMeta {
-  return { variant: "text", placeholder: "Search by task name" };
+function titleFilterMeta(memberView: boolean): TableColumnFilterMeta {
+  return { variant: "text", placeholder: memberView ? "البحث باسم المهمة" : "Search by task name" };
 }
 
 export function TasksListView({
@@ -77,7 +80,10 @@ export function TasksListView({
   projectOptions,
   onOpenTask,
   onDeleteTask,
+  memberView = false,
 }: TasksListViewProps) {
+  const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
+  const priorityLabels = memberView ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
   const rows: TaskTableRow[] = React.useMemo(
     () =>
       tasks.map((t) => ({
@@ -94,18 +100,18 @@ export function TasksListView({
     () =>
       (["todo", "in_progress", "in_review", "done", "blocked"] as const).map((s) => ({
         value: s,
-        label: TASK_STATUS_LABELS_EN[s] ?? s,
+        label: statusLabels[s] ?? s,
       })),
-    []
+    [statusLabels]
   );
 
   const priorityFilterOptions = React.useMemo(
     () =>
       (["low", "medium", "high", "urgent"] as const).map((p) => ({
         value: p,
-        label: TASK_PRIORITY_LABELS_EN[p] ?? p,
+        label: priorityLabels[p] ?? p,
       })),
-    []
+    [priorityLabels]
   );
 
   const projectFilterMeta = React.useMemo((): TableColumnFilterMeta => {
@@ -140,7 +146,7 @@ export function TasksListView({
           const title = String(row.original.title ?? "").toLowerCase();
           return title.includes(String(filterValue).toLowerCase());
         },
-        meta: { columnFilter: titleFilterMeta() },
+        meta: { columnFilter: titleFilterMeta(memberView) },
         header: ({ column }) => (
           <Button
             variant="ghost"
@@ -182,20 +188,31 @@ export function TasksListView({
             </span>
           </Button>
         ),
-        cell: ({ row }) => (
-          <Link
-            href={`/dashboard/projects/${row.original.projectId}`}
-            className="text-muted-foreground inline-flex min-w-0 max-w-full items-center gap-2 text-sm underline hover:text-foreground"
-          >
-            <ProjectSelectThumb
-              coverImageUrl={row.original.projectCoverImageUrl}
-              clientLogoUrl={row.original.projectClientLogoUrl}
-              fallbackName={row.original.projectName}
-              className="h-6 w-6"
-            />
-            <span className="truncate">{row.original.projectName}</span>
-          </Link>
-        ),
+        cell: ({ row }) =>
+          memberView ? (
+            <span className="text-muted-foreground inline-flex min-w-0 max-w-full items-center gap-2 text-sm">
+              <ProjectSelectThumb
+                coverImageUrl={row.original.projectCoverImageUrl}
+                clientLogoUrl={row.original.projectClientLogoUrl}
+                fallbackName={row.original.projectName}
+                className="h-6 w-6"
+              />
+              <span className="truncate">{row.original.projectName}</span>
+            </span>
+          ) : (
+            <Link
+              href={`/dashboard/projects/${row.original.projectId}`}
+              className="text-muted-foreground inline-flex min-w-0 max-w-full items-center gap-2 text-sm underline hover:text-foreground"
+            >
+              <ProjectSelectThumb
+                coverImageUrl={row.original.projectCoverImageUrl}
+                clientLogoUrl={row.original.projectClientLogoUrl}
+                fallbackName={row.original.projectName}
+                className="h-6 w-6"
+              />
+              <span className="truncate">{row.original.projectName}</span>
+            </Link>
+          ),
       },
       {
         accessorKey: "priority",
@@ -229,7 +246,7 @@ export function TasksListView({
             variant="secondary"
             className={cn("text-xs", TASK_PRIORITY_BADGE_CLASS[row.original.priority] ?? "")}
           >
-            {TASK_PRIORITY_LABELS_EN[row.original.priority] ?? row.original.priority}
+            {priorityLabels[row.original.priority] ?? row.original.priority}
           </Badge>
         ),
       },
@@ -261,7 +278,7 @@ export function TasksListView({
           </Button>
         ),
         cell: ({ row }) => (
-          <span className="text-sm">{TASK_STATUS_LABELS_EN[row.original.status] ?? row.original.status}</span>
+          <span className="text-sm">{statusLabels[row.original.status] ?? row.original.status}</span>
         ),
       },
       {
@@ -315,7 +332,7 @@ export function TasksListView({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <span className="text-start">
-              Assignees {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+              {memberView ? "المعينون" : "Assignees"} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -363,13 +380,15 @@ export function TasksListView({
       priorityFilterOptions,
       statusFilterOptions,
       assigneeFilterMeta,
+      memberView,
+      statusLabels,
+      priorityLabels,
     ]
   );
 
   return (
     <EntityTableShell
       title=""
-      dir="ltr"
       mobileContent={
         <div className="space-y-2 md:hidden">
           {tasks.map((task) => {
@@ -415,7 +434,7 @@ export function TasksListView({
                     variant="secondary"
                     className={cn("text-xs", TASK_PRIORITY_BADGE_CLASS[task.priority] ?? "")}
                   >
-                    {TASK_PRIORITY_LABELS_EN[task.priority] ?? task.priority}
+                    {priorityLabels[task.priority] ?? task.priority}
                   </Badge>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -446,7 +465,14 @@ export function TasksListView({
             data={rows}
             tableId="tasks-table"
             getRowId={(t) => t.id}
-            columnLabels={{
+            columnLabels={memberView ? {
+              title: "المهمة",
+              projectName: "المشروع",
+              priority: "الأولوية",
+              status: "الحالة",
+              dueDate: "تاريخ الاستحقاق",
+              assignees: "المعينون",
+            } : {
               title: "Task",
               projectName: "Project",
               priority: "Priority",

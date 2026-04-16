@@ -1,11 +1,14 @@
 "use server";
 
 import { format } from "date-fns";
+import { getServerSession } from "next-auth";
 import { and, gt, inArray, isNotNull, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { expenses, milestones, projects, tasks, timeLogs } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
 
 export type ProjectHealthStatus = "on_track" | "at_risk" | "over_budget";
 
@@ -102,6 +105,11 @@ function deriveProjectHealth(input: {
 export async function getProjectsHealthMap(
   projectIds: string[]
 ): Promise<{ ok: true; data: Record<string, ProjectHealth> } | { ok: false; error: string }> {
+  const session = await getServerSession(authOptions);
+  if (sessionUserRole(session) !== "admin") {
+    return { ok: true as const, data: {} };
+  }
+
   const unique = [...new Set(projectIds)].filter(Boolean);
   if (unique.length === 0) {
     return { ok: true as const, data: {} };

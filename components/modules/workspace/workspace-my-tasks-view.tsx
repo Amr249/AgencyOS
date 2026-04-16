@@ -51,31 +51,31 @@ const DUE_SECTION_KEYS = [
 
 type DueSectionKey = (typeof DUE_SECTION_KEYS)[number];
 
-const SECTION_CONFIG: Record<DueSectionKey, { label: string; color: string }> = {
-  overdue: { label: "Overdue", color: "#ef4444" },
-  today: { label: "Today", color: "#3b82f6" },
-  tomorrow: { label: "Tomorrow", color: "#8b5cf6" },
-  this_week: { label: "This Week", color: "#f59e0b" },
-  later: { label: "Later", color: "#9ca3af" },
-  no_date: { label: "No Date", color: "#d1d5db" },
+const SECTION_CONFIG: Record<DueSectionKey, { label: string; arLabel: string; color: string }> = {
+  overdue: { label: "Overdue", arLabel: "متأخرة", color: "#ef4444" },
+  today: { label: "Today", arLabel: "اليوم", color: "#3b82f6" },
+  tomorrow: { label: "Tomorrow", arLabel: "غداً", color: "#8b5cf6" },
+  this_week: { label: "This Week", arLabel: "هذا الأسبوع", color: "#f59e0b" },
+  later: { label: "Later", arLabel: "لاحقاً", color: "#9ca3af" },
+  no_date: { label: "No Date", arLabel: "بدون تاريخ", color: "#d1d5db" },
 };
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  todo: { label: "To Do", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-600 dark:text-gray-300", dot: "bg-gray-400" },
-  in_progress: { label: "In Progress", bg: "bg-blue-50 dark:bg-blue-950/40", text: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500" },
-  in_review: { label: "In Review", bg: "bg-purple-50 dark:bg-purple-950/40", text: "text-purple-600 dark:text-purple-400", dot: "bg-purple-500" },
-  done: { label: "Done", bg: "bg-green-50 dark:bg-green-950/40", text: "text-green-600 dark:text-green-400", dot: "bg-green-500" },
-  blocked: { label: "Blocked", bg: "bg-red-50 dark:bg-red-950/40", text: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
+const STATUS_CONFIG: Record<string, { label: string; arLabel: string; bg: string; text: string; dot: string }> = {
+  todo: { label: "To Do", arLabel: "قيد الانتظار", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-600 dark:text-gray-300", dot: "bg-gray-400" },
+  in_progress: { label: "In Progress", arLabel: "قيد التنفيذ", bg: "bg-blue-50 dark:bg-blue-950/40", text: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500" },
+  in_review: { label: "In Review", arLabel: "قيد المراجعة", bg: "bg-purple-50 dark:bg-purple-950/40", text: "text-purple-600 dark:text-purple-400", dot: "bg-purple-500" },
+  done: { label: "Done", arLabel: "مكتمل", bg: "bg-green-50 dark:bg-green-950/40", text: "text-green-600 dark:text-green-400", dot: "bg-green-500" },
+  blocked: { label: "Blocked", arLabel: "موقوف", bg: "bg-red-50 dark:bg-red-950/40", text: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
 };
 
-const PRIORITY_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
-  low: { label: "Low", bg: "bg-gray-50 dark:bg-gray-800", text: "text-gray-500 dark:text-gray-400" },
-  medium: { label: "Medium", bg: "bg-blue-50 dark:bg-blue-950/40", text: "text-blue-500 dark:text-blue-400" },
-  high: { label: "High", bg: "bg-amber-50 dark:bg-amber-950/40", text: "text-amber-600 dark:text-amber-400" },
-  urgent: { label: "Urgent", bg: "bg-red-50 dark:bg-red-950/40", text: "text-red-600 dark:text-red-400" },
+const PRIORITY_CONFIG: Record<string, { label: string; arLabel: string; bg: string; text: string }> = {
+  low: { label: "Low", arLabel: "منخفض", bg: "bg-gray-50 dark:bg-gray-800", text: "text-gray-500 dark:text-gray-400" },
+  medium: { label: "Medium", arLabel: "متوسط", bg: "bg-blue-50 dark:bg-blue-950/40", text: "text-blue-500 dark:text-blue-400" },
+  high: { label: "High", arLabel: "عالي", bg: "bg-amber-50 dark:bg-amber-950/40", text: "text-amber-600 dark:text-amber-400" },
+  urgent: { label: "Urgent", arLabel: "عاجل", bg: "bg-red-50 dark:bg-red-950/40", text: "text-red-600 dark:text-red-400" },
 };
 
-const COLUMNS = [
+const COLUMNS_EN = [
   { key: "task", label: "Task", icon: AlignLeft, className: "flex-1 min-w-[280px]" },
   { key: "project", label: "Project", icon: FolderOpen, className: "w-[200px] hidden md:flex" },
   { key: "status", label: "Status", icon: CircleDot, className: "w-[130px]" },
@@ -83,6 +83,16 @@ const COLUMNS = [
   { key: "assignee", label: "Assignee", icon: UserCircle, className: "w-[120px] hidden lg:flex" },
   { key: "dueDate", label: "Due Date", icon: CalendarDays, className: "w-[120px]" },
   { key: "hours", label: "Hours", icon: Clock, className: "w-[80px] hidden lg:flex" },
+] as const;
+
+const COLUMNS_AR = [
+  { key: "task", label: "المهمة", icon: AlignLeft, className: "flex-1 min-w-[280px]" },
+  { key: "project", label: "المشروع", icon: FolderOpen, className: "w-[200px] hidden md:flex" },
+  { key: "status", label: "الحالة", icon: CircleDot, className: "w-[130px]" },
+  { key: "priority", label: "الأولوية", icon: Flag, className: "w-[110px]" },
+  { key: "assignee", label: "المسؤول", icon: UserCircle, className: "w-[120px] hidden lg:flex" },
+  { key: "dueDate", label: "تاريخ الاستحقاق", icon: CalendarDays, className: "w-[120px]" },
+  { key: "hours", label: "الساعات", icon: Clock, className: "w-[80px] hidden lg:flex" },
 ] as const;
 
 function isOverdue(dueDate: string | null, status: string) {
@@ -98,9 +108,14 @@ function isDueToday(dueDate: string | null) {
   return dueDate === new Date().toISOString().slice(0, 10);
 }
 
-function formatDate(dateStr: string) {
+function formatDateEN(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatDateAR(dateStr: string) {
+  const d = new Date(dateStr + "T12:00:00");
+  return d.toLocaleDateString("ar-SA", { month: "short", day: "numeric" });
 }
 
 function emptyGroups(): WorkspaceMyTaskGroups {
@@ -120,7 +135,12 @@ function initialOpenSections(): Record<string, boolean> {
   return o;
 }
 
-type TeamMemberInput = { id: string; name: string; avatarUrl?: string | null; role?: string | null };
+export type TeamMemberInput = {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+  role?: string | null;
+};
 
 const ASSIGNEE_FILTER_UNASSIGNED = "__unassigned__";
 
@@ -135,11 +155,14 @@ export function WorkspaceMyTasksView({
   groups,
   teamMembers,
   projects,
+  isArabic = false,
 }: {
   groups: WorkspaceMyTaskGroups;
   teamMembers: TeamMemberInput[];
   projects: ProjectPickerOption[];
+  isArabic?: boolean;
 }) {
+  const COLUMNS = isArabic ? COLUMNS_AR : COLUMNS_EN;
   const router = useRouter();
 
   const panelTeamMembers = React.useMemo(
@@ -228,7 +251,7 @@ export function WorkspaceMyTasksView({
     const list = DUE_SECTION_KEYS.flatMap((k) => filteredGroups[k]);
     const map = new Map<string, WorkspaceMyTaskRow[]>();
     for (const t of list) {
-      const name = t.projectName?.trim() || "No project";
+      const name = t.projectName?.trim() || (isArabic ? "بدون مشروع" : "No project");
       if (!map.has(name)) map.set(name, []);
       map.get(name)!.push(t);
     }
@@ -242,7 +265,7 @@ export function WorkspaceMyTasksView({
   async function handleStatusToggle(taskId: string, checked: boolean | "indeterminate") {
     const newStatus = checked ? "done" : "todo";
     const res = await updateTaskStatus(taskId, newStatus);
-    if (!res.ok) return toast.error("Failed to update task status.");
+    if (!res.ok) return toast.error(isArabic ? "فشل تحديث حالة المهمة." : "Failed to update task status.");
     if (newStatus === "done") {
       setLocalGroups((prev) => {
         const next = { ...prev };
@@ -292,6 +315,10 @@ export function WorkspaceMyTasksView({
     const hours = Number(task.actualHours ?? 0);
     const sc = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.todo;
     const pc = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium;
+    const statusLabel = isArabic ? sc.arLabel : sc.label;
+    const priorityLabel = isArabic ? pc.arLabel : pc.label;
+    const fmtDate = isArabic ? formatDateAR : formatDateEN;
+    const borderSide = isArabic ? "border-s" : "border-r";
 
     return (
       <div
@@ -299,7 +326,7 @@ export function WorkspaceMyTasksView({
         className="group flex cursor-pointer items-center border-b border-border transition-colors last:border-b-0 hover:bg-muted/20"
         onClick={() => setSelectedTask(task)}
       >
-        <div className={cn("flex items-center gap-2 border-r border-border px-3 py-2", COLUMNS[0].className)}>
+        <div className={cn("flex items-center gap-2 px-3 py-2", borderSide, "border-border", COLUMNS[0].className)}>
           <Checkbox
             className="shrink-0"
             checked={task.status === "done"}
@@ -311,28 +338,28 @@ export function WorkspaceMyTasksView({
           </span>
           <SquareArrowOutUpRight
             size={12}
-            className="ml-auto shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
+            className={cn("shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60", isArabic ? "mr-auto" : "ml-auto")}
           />
         </div>
-        <div className={cn("flex items-center border-r border-border px-3 py-2", COLUMNS[1].className)}>
+        <div className={cn("flex items-center px-3 py-2", borderSide, "border-border", COLUMNS[1].className)}>
           {task.projectName ? (
             <span className="truncate text-sm text-muted-foreground">{task.projectName}</span>
           ) : (
             <span className="text-muted-foreground/40">—</span>
           )}
         </div>
-        <div className={cn("flex items-center border-r border-border px-3 py-2", COLUMNS[2].className)}>
+        <div className={cn("flex items-center px-3 py-2", borderSide, "border-border", COLUMNS[2].className)}>
           <span className={cn("inline-flex items-center rounded px-2 py-0.5 text-xs font-medium", sc.bg, sc.text)}>
-            <span className={cn("mr-1.5 size-1.5 rounded-full", sc.dot)} />
-            {sc.label}
+            <span className={cn("size-1.5 rounded-full", isArabic ? "ml-1.5" : "mr-1.5", sc.dot)} />
+            {statusLabel}
           </span>
         </div>
-        <div className={cn("flex items-center border-r border-border px-3 py-2", COLUMNS[3].className)}>
+        <div className={cn("flex items-center px-3 py-2", borderSide, "border-border", COLUMNS[3].className)}>
           <span className={cn("inline-flex items-center rounded px-2 py-0.5 text-xs font-medium", pc.bg, pc.text)}>
-            {pc.label}
+            {priorityLabel}
           </span>
         </div>
-        <div className={cn("flex items-center border-r border-border px-3 py-2", COLUMNS[4].className)}>
+        <div className={cn("flex items-center px-3 py-2", borderSide, "border-border", COLUMNS[4].className)}>
           {task.assigneeName ? (
             <div className="flex items-center gap-1.5">
               {task.assigneeAvatarUrl ? (
@@ -349,7 +376,7 @@ export function WorkspaceMyTasksView({
             <span className="text-sm text-muted-foreground/40">—</span>
           )}
         </div>
-        <div className={cn("flex items-center border-r border-border px-3 py-2", COLUMNS[5].className)}>
+        <div className={cn("flex items-center px-3 py-2", borderSide, "border-border", COLUMNS[5].className)}>
           {task.dueDate ? (
             <span
               className={cn(
@@ -359,7 +386,7 @@ export function WorkspaceMyTasksView({
                 !overdue && !dueToday && "text-muted-foreground"
               )}
             >
-              {formatDate(task.dueDate)}
+              {fmtDate(task.dueDate)}
             </span>
           ) : (
             <span className="text-muted-foreground/40">—</span>
@@ -367,7 +394,7 @@ export function WorkspaceMyTasksView({
         </div>
         <div className={cn("flex items-center px-3 py-2", COLUMNS[6].className)}>
           {hours > 0 ? (
-            <span className="text-sm text-muted-foreground">{hours}h</span>
+            <span className="text-sm text-muted-foreground">{hours}{isArabic ? "س" : "h"}</span>
           ) : (
             <span className="text-muted-foreground/40">—</span>
           )}
@@ -390,80 +417,83 @@ export function WorkspaceMyTasksView({
         />
         <div className="size-2 rounded-full" style={{ backgroundColor: color }} />
         <span className="text-sm font-medium text-foreground">{label}</span>
-        <span className="ml-1 text-xs text-muted-foreground">{count}</span>
+        <span className="ms-1 text-xs text-muted-foreground">{count}</span>
       </div>
     );
   }
 
+  const ar = isArabic;
+  const borderSide = ar ? "border-s" : "border-r";
+
   return (
-    <div dir="ltr" lang="en" className="min-h-screen w-full bg-background">
-      <WorkspaceNav />
+    <div dir={ar ? "rtl" : "ltr"} lang={ar ? "ar" : "en"} className="min-h-screen w-full bg-background">
+      <WorkspaceNav isArabic={ar} />
 
       <div className="mb-4 flex flex-col gap-3 px-2 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold text-foreground">My Tasks</h1>
+        <h1 className="text-xl font-semibold text-foreground">{ar ? "مهامي" : "My Tasks"}</h1>
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           onClick={() => setNewOpen(true)}
         >
           <Plus size={14} />
-          New Task
+          {ar ? "+ مهمة جديدة" : "New Task"}
         </button>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3 px-2 text-sm tabular-nums">
         <span className="text-muted-foreground">
-          Total: <span className="font-medium text-foreground">{stats.total}</span>
+          {ar ? "الإجمالي:" : "Total:"} <span className="font-medium text-foreground">{stats.total}</span>
         </span>
         <span className="text-muted-foreground">·</span>
         <span className="text-muted-foreground">
-          Overdue: <span className="font-medium text-destructive">{stats.overdue}</span>
+          {ar ? "متأخرة:" : "Overdue:"} <span className="font-medium text-destructive">{stats.overdue}</span>
         </span>
         <span className="text-muted-foreground">·</span>
         <span className="text-muted-foreground">
-          Due today: <span className="font-medium text-foreground">{stats.dueToday}</span>
+          {ar ? "تستحق اليوم:" : "Due today:"} <span className="font-medium text-foreground">{stats.dueToday}</span>
         </span>
       </div>
 
       <div className="mb-4 flex flex-col gap-3 px-2 lg:flex-row lg:flex-wrap lg:items-center">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Status</span>
+          <span className="text-xs font-medium text-muted-foreground">{ar ? "الحالة" : "Status"}</span>
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
             <SelectTrigger className="h-8 w-[130px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="all">{ar ? "الكل" : "All"}</SelectItem>
+              <SelectItem value="active">{ar ? "نشط" : "Active"}</SelectItem>
+              <SelectItem value="completed">{ar ? "مكتمل" : "Completed"}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Priority</span>
+          <span className="text-xs font-medium text-muted-foreground">{ar ? "الأولوية" : "Priority"}</span>
           <Select value={priorityFilter} onValueChange={(v) => setPriorityFilter(v as typeof priorityFilter)}>
             <SelectTrigger className="h-8 w-[130px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All priorities</SelectItem>
-              <SelectItem value="urgent">Urgent</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="all">{ar ? "كل الأولويات" : "All priorities"}</SelectItem>
+              <SelectItem value="urgent">{ar ? "عاجل" : "Urgent"}</SelectItem>
+              <SelectItem value="high">{ar ? "عالي" : "High"}</SelectItem>
+              <SelectItem value="medium">{ar ? "متوسط" : "Medium"}</SelectItem>
+              <SelectItem value="low">{ar ? "منخفض" : "Low"}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Assignee</span>
+          <span className="text-xs font-medium text-muted-foreground">{ar ? "المسؤول" : "Assignee"}</span>
           <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
             <SelectTrigger className="h-8 w-[200px]">
-              <SelectValue placeholder="All assignees" />
+              <SelectValue placeholder={ar ? "كل المسؤولين" : "All assignees"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All assignees</SelectItem>
-              <SelectItem value={ASSIGNEE_FILTER_UNASSIGNED} textValue="Unassigned">
-                Unassigned
+              <SelectItem value="all">{ar ? "كل المسؤولين" : "All assignees"}</SelectItem>
+              <SelectItem value={ASSIGNEE_FILTER_UNASSIGNED} textValue={ar ? "غير معيّن" : "Unassigned"}>
+                {ar ? "غير معيّن" : "Unassigned"}
               </SelectItem>
               {teamMembers.map((m) => (
                 <SelectItem key={m.id} value={m.id} textValue={m.name}>
@@ -478,13 +508,13 @@ export function WorkspaceMyTasksView({
           </Select>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Project</span>
+          <span className="text-xs font-medium text-muted-foreground">{ar ? "المشروع" : "Project"}</span>
           <Select value={projectFilter} onValueChange={setProjectFilter}>
             <SelectTrigger className="h-8 w-[220px]">
-              <SelectValue placeholder="All projects" />
+              <SelectValue placeholder={ar ? "كل المشاريع" : "All projects"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All projects</SelectItem>
+              <SelectItem value="all">{ar ? "كل المشاريع" : "All projects"}</SelectItem>
               {projects.map((p) => (
                 <SelectItem key={p.id} value={p.id} textValue={p.name}>
                   <ProjectSelectOptionRow
@@ -498,26 +528,26 @@ export function WorkspaceMyTasksView({
           </Select>
         </div>
         <div className="flex w-full flex-wrap items-end gap-2 lg:w-auto">
-          <span className="me-1 self-center text-xs font-medium text-muted-foreground">Date</span>
-          <span className="self-center text-xs text-muted-foreground">from</span>
+          <span className="me-1 self-center text-xs font-medium text-muted-foreground">{ar ? "التاريخ" : "Date"}</span>
+          <span className="self-center text-xs text-muted-foreground">{ar ? "من" : "from"}</span>
           <DatePickerAr
             className="h-8 w-[150px] shrink-0"
             popoverAlign="start"
-            placeholder="Start"
+            placeholder={ar ? "البداية" : "Start"}
             value={dateFrom ? new Date(dateFrom + "T12:00:00") : undefined}
             onChange={(d) => setDateFrom(d ? format(d, "yyyy-MM-dd") : "")}
           />
-          <span className="self-center text-xs text-muted-foreground">to</span>
+          <span className="self-center text-xs text-muted-foreground">{ar ? "إلى" : "to"}</span>
           <DatePickerAr
             className="h-8 w-[150px] shrink-0"
             popoverAlign="start"
-            placeholder="Due"
+            placeholder={ar ? "الاستحقاق" : "Due"}
             value={dateTo ? new Date(dateTo + "T12:00:00") : undefined}
             onChange={(d) => setDateTo(d ? format(d, "yyyy-MM-dd") : "")}
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Group by</span>
+          <span className="text-xs font-medium text-muted-foreground">{ar ? "تجميع حسب" : "Group by"}</span>
           <div className="flex rounded-md border border-border p-0.5">
             <Button
               type="button"
@@ -527,7 +557,7 @@ export function WorkspaceMyTasksView({
               onClick={() => setGroupMode("due")}
             >
               <List size={12} />
-              Due date
+              {ar ? "تاريخ الاستحقاق" : "Due date"}
             </Button>
             <Button
               type="button"
@@ -537,7 +567,7 @@ export function WorkspaceMyTasksView({
               onClick={() => setGroupMode("project")}
             >
               <LayoutGrid size={12} />
-              Project
+              {ar ? "المشروع" : "Project"}
             </Button>
           </div>
         </div>
@@ -553,7 +583,7 @@ export function WorkspaceMyTasksView({
               setDateTo("");
             }}
           >
-            Clear assignee and date filters
+            {ar ? "مسح فلاتر المسؤول والتاريخ" : "Clear assignee and date filters"}
           </Button>
         ) : null}
       </div>
@@ -564,7 +594,8 @@ export function WorkspaceMyTasksView({
             <div
               key={col.key}
               className={cn(
-                "flex items-center gap-1.5 border-r border-border px-3 py-2 text-xs font-medium text-muted-foreground select-none last:border-r-0",
+                "flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground select-none",
+                borderSide, "border-border last:border-s-0 last:border-r-0",
                 col.className
               )}
             >
@@ -579,12 +610,13 @@ export function WorkspaceMyTasksView({
               const list = filteredGroups[sectionKey];
               const isOpen = openSections[sectionKey] !== false;
               const config = SECTION_CONFIG[sectionKey];
+              const sectionLabel = ar ? config.arLabel : config.label;
               return (
                 <React.Fragment key={sectionKey}>
-                  {renderSectionHeader(sectionKey, config.label, config.color, list.length)}
+                  {renderSectionHeader(sectionKey, sectionLabel, config.color, list.length)}
                   {isOpen && list.length === 0 && (
                     <div className="flex items-center border-b border-border px-3 py-3">
-                      <span className="pl-6 text-sm text-muted-foreground">No tasks in this section.</span>
+                      <span className="ps-6 text-sm text-muted-foreground">{ar ? "لا توجد مهام في هذا القسم." : "No tasks in this section."}</span>
                     </div>
                   )}
                   {isOpen && list.map((task) => renderTaskRow(task))}
@@ -594,7 +626,7 @@ export function WorkspaceMyTasksView({
                       onClick={() => openNewTaskForSection(sectionKey)}
                     >
                       <Plus size={14} />
-                      New task
+                      {ar ? "+ مهمة جديدة" : "New task"}
                     </div>
                   )}
                 </React.Fragment>
@@ -608,7 +640,7 @@ export function WorkspaceMyTasksView({
                   {renderSectionHeader(sectionKey, projectName, "#6366f1", list.length)}
                   {isOpen && list.length === 0 && (
                     <div className="flex items-center border-b border-border px-3 py-3">
-                      <span className="pl-6 text-sm text-muted-foreground">No tasks.</span>
+                      <span className="ps-6 text-sm text-muted-foreground">{ar ? "لا توجد مهام." : "No tasks."}</span>
                     </div>
                   )}
                   {isOpen && list.map((task) => renderTaskRow(task))}
@@ -618,7 +650,7 @@ export function WorkspaceMyTasksView({
                       onClick={() => setNewOpen(true)}
                     >
                       <Plus size={14} />
-                      New task
+                      {ar ? "+ مهمة جديدة" : "New task"}
                     </div>
                   )}
                 </React.Fragment>
@@ -626,7 +658,7 @@ export function WorkspaceMyTasksView({
             })}
 
         {groupMode === "project" && projectSections.length === 0 && (
-          <div className="px-3 py-8 text-center text-sm text-muted-foreground">No tasks match the current filters.</div>
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">{ar ? "لا توجد مهام مطابقة للفلاتر الحالية." : "No tasks match the current filters."}</div>
         )}
       </div>
 

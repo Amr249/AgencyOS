@@ -388,17 +388,25 @@ export const files = pgTable("files", {
 ]);
 
 // team_members
-export const teamMembers = pgTable("team_members", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  role: text("role"),
-  email: text("email"),
-  phone: text("phone"),
-  avatarUrl: text("avatar_url"),
-  status: teamMemberStatusEnum("status").notNull().default("active"),
-  notes: text("notes"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const teamMembers = pgTable(
+  "team_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** When set, links this roster row to a login (`users`). Falls back to email match if null. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    role: text("role"),
+    email: text("email"),
+    phone: text("phone"),
+    avatarUrl: text("avatar_url"),
+    status: teamMemberStatusEnum("status").notNull().default("active"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("team_members_user_id_unique").on(table.userId),
+  ]
+);
 
 /** Time off / holidays — used to reduce workload capacity for weekdays in range. */
 export const teamAvailability = pgTable(
@@ -794,7 +802,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   timeLogs: many(timeLogs),
 }));
 
-export const teamMembersRelations = relations(teamMembers, ({ many }) => ({
+export const teamMembersRelations = relations(teamMembers, ({ one, many }) => ({
+  user: one(users, { fields: [teamMembers.userId], references: [users.id] }),
   projectMembers: many(projectMembers),
   tasks: many(tasks),
   timeLogs: many(timeLogs),
@@ -915,10 +924,22 @@ export const proposalServicesRelations = relations(proposalServices, ({ one }) =
   }),
 }));
 
+export const expenseServices = pgTable("expense_services", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  expenseId: uuid("expense_id").notNull().references(() => expenses.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+});
+
+export const expenseServicesRelations = relations(expenseServices, ({ one }) => ({
+  expense: one(expenses, { fields: [expenseServices.expenseId], references: [expenses.id] }),
+  service: one(services, { fields: [expenseServices.serviceId], references: [services.id] }),
+}));
+
 export const expensesRelations = relations(expenses, ({ one, many }) => ({
   teamMember: one(teamMembers, { fields: [expenses.teamMemberId], references: [teamMembers.id] }),
   project: one(projects, { fields: [expenses.projectId], references: [projects.id] }),
   client: one(clients, { fields: [expenses.clientId], references: [clients.id] }),
+  expenseServices: many(expenseServices),
   files: many(files),
 }));
 

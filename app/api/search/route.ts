@@ -1,17 +1,27 @@
+import { getServerSession } from "next-auth";
 import { db } from "@/lib/db";
 import { clients, projects, invoices, tasks } from "@/lib/db/schema";
 import { ilike, or, eq, and, isNull } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
+
+const empty = {
+  clients: [],
+  projects: [],
+  invoices: [],
+  tasks: [],
+};
 
 export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (sessionUserRole(session) !== "admin") {
+    return NextResponse.json(empty);
+  }
+
   const q = req.nextUrl.searchParams.get("q");
   if (!q || q.length < 2)
-    return NextResponse.json({
-      clients: [],
-      projects: [],
-      invoices: [],
-      tasks: [],
-    });
+    return NextResponse.json(empty);
 
   const search = `%${q}%`;
 

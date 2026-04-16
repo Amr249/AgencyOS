@@ -152,10 +152,12 @@ export function ProjectMilestonesTab({
   projectId,
   initialMilestones,
   projectTeamMembers,
+  readOnly = false,
 }: {
   projectId: string;
   initialMilestones: MilestoneRow[];
   projectTeamMembers: ProjectTeamMemberOption[];
+  readOnly?: boolean;
 }) {
   const [items, setItems] = React.useState(initialMilestones);
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -169,11 +171,13 @@ export function ProjectMilestonesTab({
   );
 
   const openCreate = () => {
+    if (readOnly) return;
     setForm(EMPTY_FORM);
     setDialogOpen(true);
   };
 
   const openEdit = (m: MilestoneRow) => {
+    if (readOnly) return;
     setForm({
       id: m.id,
       name: m.name,
@@ -279,6 +283,7 @@ export function ProjectMilestonesTab({
   };
 
   const onDelete = async () => {
+    if (readOnly) return;
     if (!deleteId) return;
     const res = await deleteMilestone(deleteId);
     if (!res.ok) {
@@ -291,6 +296,7 @@ export function ProjectMilestonesTab({
   };
 
   const onMarkComplete = async (id: string) => {
+    if (readOnly) return;
     const res = await completeMilestone(id);
     if (!res.ok) {
       toast.error(typeof res.error === "string" ? res.error : "Failed to mark milestone complete.");
@@ -308,10 +314,12 @@ export function ProjectMilestonesTab({
     <div className="space-y-4" dir="ltr" lang="en">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Milestones</h3>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          Add Milestone
-        </Button>
+        {!readOnly ? (
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            Add Milestone
+          </Button>
+        ) : null}
       </div>
 
       {sorted.length === 0 ? (
@@ -397,19 +405,21 @@ export function ProjectMilestonesTab({
                         : `${m.taskProgress?.percent ?? 0}% of linked tasks complete`}
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openEdit(m)}>
-                      Edit
-                    </Button>
-                    {m.status !== "completed" ? (
-                      <Button size="sm" onClick={() => void onMarkComplete(m.id)}>
-                        Mark as complete
+                  {!readOnly ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => openEdit(m)}>
+                        Edit
                       </Button>
-                    ) : null}
-                    <Button variant="destructive" size="sm" onClick={() => setDeleteId(m.id)}>
-                      Delete
-                    </Button>
-                  </div>
+                      {m.status !== "completed" ? (
+                        <Button size="sm" onClick={() => void onMarkComplete(m.id)}>
+                          Mark as complete
+                        </Button>
+                      ) : null}
+                      <Button variant="destructive" size="sm" onClick={() => setDeleteId(m.id)}>
+                        Delete
+                      </Button>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             );

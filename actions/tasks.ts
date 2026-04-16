@@ -2,11 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { getServerSession } from "next-auth";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { eq, isNull, and, sql, ilike, desc, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { tasks, projects, milestones, clients } from "@/lib/db";
+import { tasks, projects, milestones, clients, projectMembers } from "@/lib/db";
 import { logActivityWithActor } from "@/actions/activity-log";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
+import {
+  getMemberProjectIdsForUser,
+  memberCanAccessTask,
+  memberHasProjectAccess,
+} from "@/lib/member-context";
 
 const taskStatusValues = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
 const taskPriorityValues = ["low", "medium", "high", "urgent"] as const;
@@ -97,9 +105,33 @@ export async function getTasks(filters?: GetTasksFilters) {
 
   const f = parsed.success ? parsed.data : {};
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    const role = sessionUserRole(session);
+    if (!userId) return { ok: false as const, error: "Unauthorized" };
+    if (role !== "admin" && role !== "member") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const conditions = [isNull(tasks.deletedAt), isNull(tasks.parentTaskId)];
 
-    if (f.projectId) conditions.push(eq(tasks.projectId, f.projectId));
+    if (role === "member") {
+      const memberProjectIds = await getMemberProjectIdsForUser(userId);
+      if (memberProjectIds.length === 0) {
+        return { ok: true as const, data: [] };
+      }
+      if (f.projectId) {
+        if (!memberProjectIds.includes(f.projectId)) {
+          return { ok: true as const, data: [] };
+        }
+        conditions.push(eq(tasks.projectId, f.projectId));
+      } else {
+        conditions.push(inArray(tasks.projectId, memberProjectIds));
+      }
+    } else if (f.projectId) {
+      conditions.push(eq(tasks.projectId, f.projectId));
+    }
+
     if (f.milestoneId) conditions.push(eq(tasks.milestoneId, f.milestoneId));
     if (f.status) conditions.push(eq(tasks.status, f.status));
     if (f.priority) conditions.push(eq(tasks.priority, f.priority));
@@ -231,6 +263,14 @@ export async function getTaskById(id: string) {
 
     if (!row) return { ok: false as const, error: "Task not found" };
 
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member" && session?.user?.id) {
+      const can = await memberHasProjectAccess(session.user.id, row.projectId);
+      if (!can) return { ok: false as const, error: "Task not found" };
+    } else if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const subtasks = await db
       .select()
       .from(tasks)
@@ -262,6 +302,32 @@ export async function createTask(input: CreateTaskInput) {
   }
   const data = parsed.data;
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) {
+        return { ok: false as const, error: { _form: ["Not authorized"] } };
+      }
+      const allowed = await memberHasProjectAccess(session.user.id, data.projectId);
+      if (!allowed) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      if (data.assigneeId) {
+        const [onProject] = await db
+          .select({ id: projectMembers.id })
+          .from(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.projectId, data.projectId),
+              eq(projectMembers.teamMemberId, data.assigneeId)
+            )
+          )
+          .limit(1);
+        if (!onProject) {
+          return { ok: false as const, error: { _form: ["Forbidden"] } };
+        }
+      }
+    }
+
     if (data.milestoneId) {
       const mv = await validateMilestoneForProject(data.milestoneId, data.projectId);
       if (!mv.ok) return { ok: false as const, error: { _form: [mv.error] } };
@@ -295,6 +361,7 @@ export async function createTask(input: CreateTaskInput) {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/workspace");
     revalidatePath("/dashboard/my-tasks");
+    revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createTask", e);
@@ -312,6 +379,40 @@ export async function updateTask(input: UpdateTaskInput) {
   }
   const { id, ...data } = parsed.data;
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) {
+        return { ok: false as const, error: { _form: ["Not authorized"] } };
+      }
+      const can = await memberCanAccessTask(id, session.user.id);
+      if (!can) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      if (data.assigneeId !== undefined && data.assigneeId !== null) {
+        const [taskMeta] = await db
+          .select({ projectId: tasks.projectId })
+          .from(tasks)
+          .where(eq(tasks.id, id))
+          .limit(1);
+        if (!taskMeta) {
+          return { ok: false as const, error: { _form: ["Task not found"] } };
+        }
+        const [onProject] = await db
+          .select({ id: projectMembers.id })
+          .from(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.projectId, taskMeta.projectId),
+              eq(projectMembers.teamMemberId, data.assigneeId)
+            )
+          )
+          .limit(1);
+        if (!onProject) {
+          return { ok: false as const, error: { _form: ["Forbidden"] } };
+        }
+      }
+    }
+
     if (data.milestoneId !== undefined && data.milestoneId !== null) {
       const [current] = await db
         .select({
@@ -386,6 +487,7 @@ export async function updateTask(input: UpdateTaskInput) {
       revalidatePath("/dashboard/workspace");
       revalidatePath("/dashboard/workspace/workload");
     }
+    revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateTask", e);
@@ -406,6 +508,13 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
     return { ok: false as const, error: "Invalid input" };
   }
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(idParsed.data, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     const [prevRow] = await db
       .select({ status: tasks.status })
       .from(tasks)
@@ -437,6 +546,7 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/workspace");
     revalidatePath("/dashboard/my-tasks");
+    revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("updateTaskStatus", e);
@@ -451,6 +561,13 @@ export async function deleteTask(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid task id" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(parsed.data, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     const [existing] = await db
       .select({ title: tasks.title, projectId: tasks.projectId })
       .from(tasks)
@@ -473,6 +590,7 @@ export async function deleteTask(id: string) {
     revalidatePath(`/dashboard/projects/${row.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/me");
     return { ok: true as const };
   } catch (e) {
     console.error("deleteTask", e);
@@ -489,6 +607,15 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   }
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) {
+        return { ok: false as const, error: { _form: ["Not authorized"] } };
+      }
+      const can = await memberCanAccessTask(parsed.data.parentId, session.user.id);
+      if (!can) return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
+
     const [parent] = await db
       .select({ projectId: tasks.projectId })
       .from(tasks)
@@ -511,6 +638,7 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
     revalidatePath(`/dashboard/projects/${parent.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("createSubtask", e);
@@ -528,6 +656,13 @@ export async function toggleSubtask(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid task id" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(parsed.data, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     const [current] = await db
       .select({ status: tasks.status })
       .from(tasks)
@@ -545,6 +680,7 @@ export async function toggleSubtask(id: string) {
     revalidatePath(`/dashboard/projects/${row.projectId}`);
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/me");
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("toggleSubtask", e);

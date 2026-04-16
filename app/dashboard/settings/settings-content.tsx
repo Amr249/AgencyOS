@@ -1,24 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
-import {
-  updateAgencyProfile,
-  updateInvoiceDefaults,
-  updateBranding,
-  changePassword,
-} from "@/actions/settings";
+import { changePassword } from "@/actions/settings";
 import { migrateLegacyPaidInvoicePayments } from "@/actions/invoices";
-import {
-  agencyProfileSchema,
-  invoiceDefaultsSchema,
-  brandingSchema,
-  changePasswordSchema,
-  type SettingsRow,
-} from "@/lib/settings-schema";
+import { changePasswordSchema, type ChangePasswordInput } from "@/lib/settings-schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -31,145 +21,29 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { ThemeSelector } from "@/components/theme-selector";
 import { ClientTagLibrarySettings } from "@/components/modules/clients/client-tag-library-settings";
 import type { clientTags } from "@/lib/db/schema";
 
-type AgencyProfileValues = z.infer<typeof agencyProfileSchema>;
-type InvoiceDefaultsValues = z.infer<typeof invoiceDefaultsSchema>;
-type BrandingValues = z.infer<typeof brandingSchema>;
-type ChangePasswordValues = z.infer<typeof changePasswordSchema>;
-
-const CURRENCIES = ["USD", "EUR", "GBP", "SAR", "AED", "EGP"] as const;
-const PAYMENT_TERMS = [
-  { value: "0", label: "Due on receipt" },
-  { value: "15", label: "Net 15" },
-  { value: "30", label: "Net 30" },
-  { value: "60", label: "Net 60" },
-] as const;
-
 type SettingsContentProps = {
-  initial: SettingsRow | null;
   adminEmail: string;
   isAdmin?: boolean;
+  currentUserId?: string;
   initialClientTags?: (typeof clientTags.$inferSelect)[];
 };
 
 export function SettingsContent({
-  initial,
   adminEmail,
   isAdmin = false,
+  currentUserId = "",
   initialClientTags = [],
 }: SettingsContentProps) {
-  const s = initial;
-
-  // Section 1 — Agency Profile
-  const agencyForm = useForm<AgencyProfileValues>({
-    resolver: zodResolver(agencyProfileSchema),
-    defaultValues: {
-      agencyName: s?.agencyName ?? "",
-      agencyEmail: s?.agencyEmail ?? "",
-      agencyWebsite: s?.agencyWebsite ?? "",
-      vatNumber: s?.vatNumber ?? "",
-      agencyLogoUrl: s?.agencyLogoUrl ?? "",
-      agencyAddress: {
-        street: s?.agencyAddress?.street ?? "",
-        city: s?.agencyAddress?.city ?? "",
-        country: s?.agencyAddress?.country ?? "",
-        postal: s?.agencyAddress?.postal ?? "",
-      },
-    },
-  });
-  const [logoUploading, setLogoUploading] = React.useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = React.useState(false);
+  const [showNewPasswordField, setShowNewPasswordField] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [migratingPayments, setMigratingPayments] = React.useState(false);
 
-  async function onLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setLogoUploading(true);
-    try {
-      const formData = new FormData();
-      formData.set("file", file);
-      formData.set("scope", "agency-logo");
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      if (data.url) agencyForm.setValue("agencyLogoUrl", data.url);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Logo upload failed");
-    } finally {
-      setLogoUploading(false);
-      e.target.value = "";
-    }
-  }
-
-  async function onAgencySubmit(values: AgencyProfileValues) {
-    const result = await updateAgencyProfile(values);
-    if (result.ok) {
-      toast.success("تم حفظ ملف الوكالة");
-    } else {
-      const err = result.error as { _form?: string[] } | Record<string, string[]>;
-      const msg = err?._form?.[0] ?? (typeof err === "object" ? Object.values(err ?? {}).flat().join(", ") : String(err));
-      toast.error(msg);
-    }
-  }
-
-  // Section 2 — Invoice Defaults
-  const invoiceForm = useForm<InvoiceDefaultsValues>({
-    resolver: zodResolver(invoiceDefaultsSchema),
-    defaultValues: {
-      invoicePrefix: s?.invoicePrefix ?? "INV",
-      invoiceNextNumber: s?.invoiceNextNumber ?? 1,
-      defaultCurrency: (s?.defaultCurrency ?? "USD") as (typeof CURRENCIES)[number],
-      defaultPaymentTerms: String(s?.defaultPaymentTerms ?? 30) as "0" | "15" | "30" | "60",
-      invoiceFooter: s?.invoiceFooter ?? "",
-    },
-  });
-  const prefix = invoiceForm.watch("invoicePrefix") || "INV";
-  const nextNum = invoiceForm.watch("invoiceNextNumber") ?? 1;
-  const invoicePreview = `${prefix}-${String(nextNum).padStart(3, "0")}`;
-
-  async function onInvoiceSubmit(values: InvoiceDefaultsValues) {
-    const result = await updateInvoiceDefaults(values);
-    if (result.ok) {
-      toast.success("Invoice settings saved");
-    } else {
-      const err = result.error as { _form?: string[] } | Record<string, string[]>;
-      const msg = err?._form?.[0] ?? Object.values(err ?? {}).flat().join(", ");
-      toast.error(msg);
-    }
-  }
-
-  // Section 3 — Branding
-  const brandingForm = useForm<BrandingValues>({
-    resolver: zodResolver(brandingSchema),
-    defaultValues: {
-      invoiceColor: s?.invoiceColor ?? "#000000",
-    },
-  });
-  const primaryColor = brandingForm.watch("invoiceColor") || "#000000";
-
-  async function onBrandingSubmit(values: BrandingValues) {
-    const result = await updateBranding(values);
-    if (result.ok) {
-      toast.success("Branding saved");
-    } else {
-      const err = result.error as { _form?: string[] } | Record<string, string[]>;
-      const msg = err?._form?.[0] ?? Object.values(err ?? {}).flat().join(", ");
-      toast.error(msg);
-    }
-  }
-
-  // Section 4 — Account
-  const passwordForm = useForm<ChangePasswordValues>({
+  const passwordForm = useForm<ChangePasswordInput>({
     resolver: zodResolver(changePasswordSchema),
     defaultValues: {
       currentPassword: "",
@@ -178,13 +52,17 @@ export function SettingsContent({
     },
   });
 
-  async function onPasswordSubmit(values: ChangePasswordValues) {
+  async function onPasswordSubmit(values: ChangePasswordInput) {
     const result = await changePassword(values);
     if (result.ok) {
       toast.success("Password updated successfully");
       passwordForm.reset({ currentPassword: "", newPassword: "", confirmNewPassword: "" });
     } else {
-      const msg = result.error.confirmNewPassword?.[0] ?? result.error.newPassword?.[0] ?? result.error.currentPassword?.[0] ?? "Failed to update password";
+      const msg =
+        result.error.confirmNewPassword?.[0] ??
+        result.error.newPassword?.[0] ??
+        result.error.currentPassword?.[0] ??
+        "Failed to update password";
       toast.error(msg);
     }
   }
@@ -193,349 +71,34 @@ export function SettingsContent({
     <div className="space-y-8">
       <ClientTagLibrarySettings initialTags={initialClientTags} />
 
-      {/* Section 0 — Appearance (Theme) */}
       <section>
         <div className="space-y-4">
           <div>
-            <h3 className="text-lg font-semibold text-right">المظهر</h3>
-            <p className="text-sm text-muted-foreground text-right">اختر مظهر التطبيق المناسب لك</p>
+            <h3 className="text-lg font-semibold">Appearance</h3>
+            <p className="text-muted-foreground text-sm">Choose light, dark, or system theme.</p>
           </div>
           <ThemeSelector />
         </div>
       </section>
 
-      {/* Section 1 — Agency Profile */}
-      <section>
-        <h3 className="text-lg font-semibold mb-2">معلومات الوكالة</h3>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">تفاصيل الملف</CardTitle>
-            <CardDescription>اسم الوكالة، جهة الاتصال والعنوان.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...agencyForm}>
-              <form onSubmit={agencyForm.handleSubmit(onAgencySubmit)} className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={agencyForm.control}
-                    name="agencyName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>اسم الوكالة</FormLabel>
-                        <FormControl>
-                          <Input placeholder="اسم الوكالة" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={agencyForm.control}
-                    name="agencyEmail"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>البريد الإلكتروني</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="hello@acme.com" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={agencyForm.control}
-                  name="agencyWebsite"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>الموقع</FormLabel>
-                      <FormControl>
-                        <Input placeholder="https://acme.com" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={agencyForm.control}
-                  name="vatNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>الرقم الضريبي</FormLabel>
-                      <FormControl>
-                        <Input placeholder="VAT123456" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={agencyForm.control}
-                  name="agencyLogoUrl"
-                  render={() => (
-                    <FormItem>
-                      <FormLabel>شعار الوكالة</FormLabel>
-                      <FormControl>
-                        <div className="flex items-center gap-3">
-                          {agencyForm.watch("agencyLogoUrl") && (
-                            <img
-                              src={agencyForm.watch("agencyLogoUrl")!}
-                              alt="Agency logo"
-                              className="h-14 w-14 rounded border object-cover"
-                            />
-                          )}
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            className="cursor-pointer max-w-[200px]"
-                            disabled={logoUploading}
-                            onChange={onLogoChange}
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={agencyForm.control}
-                    name="agencyAddress.street"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Street</FormLabel>
-                        <FormControl>
-                          <Input placeholder="123 Main St" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={agencyForm.control}
-                    name="agencyAddress.city"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>City</FormLabel>
-                        <FormControl>
-                          <Input placeholder="New York" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={agencyForm.control}
-                    name="agencyAddress.country"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Country</FormLabel>
-                        <FormControl>
-                          <Input placeholder="USA" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={agencyForm.control}
-                    name="agencyAddress.postal"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Postal code</FormLabel>
-                        <FormControl>
-                          <Input placeholder="10001" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <Button type="submit" disabled={agencyForm.formState.isSubmitting}>
-                  {agencyForm.formState.isSubmitting ? "جاري الحفظ…" : "حفظ"}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
-      </section>
+      {isAdmin && currentUserId ? (
+        <section>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Team logins</CardTitle>
+              <CardDescription>
+                Add, edit, or remove team logins and roles.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="secondary">
+                <Link href="/dashboard/settings/users">Manage users</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
-      {/* Section 2 — Invoice Defaults */}
-      <section>
-        <h3 className="text-lg font-semibold mb-2">Invoice settings</h3>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Defaults for new invoices</CardTitle>
-            <CardDescription>Prefix, next number, currency, and payment terms.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...invoiceForm}>
-              <form onSubmit={invoiceForm.handleSubmit(onInvoiceSubmit)} className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={invoiceForm.control}
-                    name="invoicePrefix"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Invoice number prefix</FormLabel>
-                        <FormControl>
-                          <Input placeholder="INV" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={invoiceForm.control}
-                    name="invoiceNextNumber"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Next invoice number</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            min={1}
-                            ref={field.ref}
-                            value={field.value ?? ""}
-                            onChange={(e) => field.onChange(e.target.valueAsNumber || 1)}
-                            onBlur={field.onBlur}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <p className="text-sm text-muted-foreground">Preview: {invoicePreview}</p>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={invoiceForm.control}
-                    name="defaultCurrency"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Default currency</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select currency" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {CURRENCIES.map((c) => (
-                              <SelectItem key={c} value={c}>
-                                {c}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={invoiceForm.control}
-                    name="defaultPaymentTerms"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Default payment terms</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select terms" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {PAYMENT_TERMS.map((t) => (
-                              <SelectItem key={t.value} value={t.value}>
-                                {t.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={invoiceForm.control}
-                  name="invoiceFooter"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Invoice footer / payment instructions</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Bank details, payment instructions..."
-                          className="resize-none min-h-[80px]"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" disabled={invoiceForm.formState.isSubmitting}>
-                  {invoiceForm.formState.isSubmitting ? "Saving…" : "Save"}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
-      </section>
-
-      {/* Section 3 — Branding */}
-      <section>
-        <h3 className="text-lg font-semibold mb-2">Branding</h3>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Invoice PDF styling</CardTitle>
-            <CardDescription>Primary color used on invoice PDFs.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...brandingForm}>
-              <form onSubmit={brandingForm.handleSubmit(onBrandingSubmit)} className="space-y-4">
-                <div className="flex flex-wrap items-center gap-4">
-                  <FormField
-                    control={brandingForm.control}
-                    name="invoiceColor"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center gap-2">
-                        <FormLabel className="mb-0">Primary color</FormLabel>
-                        <FormControl>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="color"
-                              className="h-10 w-14 cursor-pointer rounded border p-0"
-                              value={primaryColor}
-                              onChange={(e) => field.onChange(e.target.value)}
-                            />
-                            <Input
-                              className="w-24 font-mono"
-                              value={primaryColor}
-                              onChange={(e) => field.onChange(e.target.value)}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <div
-                    className="h-10 w-20 rounded border shrink-0"
-                    style={{ backgroundColor: primaryColor }}
-                    title="Preview"
-                  />
-                </div>
-                <Button type="submit" disabled={brandingForm.formState.isSubmitting}>
-                  {brandingForm.formState.isSubmitting ? "جاري الحفظ…" : "حفظ"}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
-      </section>
-
-      {/* Admin — legacy payments backfill */}
       {isAdmin ? (
         <section>
           <h3 className="text-lg font-semibold mb-2">Admin tools</h3>
@@ -583,13 +146,12 @@ export function SettingsContent({
         </section>
       ) : null}
 
-      {/* Section 4 — Account */}
       <section>
-        <h3 className="text-lg font-semibold mb-2">الحساب</h3>
+        <h3 className="text-lg font-semibold mb-2">Account</h3>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">حساب المدير</CardTitle>
-            <CardDescription>Email and password.</CardDescription>
+            <CardTitle className="text-base">Admin account</CardTitle>
+            <CardDescription>Email and password for this dashboard.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
@@ -603,9 +165,28 @@ export function SettingsContent({
                   name="currentPassword"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>كلمة المرور الحالية</FormLabel>
+                      <FormLabel>Current password</FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="current-password" {...field} />
+                        <div className="relative">
+                          <Input
+                            type={showCurrentPassword ? "text" : "password"}
+                            autoComplete="current-password"
+                            className="pe-10"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowCurrentPassword((v) => !v)}
+                            className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
+                            aria-label={showCurrentPassword ? "Hide password" : "Show password"}
+                          >
+                            {showCurrentPassword ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -616,9 +197,28 @@ export function SettingsContent({
                   name="newPassword"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>كلمة المرور الجديدة</FormLabel>
+                      <FormLabel>New password</FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="new-password" {...field} />
+                        <div className="relative">
+                          <Input
+                            type={showNewPasswordField ? "text" : "password"}
+                            autoComplete="new-password"
+                            className="pe-10"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewPasswordField((v) => !v)}
+                            className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
+                            aria-label={showNewPasswordField ? "Hide password" : "Show password"}
+                          >
+                            {showNewPasswordField ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -629,9 +229,28 @@ export function SettingsContent({
                   name="confirmNewPassword"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>تأكيد كلمة المرور الجديدة</FormLabel>
+                      <FormLabel>Confirm new password</FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="new-password" {...field} />
+                        <div className="relative">
+                          <Input
+                            type={showConfirmPassword ? "text" : "password"}
+                            autoComplete="new-password"
+                            className="pe-10"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword((v) => !v)}
+                            className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
+                            aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                          >
+                            {showConfirmPassword ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -14,20 +14,31 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
-export function MobileBottomNav() {
+type MobileBottomNavProps = {
+  userRole?: "admin" | "member" | null;
+};
+
+export function MobileBottomNav({ userRole = "admin" }: MobileBottomNavProps) {
   const pathname = usePathname();
   const locale = useLocale();
   const t = useTranslations("nav");
   const dir = locale === "ar" ? "rtl" : "ltr";
 
-  const navItems = [
-    { href: "/dashboard", label: t("dashboard"), icon: IconLayoutDashboard },
-    { href: "/dashboard/clients", label: t("clients"), icon: IconUsers },
-    { href: "/dashboard/workspace", label: t("workspace"), icon: IconLayoutKanban },
-    { href: "/dashboard/projects", label: t("projects"), icon: IconFolder },
-    { href: "/dashboard/invoices", label: t("invoices"), icon: IconReceipt },
-    { href: "/dashboard/tasks", label: t("allTasks"), icon: IconListDetails },
-  ];
+  const navItems =
+    userRole === "member"
+      ? [
+          { href: "/dashboard/me", label: t("myDashboard"), icon: IconLayoutDashboard },
+          { href: "/dashboard/tasks", label: t("allTasks"), icon: IconListDetails },
+          { href: "/dashboard/payments", label: t("payments"), icon: IconReceipt },
+        ]
+      : [
+          { href: "/dashboard", label: t("dashboard"), icon: IconLayoutDashboard },
+          { href: "/dashboard/clients", label: t("clients"), icon: IconUsers },
+          { href: "/dashboard/workspace", label: t("workspace"), icon: IconLayoutKanban },
+          { href: "/dashboard/projects", label: t("projects"), icon: IconFolder },
+          { href: "/dashboard/invoices", label: t("invoices"), icon: IconReceipt },
+          { href: "/dashboard/tasks", label: t("allTasks"), icon: IconListDetails },
+        ];
 
   return (
     <nav
@@ -38,7 +49,9 @@ export function MobileBottomNav() {
         const isActive =
           href === "/dashboard"
             ? pathname === "/dashboard"
-            : pathname.startsWith(href);
+            : href === "/dashboard/me"
+              ? pathname === "/dashboard/me" || pathname.startsWith("/dashboard/me/")
+              : pathname === href || pathname.startsWith(`${href}/`);
         return (
           <Link
             key={href}

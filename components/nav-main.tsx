@@ -33,6 +33,8 @@ type NavMainProps = {
   dashboard: NavLeaf;
   settings: NavLeaf;
   groups: NavGroup[];
+  /** When false, hides CRM/PM groups (member hub). */
+  showSettings?: boolean;
 };
 
 const GROUPS_STORAGE_KEY = "agencyos.sidebar.groups.v1";
@@ -41,7 +43,12 @@ function isActivePath(pathname: string, url: string) {
   return pathname === url || (url !== "/dashboard" && pathname.startsWith(url + "/"));
 }
 
-export function NavMain({ dashboard, settings, groups }: NavMainProps) {
+export function NavMain({
+  dashboard,
+  settings,
+  groups,
+  showSettings = true,
+}: NavMainProps) {
   const { setOpenMobile, state } = useSidebar();
   const pathname = usePathname();
 
@@ -154,22 +161,24 @@ export function NavMain({ dashboard, settings, groups }: NavMainProps) {
           })}
         </div>
 
-        <div className="mt-auto pt-2">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                tooltip={settings.title}
-                asChild
-                isActive={isActivePath(pathname, settings.url)}
-              >
-                <Link href={settings.url} onClick={() => setOpenMobile(false)}>
-                  {settings.icon && <settings.icon />}
-                  <span className="text-[15px]">{settings.title}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </div>
+        {showSettings ? (
+          <div className="mt-auto pt-2">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip={settings.title}
+                  asChild
+                  isActive={isActivePath(pathname, settings.url)}
+                >
+                  <Link href={settings.url} onClick={() => setOpenMobile(false)}>
+                    {settings.icon && <settings.icon />}
+                    <span className="text-[15px]">{settings.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </div>
+        ) : null}
       </SidebarGroupContent>
     </SidebarGroup>
   );

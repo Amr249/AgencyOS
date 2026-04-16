@@ -34,15 +34,35 @@ import {
 } from "@/components/ui/sidebar";
 
 export function AppSidebar({
+  userRole = "admin",
   ...props
-}: React.ComponentProps<typeof Sidebar>) {
+}: React.ComponentProps<typeof Sidebar> & {
+  userRole?: "admin" | "member" | null;
+}) {
   const { setOpenMobile } = useSidebar();
   const t = useTranslations("nav");
 
-  const dashboard = { title: t("dashboard"), url: "/dashboard", icon: IconDashboard };
+  const isMember = userRole === "member";
+  const homeHref = isMember ? "/dashboard/me" : "/dashboard";
+
+  const dashboard = isMember
+    ? { title: t("myDashboard"), url: "/dashboard/me", icon: IconDashboard }
+    : { title: t("dashboard"), url: "/dashboard", icon: IconDashboard };
   const settings = { title: t("settings"), url: "/dashboard/settings", icon: IconChartBar };
 
-  const groups = [
+  const groups = isMember
+    ? [
+        {
+          id: "member-work",
+          label: t("memberWork"),
+          icon: FolderKanban,
+                   children: [
+            { title: t("allTasks"), url: "/dashboard/tasks", icon: IconListDetails },
+            { title: t("payments"), url: "/dashboard/payments", icon: IconReceipt },
+          ],
+        },
+      ]
+    : [
     {
       id: "crm",
       label: "CRM",
@@ -97,7 +117,7 @@ export function AppSidebar({
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
               <a
-                href="/dashboard"
+                href={homeHref}
                 className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center"
                 onClick={() => setOpenMobile(false)}
               >
@@ -117,7 +137,12 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain dashboard={dashboard} settings={settings} groups={groups} />
+        <NavMain
+          dashboard={dashboard}
+          settings={settings}
+          groups={groups}
+          showSettings={!isMember}
+        />
       </SidebarContent>
       <SidebarFooter>
         <div className="flex items-center justify-end gap-1 px-2 py-1 group-data-[collapsible=icon]:justify-center">

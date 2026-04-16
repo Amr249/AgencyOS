@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 export default async function ActivityPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");
-  if ((session.user as { role?: string }).role === "member") redirect("/dashboard/my-tasks");
+  if ((session.user as { role?: string }).role === "member") redirect("/dashboard/me");
 
   const res = await getRecentActivity(100);
   const items = res.ok ? res.data : [];

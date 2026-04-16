@@ -39,12 +39,14 @@ type ProjectTeamTabProps = {
   projectId: string;
   initialMembers: ProjectMemberRow[];
   allTeamMembers: TeamMemberRow[];
+  readOnly?: boolean;
 };
 
 export function ProjectTeamTab({
   projectId,
   initialMembers,
   allTeamMembers,
+  readOnly = false,
 }: ProjectTeamTabProps) {
   const router = useRouter();
   const [members, setMembers] = React.useState<ProjectMemberRow[]>(initialMembers);
@@ -106,9 +108,11 @@ export function ProjectTeamTab({
           <h2 className="text-lg font-semibold">Team</h2>
           <p className="text-muted-foreground text-sm">Members assigned to this project</p>
         </div>
-        <Button onClick={() => setAssignOpen(true)} disabled={availableMembers.length === 0}>
-          + Assign Member
-        </Button>
+        {!readOnly ? (
+          <Button onClick={() => setAssignOpen(true)} disabled={availableMembers.length === 0}>
+            + Assign Member
+          </Button>
+        ) : null}
       </div>
 
       {members.length === 0 ? (
@@ -123,7 +127,7 @@ export function ProjectTeamTab({
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Role</th>
                 <th className="px-4 py-3 font-medium">Role on Project</th>
-                <th className="px-4 py-3 font-medium w-[100px]" />
+                {!readOnly ? <th className="px-4 py-3 font-medium w-[100px]" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -142,16 +146,18 @@ export function ProjectTeamTab({
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{m.memberRole ?? "—"}</td>
                   <td className="px-4 py-3">{m.roleOnProject ?? "—"}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setRemoveTarget(m)}
-                    >
-                      Remove
-                    </Button>
-                  </td>
+                  {!readOnly ? (
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setRemoveTarget(m)}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -159,7 +165,12 @@ export function ProjectTeamTab({
         </div>
       )}
 
-      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+      <Dialog
+        open={assignOpen}
+        onOpenChange={(open) => {
+          if (!readOnly) setAssignOpen(open);
+        }}
+      >
         <DialogContent className="sm:max-w-md" dir="ltr" lang="en">
           <DialogHeader className="text-left">
             <DialogTitle>Assign team member</DialogTitle>

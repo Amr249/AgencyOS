@@ -58,9 +58,10 @@ type TasksPageContentProps = {
   projects: ProjectOption[];
   teamMembers: TeamMember[];
   assigneesByTaskId: Record<string, AssigneeForCard[]>;
+  memberView?: boolean;
 };
 
-const PRIORITY_OPTIONS = [
+const PRIORITY_OPTIONS_EN = [
   { value: "all", label: "All priorities" },
   { value: "low", label: TASK_PRIORITY_LABELS_EN.low },
   { value: "medium", label: TASK_PRIORITY_LABELS_EN.medium },
@@ -68,7 +69,7 @@ const PRIORITY_OPTIONS = [
   { value: "urgent", label: TASK_PRIORITY_LABELS_EN.urgent },
 ] as const;
 
-const STATUS_OPTIONS = [
+const STATUS_OPTIONS_EN = [
   { value: "all", label: "All statuses" },
   { value: "todo", label: TASK_STATUS_LABELS_EN.todo },
   { value: "in_progress", label: TASK_STATUS_LABELS_EN.in_progress },
@@ -77,11 +78,42 @@ const STATUS_OPTIONS = [
   { value: "blocked", label: TASK_STATUS_LABELS_EN.blocked },
 ] as const;
 
+const PRIORITY_OPTIONS_AR = [
+  { value: "all", label: "جميع الأولويات" },
+  { value: "low", label: "منخفض" },
+  { value: "medium", label: "متوسط" },
+  { value: "high", label: "عالي" },
+  { value: "urgent", label: "عاجل" },
+] as const;
+
+const STATUS_OPTIONS_AR = [
+  { value: "all", label: "جميع الحالات" },
+  { value: "todo", label: "للتنفيذ" },
+  { value: "in_progress", label: "قيد التنفيذ" },
+  { value: "in_review", label: "قيد المراجعة" },
+  { value: "done", label: "مكتمل" },
+  { value: "blocked", label: "محظور" },
+] as const;
+
+const TASKS_AR = {
+  tasks: "المهام",
+  kanban: "كانبان",
+  list: "قائمة",
+  newTask: "مهمة جديدة",
+  searchPlaceholder: "البحث باسم المهمة",
+  allProjects: "جميع المشاريع",
+  deleteTitle: "حذف هذه المهمة؟",
+  deleteDesc: "سيتم حذف المهمة. لا يمكن التراجع عن هذا الإجراء.",
+  cancel: "إلغاء",
+  delete: "حذف",
+};
+
 export function TasksPageContent({
   initialTasks,
   projects,
   teamMembers,
   assigneesByTaskId,
+  memberView = false,
 }: TasksPageContentProps) {
   const router = useRouter();
   const translateErr = useTranslateActionError();
@@ -173,50 +205,53 @@ export function TasksPageContent({
   };
 
   const filteredTasksForList = tasks;
+  const dir = memberView ? "rtl" : "ltr";
+  const PRIORITY_OPTIONS = memberView ? PRIORITY_OPTIONS_AR : PRIORITY_OPTIONS_EN;
+  const STATUS_OPTIONS = memberView ? STATUS_OPTIONS_AR : STATUS_OPTIONS_EN;
 
   return (
-    <div dir="ltr" lang="en" className="space-y-4">
+    <div dir={dir} lang={memberView ? "ar" : "en"} className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{memberView ? TASKS_AR.tasks : "Tasks"}</h1>
         <div className="flex items-center gap-2">
           <Button
             variant={viewMode === "kanban" ? "secondary" : "ghost"}
             size="sm"
             onClick={() => setViewMode("kanban")}
-            title="Kanban"
+            title={memberView ? TASKS_AR.kanban : "Kanban"}
           >
             <LayoutGrid className="me-1 h-4 w-4" />
-            Kanban
+            {memberView ? TASKS_AR.kanban : "Kanban"}
           </Button>
           <Button
             variant={viewMode === "list" ? "secondary" : "ghost"}
             size="sm"
             onClick={() => setViewMode("list")}
-            title="List"
+            title={memberView ? TASKS_AR.list : "List"}
           >
             <List className="me-1 h-4 w-4" />
-            List
+            {memberView ? TASKS_AR.list : "List"}
           </Button>
           <Button onClick={() => handleAddTask()}>
             <Plus className="me-1 h-4 w-4" />
-            New task
+            {memberView ? TASKS_AR.newTask : "New task"}
           </Button>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <Input
-          placeholder="Search by task name"
+          placeholder={memberView ? TASKS_AR.searchPlaceholder : "Search by task name"}
           className="w-full sm:max-w-xs"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <Select value={projectFilter} onValueChange={setProjectFilter}>
           <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="All projects" />
+            <SelectValue placeholder={memberView ? TASKS_AR.allProjects : "All projects"} />
           </SelectTrigger>
-          <SelectContent dir="ltr">
-            <SelectItem value="all">All projects</SelectItem>
+          <SelectContent dir={dir}>
+            <SelectItem value="all">{memberView ? TASKS_AR.allProjects : "All projects"}</SelectItem>
             {projects.map((p) => (
               <SelectItem key={p.id} value={p.id} textValue={p.name}>
                 <ProjectSelectOptionRow
@@ -232,7 +267,7 @@ export function TasksPageContent({
           <SelectTrigger className="w-full sm:w-[140px]">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent dir="ltr">
+          <SelectContent dir={dir}>
             {PRIORITY_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -245,7 +280,7 @@ export function TasksPageContent({
             <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent dir="ltr">
+            <SelectContent dir={dir}>
               {STATUS_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}
@@ -264,6 +299,7 @@ export function TasksPageContent({
           onOpenTask={setTaskDetailId}
           onDeleteTask={handleDeleteTask}
           onTaskStatusChange={handleTaskStatusMove}
+          memberView={memberView}
         />
       ) : (
         <TasksListView
@@ -272,6 +308,7 @@ export function TasksPageContent({
           projectOptions={projects}
           onOpenTask={setTaskDetailId}
           onDeleteTask={handleDeleteTask}
+          memberView={memberView}
         />
       )}
 
@@ -293,23 +330,24 @@ export function TasksPageContent({
         teamMembers={teamMembers}
         onClose={() => setTaskDetailId(null)}
         onSuccess={refetch}
+        memberView={memberView}
       />
 
       <AlertDialog open={!!taskIdToDelete} onOpenChange={(o) => !o && setTaskIdToDelete(null)}>
-        <AlertDialogContent dir="ltr" lang="en" className="text-start">
+        <AlertDialogContent dir={dir} lang={memberView ? "ar" : "en"} className="text-start">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+            <AlertDialogTitle>{memberView ? TASKS_AR.deleteTitle : "Delete this task?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the task. This action cannot be undone.
+              {memberView ? TASKS_AR.deleteDesc : "This will remove the task. This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{memberView ? TASKS_AR.cancel : "Cancel"}</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-destructive text-destructive-foreground"
             >
-              Delete
+              {memberView ? TASKS_AR.delete : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

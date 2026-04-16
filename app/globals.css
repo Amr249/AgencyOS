@@ -139,7 +139,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground text-right text-sm min-[480px]:text-base;
+    @apply bg-background text-foreground text-start text-sm min-[480px]:text-base;
     font-family: var(--font-sans);
   }
   :lang(ar) {

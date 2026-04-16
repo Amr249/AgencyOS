@@ -15,13 +15,17 @@ import {
   tasks,
   teamMembers,
   timeLogs,
-  users,
 } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { getAvailabilityDeductionsByMember } from "@/actions/team-availability";
 import { revalidateTimeTrackingCaches } from "@/lib/revalidate-time-tracking-caches";
 import { DEFAULT_WEEKLY_CAPACITY_HOURS } from "@/lib/workspace-constants";
 import type { TaskWithProject } from "@/actions/tasks";
+import {
+  getTeamMemberIdsForSessionUser,
+  memberCanAccessTask,
+} from "@/lib/member-context";
+import { sessionUserRole } from "@/lib/auth-helpers";
 
 const TASK_STATUSES = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
 
@@ -444,31 +448,19 @@ export async function getWorkspaceMyTasks(): Promise<
 
     const taskIdSet = new Set<string>();
 
-    const [userRow] = await db
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    const em = userRow?.email?.trim().toLowerCase();
-    if (em) {
-      const membersWithEmail = await db
-        .select({ id: teamMembers.id })
-        .from(teamMembers)
-        .where(sql`lower(trim(coalesce(${teamMembers.email}, ''))) = ${em}`);
-      if (membersWithEmail.length > 0) {
-        const memberIds = membersWithEmail.map((m) => m.id);
-        const fromAssignments = await db
-          .select({ taskId: taskAssignments.taskId })
-          .from(taskAssignments)
-          .where(inArray(taskAssignments.teamMemberId, memberIds));
-        for (const r of fromAssignments) taskIdSet.add(r.taskId);
+    const memberIds = await getTeamMemberIdsForSessionUser(userId);
+    if (memberIds.length > 0) {
+      const fromAssignments = await db
+        .select({ taskId: taskAssignments.taskId })
+        .from(taskAssignments)
+        .where(inArray(taskAssignments.teamMemberId, memberIds));
+      for (const r of fromAssignments) taskIdSet.add(r.taskId);
 
-        const byAssignee = await db
-          .select({ id: tasks.id })
-          .from(tasks)
-          .where(and(inArray(tasks.assigneeId, memberIds), isNull(tasks.deletedAt)));
-        for (const t of byAssignee) taskIdSet.add(t.id);
-      }
+      const byAssignee = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(and(inArray(tasks.assigneeId, memberIds), isNull(tasks.deletedAt)));
+      for (const t of byAssignee) taskIdSet.add(t.id);
     }
 
     const taskIds = [...taskIdSet];
@@ -742,6 +734,20 @@ export async function logTime(input: {
   const parsed = logTimeSchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(parsed.data.taskId, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+      const mids = await getTeamMemberIdsForSessionUser(session.user.id);
+      if (
+        parsed.data.teamMemberId != null &&
+        (!mids.length || !mids.includes(parsed.data.teamMemberId))
+      ) {
+        return { ok: false as const, error: "Forbidden" };
+      }
+    }
+
     const task = await db.query.tasks.findFirst({
       where: eq(tasks.id, parsed.data.taskId),
       columns: { projectId: true },
@@ -773,6 +779,19 @@ export async function deleteTimeLog(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const [existingLog] = await db
+        .select({ taskId: timeLogs.taskId })
+        .from(timeLogs)
+        .where(eq(timeLogs.id, parsed.data))
+        .limit(1);
+      if (!existingLog?.taskId) return { ok: false as const, error: "Not found" };
+      const can = await memberCanAccessTask(existingLog.taskId, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     const [deleted] = await db
       .delete(timeLogs)
       .where(eq(timeLogs.id, parsed.data))
@@ -800,6 +819,13 @@ export async function getTimeLogs(taskId: string) {
   const parsed = z.string().uuid().safeParse(taskId);
   if (!parsed.success) return { ok: false as const, error: "Invalid task id" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(parsed.data, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     const data = await db
       .select({
         id: timeLogs.id,
@@ -830,11 +856,19 @@ export async function createTaskComment(taskId: string, body: string) {
     .safeParse({ taskId, body });
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(parsed.data.taskId, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     const [comment] = await db
       .insert(taskComments)
       .values({ taskId: parsed.data.taskId, body: parsed.data.body, authorName: "Admin" })
       .returning();
     revalidatePath("/dashboard/workspace");
+    revalidatePath("/dashboard/me");
     return { ok: true as const, data: comment };
   } catch (error) {
     console.error("createTaskComment", error);
@@ -846,6 +880,13 @@ export async function getTaskComments(taskId: string) {
   const parsed = z.string().uuid().safeParse(taskId);
   if (!parsed.success) return { ok: false as const, error: "Invalid task id" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(parsed.data, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     const data = await db
       .select()
       .from(taskComments)
@@ -862,6 +903,19 @@ export async function deleteTaskComment(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const [c] = await db
+        .select({ taskId: taskComments.taskId })
+        .from(taskComments)
+        .where(eq(taskComments.id, parsed.data))
+        .limit(1);
+      if (!c?.taskId) return { ok: false as const, error: "Not found" };
+      const can = await memberCanAccessTask(c.taskId, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+    }
+
     await db.delete(taskComments).where(eq(taskComments.id, parsed.data));
     revalidatePath("/dashboard/workspace");
     return { ok: true as const };
@@ -877,6 +931,20 @@ export async function assignTask(taskId: string, teamMemberId: string | null) {
     .safeParse({ taskId, teamMemberId });
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) === "member") {
+      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+      const can = await memberCanAccessTask(parsed.data.taskId, session.user.id);
+      if (!can) return { ok: false as const, error: "Forbidden" };
+      const mids = await getTeamMemberIdsForSessionUser(session.user.id);
+      if (
+        parsed.data.teamMemberId != null &&
+        (!mids.length || !mids.includes(parsed.data.teamMemberId))
+      ) {
+        return { ok: false as const, error: "Forbidden" };
+      }
+    }
+
     await db
       .update(tasks)
       .set({ assigneeId: parsed.data.teamMemberId })

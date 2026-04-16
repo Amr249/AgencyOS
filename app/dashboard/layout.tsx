@@ -1,11 +1,13 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { getLocale } from "next-intl/server";
+import { getLocale, setRequestLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { MemberDashboardLocaleShell } from "@/components/member-dashboard/member-dashboard-locale-shell";
 import {
   SidebarInset,
   SidebarProvider,
@@ -21,8 +23,29 @@ export default async function DashboardLayout({
     redirect("/login?callbackUrl=/dashboard");
   }
 
-  const locale = await getLocale();
+  const userRole = sessionUserRole(session);
+  const isMember = userRole === "member";
+
+  if (isMember) {
+    setRequestLocale("ar");
+  }
+
+  const locale = isMember ? "ar" : await getLocale();
   const sidebarSide = locale === "ar" ? "right" : "left";
+
+  const inner = (
+    <>
+      <SiteHeader hideGlobalSearch={isMember} hideLanguageToggle={isMember} />
+      <div className="flex flex-1 flex-col pb-20 md:pb-0">
+        <div className="@container/main flex flex-1 flex-col gap-2">
+          <div className="flex flex-col gap-4 md:gap-6 px-4 py-4 md:px-6 md:py-6">
+            {children}
+          </div>
+        </div>
+      </div>
+      <MobileBottomNav userRole={userRole} />
+    </>
+  );
 
   return (
     <SidebarProvider
@@ -33,17 +56,15 @@ export default async function DashboardLayout({
         } as React.CSSProperties
       }
     >
-      <AppSidebar variant="inset" side={sidebarSide} />
+      <AppSidebar variant="inset" side={sidebarSide} userRole={userRole} />
       <SidebarInset>
-        <SiteHeader />
-        <div className="flex flex-1 flex-col pb-20 md:pb-0">
-          <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className="flex flex-col gap-4 md:gap-6 px-4 py-4 md:px-6 md:py-6">
-              {children}
-            </div>
+        {isMember ? (
+          <div dir="rtl" lang="ar">
+            <MemberDashboardLocaleShell>{inner}</MemberDashboardLocaleShell>
           </div>
-        </div>
-        <MobileBottomNav />
+        ) : (
+          inner
+        )}
       </SidebarInset>
     </SidebarProvider>
   );

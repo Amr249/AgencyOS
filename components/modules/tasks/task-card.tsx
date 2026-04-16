@@ -110,6 +110,8 @@ type TaskCardProps = {
   onDelete: () => void;
   /** English copy and LTR-friendly menu (e.g. global tasks Kanban). */
   copyLocale?: "ar" | "en";
+  /** Team members: show project name only (no link to project pages). */
+  hideProjectLink?: boolean;
 };
 
 export function TaskCard({
@@ -118,6 +120,7 @@ export function TaskCard({
   onEdit,
   onDelete,
   copyLocale = "ar",
+  hideProjectLink = false,
 }: TaskCardProps) {
   const overdue = isOverdue(task.dueDate);
   const dueStr = formatDate(task.dueDate, copyLocale);
@@ -145,18 +148,29 @@ export function TaskCard({
     >
       <p className="line-clamp-2 text-start font-semibold leading-snug tracking-tight">{task.title}</p>
 
-      <Link
-        href={`/dashboard/projects/${task.projectId}`}
-        className="text-muted-foreground hover:text-foreground mt-3 flex min-w-0 items-center gap-3 rounded-lg py-1 text-start text-sm transition-colors hover:underline"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <TaskProjectThumbnail
-          projectName={task.projectName}
-          coverUrl={task.projectCoverImageUrl}
-          logoUrl={task.projectClientLogoUrl}
-        />
-        <span className="min-w-0 flex-1 truncate font-medium">{task.projectName}</span>
-      </Link>
+      {hideProjectLink ? (
+        <div className="text-muted-foreground mt-3 flex min-w-0 cursor-default items-center gap-3 rounded-lg py-1 text-start text-sm">
+          <TaskProjectThumbnail
+            projectName={task.projectName}
+            coverUrl={task.projectCoverImageUrl}
+            logoUrl={task.projectClientLogoUrl}
+          />
+          <span className="min-w-0 flex-1 truncate font-medium">{task.projectName}</span>
+        </div>
+      ) : (
+        <Link
+          href={`/dashboard/projects/${task.projectId}`}
+          className="text-muted-foreground hover:text-foreground mt-3 flex min-w-0 items-center gap-3 rounded-lg py-1 text-start text-sm transition-colors hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <TaskProjectThumbnail
+            projectName={task.projectName}
+            coverUrl={task.projectCoverImageUrl}
+            logoUrl={task.projectClientLogoUrl}
+          />
+          <span className="min-w-0 flex-1 truncate font-medium">{task.projectName}</span>
+        </Link>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-2.5 gap-y-2 border-t border-border/50 pt-4">
         <span

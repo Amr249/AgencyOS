@@ -132,6 +132,8 @@ type TaskDetailModalProps = {
   teamMembers: TeamMember[];
   onClose: () => void;
   onSuccess: () => void;
+  /** Team member portal: no links to project pages. */
+  memberView?: boolean;
 };
 
 function formatDate(d: string | null) {
@@ -155,7 +157,13 @@ function formatHours(hours: number): string {
   return `${text}h`;
 }
 
-export function TaskDetailModal({ taskId, teamMembers, onClose, onSuccess }: TaskDetailModalProps) {
+export function TaskDetailModal({
+  taskId,
+  teamMembers,
+  onClose,
+  onSuccess,
+  memberView = false,
+}: TaskDetailModalProps) {
   const { data: session } = useSession();
   const isAdmin = (session?.user as { role?: string })?.role === "admin";
 
@@ -587,17 +595,28 @@ export function TaskDetailModal({ taskId, teamMembers, onClose, onSuccess }: Tas
               </div>
               <p className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
                 <span>Project:</span>
-                <Link
-                  href={`/dashboard/projects/${task.projectId}`}
-                  className="text-primary inline-flex min-w-0 max-w-full items-center gap-2 underline"
-                >
-                  <ProjectSelectThumb
-                    coverImageUrl={task.projectCoverImageUrl}
-                    clientLogoUrl={task.projectClientLogoUrl}
-                    fallbackName={task.projectName ?? "Project"}
-                  />
-                  <span className="truncate">{task.projectName}</span>
-                </Link>
+                {memberView ? (
+                  <span className="text-foreground inline-flex min-w-0 max-w-full items-center gap-2">
+                    <ProjectSelectThumb
+                      coverImageUrl={task.projectCoverImageUrl}
+                      clientLogoUrl={task.projectClientLogoUrl}
+                      fallbackName={task.projectName ?? "Project"}
+                    />
+                    <span className="truncate">{task.projectName}</span>
+                  </span>
+                ) : (
+                  <Link
+                    href={`/dashboard/projects/${task.projectId}`}
+                    className="text-primary inline-flex min-w-0 max-w-full items-center gap-2 underline"
+                  >
+                    <ProjectSelectThumb
+                      coverImageUrl={task.projectCoverImageUrl}
+                      clientLogoUrl={task.projectClientLogoUrl}
+                      fallbackName={task.projectName ?? "Project"}
+                    />
+                    <span className="truncate">{task.projectName}</span>
+                  </Link>
+                )}
               </p>
               <p className="text-muted-foreground text-sm">
                 Due date: {formatDate(task.dueDate)}
@@ -663,12 +682,16 @@ export function TaskDetailModal({ taskId, teamMembers, onClose, onSuccess }: Tas
                             key={dependency.id}
                             className="bg-muted/40 flex items-center justify-between rounded-md px-3 py-2"
                           >
-                            <Link
-                              href={`/dashboard/projects/${dependency.dependsOnTask.projectId}`}
-                              className="text-primary truncate text-sm underline"
-                            >
-                              {dependency.dependsOnTask.title}
-                            </Link>
+                            {memberView ? (
+                              <span className="truncate text-sm">{dependency.dependsOnTask.title}</span>
+                            ) : (
+                              <Link
+                                href={`/dashboard/projects/${dependency.dependsOnTask.projectId}`}
+                                className="text-primary truncate text-sm underline"
+                              >
+                                {dependency.dependsOnTask.title}
+                              </Link>
+                            )}
                             <Button
                               type="button"
                               variant="ghost"
@@ -695,12 +718,16 @@ export function TaskDetailModal({ taskId, teamMembers, onClose, onSuccess }: Tas
                             key={dependency.id}
                             className="bg-muted/40 flex items-center justify-between rounded-md px-3 py-2"
                           >
-                            <Link
-                              href={`/dashboard/projects/${dependency.task.projectId}`}
-                              className="text-primary truncate text-sm underline"
-                            >
-                              {dependency.task.title}
-                            </Link>
+                            {memberView ? (
+                              <span className="truncate text-sm">{dependency.task.title}</span>
+                            ) : (
+                              <Link
+                                href={`/dashboard/projects/${dependency.task.projectId}`}
+                                className="text-primary truncate text-sm underline"
+                              >
+                                {dependency.task.title}
+                              </Link>
+                            )}
                             <Button
                               type="button"
                               variant="ghost"

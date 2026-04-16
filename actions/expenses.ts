@@ -5,7 +5,7 @@ import { z } from "zod";
 import { eq, and, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
-import { clients, expenses, projects, teamMembers } from "@/lib/db/schema";
+import { clients, expenses, expenseServices, projects, services, teamMembers } from "@/lib/db/schema";
 
 /** Expense-linked client vs. project's owning client (for cover → logo fallback). */
 const expenseClient = alias(clients, "expense_client");
@@ -32,6 +32,7 @@ const createExpenseSchema = z.object({
   teamMemberId: z.string().uuid().optional().nullable(),
   projectId: z.string().uuid().optional().nullable(),
   clientId: z.string().uuid().optional().nullable(),
+  serviceIds: z.array(z.string().uuid()).optional().default([]),
   isBillable: z.boolean().optional().default(false),
 });
 
@@ -46,6 +47,7 @@ const updateExpenseSchema = z.object({
   teamMemberId: z.string().uuid().optional().nullable(),
   projectId: z.string().uuid().optional().nullable(),
   clientId: z.string().uuid().optional().nullable(),
+  serviceIds: z.array(z.string().uuid()).optional(),
   isBillable: z.boolean().optional(),
 });
 
@@ -80,11 +82,13 @@ export type ExpenseRow = {
   clientId: string | null;
   clientName: string | null;
   clientLogoUrl: string | null;
+  serviceIds: string[];
+  serviceNames: string[];
   isBillable: boolean;
   createdAt: Date;
 };
 
-function expenseRowFromJoin(r: {
+type RawExpenseJoin = {
   id: string;
   title: string;
   amount: unknown;
@@ -104,7 +108,13 @@ function expenseRowFromJoin(r: {
   clientLogoUrl: string | null;
   isBillable: boolean;
   createdAt: Date;
-}): ExpenseRow {
+};
+
+function expenseRowFromJoin(
+  r: RawExpenseJoin,
+  svcMap: Map<string, { ids: string[]; names: string[] }>,
+): ExpenseRow {
+  const svc = svcMap.get(r.id);
   return {
     id: r.id,
     title: r.title,
@@ -123,9 +133,35 @@ function expenseRowFromJoin(r: {
     clientId: r.clientId ?? null,
     clientName: r.clientName ?? null,
     clientLogoUrl: r.clientLogoUrl ?? null,
+    serviceIds: svc?.ids ?? [],
+    serviceNames: svc?.names ?? [],
     isBillable: r.isBillable,
     createdAt: r.createdAt,
   };
+}
+
+async function fetchExpenseServicesMap(expenseIds: string[]): Promise<Map<string, { ids: string[]; names: string[] }>> {
+  const map = new Map<string, { ids: string[]; names: string[] }>();
+  if (expenseIds.length === 0) return map;
+  const rows = await db
+    .select({
+      expenseId: expenseServices.expenseId,
+      serviceId: expenseServices.serviceId,
+      serviceName: services.name,
+    })
+    .from(expenseServices)
+    .innerJoin(services, eq(expenseServices.serviceId, services.id))
+    .where(inArray(expenseServices.expenseId, expenseIds));
+  for (const r of rows) {
+    let entry = map.get(r.expenseId);
+    if (!entry) {
+      entry = { ids: [], names: [] };
+      map.set(r.expenseId, entry);
+    }
+    entry.ids.push(r.serviceId);
+    entry.names.push(r.serviceName);
+  }
+  return map;
 }
 
 export async function getExpenses(filters?: z.infer<typeof getExpensesFiltersSchema>) {
@@ -170,7 +206,8 @@ export async function getExpenses(filters?: z.infer<typeof getExpensesFiltersSch
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-  const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r));
+  const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+  const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
   return { ok: true as const, data };
 }
@@ -269,7 +306,8 @@ export async function getExpenseById(id: string) {
 
     if (!row) return { ok: false as const, error: "Expense not found" };
 
-    const data: ExpenseRow = expenseRowFromJoin(row);
+    const svcMap = await fetchExpenseServicesMap([row.id]);
+    const data: ExpenseRow = expenseRowFromJoin(row, svcMap);
 
     return { ok: true as const, data };
   } catch (e) {
@@ -357,6 +395,10 @@ export async function createExpense(input: z.input<typeof createExpenseSchema>) 
       })
       .returning();
     if (!row) return { ok: false as const, error: "Failed to create" };
+    const sIds = parsed.data.serviceIds ?? [];
+    if (sIds.length > 0) {
+      await db.insert(expenseServices).values(sIds.map((sid) => ({ expenseId: row.id, serviceId: sid })));
+    }
     revalidatePath("/dashboard/expenses");
     revalidatePath(`/dashboard/expenses/${row.id}`);
     revalidatePath("/dashboard/reports");
@@ -389,7 +431,8 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
   if (rest.projectId !== undefined) payload.projectId = rest.projectId;
   if (rest.clientId !== undefined) payload.clientId = rest.clientId;
   if (rest.isBillable !== undefined) payload.isBillable = rest.isBillable;
-  if (Object.keys(payload).length === 0) {
+  const hasServiceUpdate = rest.serviceIds !== undefined;
+  if (Object.keys(payload).length === 0 && !hasServiceUpdate) {
     return { ok: false as const, error: "No fields to update" };
   }
   try {
@@ -397,8 +440,17 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
       where: eq(expenses.id, id),
       columns: { projectId: true },
     });
-    const [row] = await db.update(expenses).set(payload).where(eq(expenses.id, id)).returning();
+    const [row] = Object.keys(payload).length > 0
+      ? await db.update(expenses).set(payload).where(eq(expenses.id, id)).returning()
+      : await db.select().from(expenses).where(eq(expenses.id, id));
     if (!row) return { ok: false as const, error: "Expense not found" };
+    if (hasServiceUpdate) {
+      await db.delete(expenseServices).where(eq(expenseServices.expenseId, id));
+      const sIds = rest.serviceIds ?? [];
+      if (sIds.length > 0) {
+        await db.insert(expenseServices).values(sIds.map((sid) => ({ expenseId: id, serviceId: sid })));
+      }
+    }
     revalidatePath("/dashboard/expenses");
     revalidatePath(`/dashboard/expenses/${id}`);
     revalidatePath("/dashboard/reports");
@@ -546,7 +598,8 @@ export async function getExpensesByTeamMemberId(teamMemberId: string) {
       .where(eq(expenses.teamMemberId, parsed.data))
       .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-    const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r));
+    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+    const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
     return { ok: true as const, data };
   } catch (e) {
@@ -592,7 +645,8 @@ export async function getExpensesByProjectId(projectId: string) {
       .where(eq(expenses.projectId, parsed.data))
       .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-    const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r));
+    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+    const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
     return { ok: true as const, data };
   } catch (error) {
@@ -638,7 +692,8 @@ export async function getExpensesByClientId(clientId: string) {
       .where(eq(expenses.clientId, parsed.data))
       .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-    const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r));
+    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+    const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
     return { ok: true as const, data };
   } catch (error) {

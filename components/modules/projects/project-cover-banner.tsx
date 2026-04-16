@@ -11,15 +11,21 @@ import { toast } from "sonner";
 type ProjectCoverBannerProps = {
   projectId: string;
   coverImageUrl: string | null;
+  readOnly?: boolean;
 };
 
-export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBannerProps) {
+export function ProjectCoverBanner({
+  projectId,
+  coverImageUrl,
+  readOnly = false,
+}: ProjectCoverBannerProps) {
   const router = useRouter();
   const [hover, setHover] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (readOnly) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
@@ -57,17 +63,19 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
       )}
       dir="ltr"
       lang="en"
-      onMouseEnter={() => setHover(true)}
+      onMouseEnter={() => !readOnly && setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleCoverChange}
-        disabled={uploading}
-      />
+      {!readOnly ? (
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleCoverChange}
+          disabled={uploading}
+        />
+      ) : null}
       {coverImageUrl ? (
         <>
           <img
@@ -78,7 +86,7 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
           <div
             className={cn(
               "absolute inset-0 flex flex-col items-start justify-start gap-2 p-3 bg-black/40 transition-opacity",
-              hover ? "opacity-100" : "opacity-0"
+              readOnly ? "pointer-events-none opacity-0" : hover ? "opacity-100" : "opacity-0"
             )}
             dir="ltr"
             lang="en"
@@ -101,16 +109,20 @@ export function ProjectCoverBanner({ projectId, coverImageUrl }: ProjectCoverBan
         </>
       ) : (
         <div className="flex h-full w-full items-center justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => inputRef.current?.click()}
-            disabled={uploading}
-            className="gap-2"
-          >
-            {uploading ? "Uploading…" : "+ Add Cover Image"}
-          </Button>
+          {readOnly ? (
+            <span className="text-muted-foreground text-sm">No cover image</span>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className="gap-2"
+            >
+              {uploading ? "Uploading…" : "+ Add Cover Image"}
+            </Button>
+          )}
         </div>
       )}
     </div>

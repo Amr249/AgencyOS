@@ -67,6 +67,8 @@ type ProjectOverviewTabProps = {
   activityOverviewEntries: ActivityFeedEntry[];
   activityOverviewHasMore: boolean;
   budgetSummary: ProjectBudgetSummaryData | null;
+  /** Hide budget, burn, time/cost summaries, and project edit (team member). */
+  memberView?: boolean;
 };
 
 export function ProjectOverviewTab({
@@ -78,6 +80,7 @@ export function ProjectOverviewTab({
   activityOverviewEntries,
   activityOverviewHasMore,
   budgetSummary,
+  memberView = false,
 }: ProjectOverviewTabProps) {
   const [editOpen, setEditOpen] = React.useState(false);
   const [phasesState, setPhasesState] = React.useState(project.phases);
@@ -98,9 +101,11 @@ export function ProjectOverviewTab({
       <Card className="text-left">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Details</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-            Edit
-          </Button>
+          {!memberView ? (
+            <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -127,20 +132,26 @@ export function ProjectOverviewTab({
                     {(project.clientName ?? "?").slice(0, 1)}
                   </AvatarFallback>
                 </Avatar>
-                <Link
-                  href={`/dashboard/clients/${project.clientId}`}
-                  className="font-medium hover:underline"
-                >
-                  {project.clientName ?? "—"}
-                </Link>
+                {memberView ? (
+                  <span className="font-medium">{project.clientName ?? "—"}</span>
+                ) : (
+                  <Link
+                    href={`/dashboard/clients/${project.clientId}`}
+                    className="font-medium hover:underline"
+                  >
+                    {project.clientName ?? "—"}
+                  </Link>
+                )}
               </div>
             </div>
-            <div>
-              <p className="text-muted-foreground text-xs">Budget</p>
-              <p>
-                <SarMoney value={project.budget} iconClassName="h-3.5 w-3.5" />
-              </p>
-            </div>
+            {!memberView ? (
+              <div>
+                <p className="text-muted-foreground text-xs">Budget</p>
+                <p>
+                  <SarMoney value={project.budget} iconClassName="h-3.5 w-3.5" />
+                </p>
+              </div>
+            ) : null}
             <div>
               <p className="text-muted-foreground text-xs">Deadline</p>
               <p>{formatDate(project.endDate)}</p>
@@ -155,7 +166,7 @@ export function ProjectOverviewTab({
         </CardContent>
       </Card>
 
-      {budgetSummary ? <ProjectBudgetWidget summary={budgetSummary} /> : null}
+      {!memberView && budgetSummary ? <ProjectBudgetWidget summary={budgetSummary} /> : null}
 
       {phasesState.length > 0 && (
         <Card className="text-left">
@@ -181,28 +192,30 @@ export function ProjectOverviewTab({
                     >
                       {PHASE_STATUS_EN[phase.status] ?? phase.status}
                     </span>
-                    <div className="flex flex-wrap gap-1">
-                      {phase.status !== "active" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => handlePhaseStatus(phase.id, "active")}
-                        >
-                          Activate
-                        </Button>
-                      )}
-                      {phase.status !== "completed" && (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="h-7 bg-green-600 text-xs text-white hover:bg-green-700"
-                          onClick={() => handlePhaseStatus(phase.id, "completed")}
-                        >
-                          Complete
-                        </Button>
-                      )}
-                    </div>
+                    {!memberView ? (
+                      <div className="flex flex-wrap gap-1">
+                        {phase.status !== "active" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => handlePhaseStatus(phase.id, "active")}
+                          >
+                            Activate
+                          </Button>
+                        )}
+                        {phase.status !== "completed" && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-7 bg-green-600 text-xs text-white hover:bg-green-700"
+                            onClick={() => handlePhaseStatus(phase.id, "completed")}
+                          >
+                            Complete
+                          </Button>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 </React.Fragment>
               ))}
@@ -211,7 +224,7 @@ export function ProjectOverviewTab({
         </Card>
       )}
 
-      <ProjectTimeSummary summary={timeSummary} teamMembers={teamMembers} />
+      {!memberView ? <ProjectTimeSummary summary={timeSummary} teamMembers={teamMembers} /> : null}
 
       <ProjectActivityFeed
         projectId={project.id}
@@ -220,24 +233,26 @@ export function ProjectOverviewTab({
         trailingHasMore={activityOverviewHasMore}
       />
 
-      <EditProjectDialog
-        project={{
-          id: project.id,
-          name: project.name,
-          clientId: project.clientId,
-          status: project.status,
-          coverImageUrl: project.coverImageUrl ?? null,
-          startDate: project.startDate,
-          endDate: project.endDate,
-          budget: project.budget,
-          description: project.description,
-        }}
-        clients={clients}
-        defaultCurrency={defaultCurrency}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSuccess={() => router.refresh()}
-      />
+      {!memberView ? (
+        <EditProjectDialog
+          project={{
+            id: project.id,
+            name: project.name,
+            clientId: project.clientId,
+            status: project.status,
+            coverImageUrl: project.coverImageUrl ?? null,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            budget: project.budget,
+            description: project.description,
+          }}
+          clients={clients}
+          defaultCurrency={defaultCurrency}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          onSuccess={() => router.refresh()}
+        />
+      ) : null}
     </div>
   );
 }

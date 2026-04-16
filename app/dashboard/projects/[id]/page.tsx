@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
+import { getServerSession } from "next-auth";
 import { getProjectById, getProjectBudgetSummary } from "@/actions/projects";
 import { getClientsList } from "@/actions/clients";
 import { getSettings } from "@/actions/settings";
@@ -43,6 +44,8 @@ import { ProjectHealthBadge } from "@/components/modules/projects/project-health
 import { BudgetAlert } from "@/components/modules/projects/budget-alert";
 import { budgetAlertStateFromHealth } from "@/lib/budget-alert";
 import { cn } from "@/lib/utils";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -87,6 +90,12 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const { id } = await params;
   const { tab: tabParam } = await searchParams;
   const defaultTab = tabParam === "activity" ? "activity" : "overview";
+
+  const session = await getServerSession(authOptions);
+  if (sessionUserRole(session) === "member") {
+    redirect("/dashboard/tasks");
+  }
+
   const [projectResult, clientsResult, settingsResult] = await Promise.all([
     getProjectById(id),
     getClientsList(),
@@ -94,7 +103,11 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   ]);
 
   if (!projectResult.ok) {
-    if (projectResult.error === "Project not found" || projectResult.error === "Invalid project id") {
+    if (
+      projectResult.error === "Project not found" ||
+      projectResult.error === "Invalid project id" ||
+      projectResult.error === "Forbidden"
+    ) {
       notFound();
     }
     return (
@@ -176,7 +189,10 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         </BreadcrumbList>
       </Breadcrumb>
 
-      <ProjectCoverBanner projectId={id} coverImageUrl={project.coverImageUrl ?? null} />
+      <ProjectCoverBanner
+        projectId={id}
+        coverImageUrl={project.coverImageUrl ?? null}
+      />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
@@ -303,31 +319,31 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
           />
         </TabsContent>
         <TabsContent value="expenses" className="mt-4">
-          <ProjectExpensesTab
-            projectId={id}
-            projectName={project.name}
-            projectCoverImageUrl={project.coverImageUrl}
-            clientId={project.clientId}
-            clientCompanyName={project.clientName ?? ""}
-            clientLogoUrl={project.clientLogoUrl}
-            expenses={projectExpenses}
-            costSummary={costSummary}
-            teamMembers={teamMembers}
-          />
-        </TabsContent>
+            <ProjectExpensesTab
+              projectId={id}
+              projectName={project.name}
+              projectCoverImageUrl={project.coverImageUrl}
+              clientId={project.clientId}
+              clientCompanyName={project.clientName ?? ""}
+              clientLogoUrl={project.clientLogoUrl}
+              expenses={projectExpenses}
+              costSummary={costSummary}
+              teamMembers={teamMembers}
+            />
+          </TabsContent>
         <TabsContent value="invoices" className="mt-4">
-          <ProjectInvoicesTab
-            projectId={id}
-            invoices={invoices.map((inv) => ({
-              id: inv.id,
-              invoiceNumber: inv.invoiceNumber,
-              total: inv.total,
-              status: inv.status,
-              currency: inv.currency,
-            }))}
-            defaultCurrency={defaultCurrency}
-          />
-        </TabsContent>
+            <ProjectInvoicesTab
+              projectId={id}
+              invoices={invoices.map((inv) => ({
+                id: inv.id,
+                invoiceNumber: inv.invoiceNumber,
+                total: inv.total,
+                status: inv.status,
+                currency: inv.currency,
+              }))}
+              defaultCurrency={defaultCurrency}
+            />
+          </TabsContent>
         <TabsContent value="files" className="mt-4">
           <div className="rounded-lg border bg-card p-6">
             <FileManager projectId={id} initialFiles={initialFiles} />

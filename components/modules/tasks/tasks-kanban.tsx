@@ -17,7 +17,7 @@ import {
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TaskCard } from "./task-card";
-import { TASK_STATUS_LABELS_EN, TASK_STATUS_HEADER_CLASS } from "@/types";
+import { TASK_STATUS_LABELS_EN, TASK_STATUS_LABELS, TASK_STATUS_HEADER_CLASS } from "@/types";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithProject } from "@/actions/tasks";
@@ -70,6 +70,7 @@ type TasksKanbanProps = {
   onTaskStatusChange: (taskId: string, newStatus: KanbanStatus) => void | Promise<void>;
   /** When set, droppable ids include this scope (multiple boards on one page). */
   dndColumnScope?: string;
+  memberView?: boolean;
 };
 
 function KanbanDroppableColumn({
@@ -77,12 +78,16 @@ function KanbanDroppableColumn({
   count,
   onAddTask,
   dndColumnScope,
+  statusLabel,
+  addTaskLabel,
   children,
 }: {
   status: KanbanStatus;
   count: number;
   onAddTask: (status: KanbanStatus) => void;
   dndColumnScope?: string;
+  statusLabel: string;
+  addTaskLabel: string;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -111,7 +116,7 @@ function KanbanDroppableColumn({
                 status === "blocked" && "bg-red-500"
               )}
             />
-            <span className="font-semibold tracking-tight">{TASK_STATUS_LABELS_EN[status]}</span>
+            <span className="font-semibold tracking-tight">{statusLabel}</span>
             <span className="text-muted-foreground text-sm tabular-nums">({count})</span>
           </div>
         </CardHeader>
@@ -124,7 +129,7 @@ function KanbanDroppableColumn({
             onClick={() => onAddTask(status)}
           >
             <Plus className="h-4 w-4" />
-            + Add Task
+            {addTaskLabel}
           </Button>
         </CardContent>
       </Card>
@@ -137,11 +142,13 @@ function KanbanDraggableTask({
   assignees,
   onOpenTask,
   onDeleteTask,
+  memberView,
 }: {
   task: TaskWithProject;
   assignees: AssigneeForCard[];
   onOpenTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
+  memberView: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: taskDragId(task.id),
@@ -166,7 +173,8 @@ function KanbanDraggableTask({
       <TaskCard
         task={task}
         assignees={assignees}
-        copyLocale="en"
+        copyLocale={memberView ? "ar" : "en"}
+        hideProjectLink={memberView}
         onEdit={() => onOpenTask(task.id)}
         onDelete={() => onDeleteTask(task.id)}
       />
@@ -182,7 +190,10 @@ export function TasksKanban({
   onDeleteTask,
   onTaskStatusChange,
   dndColumnScope,
+  memberView = false,
 }: TasksKanbanProps) {
+  const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
+  const addTaskLabel = memberView ? "+ إضافة مهمة" : "+ Add Task";
   const [activeTask, setActiveTask] = React.useState<TaskWithProject | null>(null);
 
   const byStatus = React.useMemo(() => {
@@ -231,7 +242,7 @@ export function TasksKanban({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveTask(null)}
     >
-      <div dir="ltr" lang="en" className="flex gap-5 overflow-x-auto pb-2 pt-1">
+      <div className="flex gap-5 overflow-x-auto pb-2 pt-1">
         {KANBAN_STATUSES.map((status) => (
           <KanbanDroppableColumn
             key={status}
@@ -239,6 +250,8 @@ export function TasksKanban({
             count={byStatus[status].length}
             onAddTask={onAddTask}
             dndColumnScope={dndColumnScope}
+            statusLabel={statusLabels[status] ?? status}
+            addTaskLabel={addTaskLabel}
           >
             {byStatus[status].map((task) => (
               <KanbanDraggableTask
@@ -247,6 +260,7 @@ export function TasksKanban({
                 assignees={assigneesByTaskId[task.id] ?? []}
                 onOpenTask={onOpenTask}
                 onDeleteTask={onDeleteTask}
+                memberView={memberView}
               />
             ))}
           </KanbanDroppableColumn>
@@ -259,7 +273,8 @@ export function TasksKanban({
             <TaskCard
               task={activeTask}
               assignees={assigneesByTaskId[activeTask.id] ?? []}
-              copyLocale="en"
+              copyLocale={memberView ? "ar" : "en"}
+              hideProjectLink={memberView}
               onEdit={() => {}}
               onDelete={() => {}}
             />

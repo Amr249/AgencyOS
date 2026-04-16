@@ -63,6 +63,7 @@ const formSchema = z.object({
   teamMemberId: z.string().uuid().optional().nullable(),
   projectId: z.union([z.string().uuid(), z.null()]),
   clientId: z.union([z.string().uuid(), z.null()]),
+  serviceIds: z.array(z.string().uuid()).default([]),
   isBillable: z.boolean(),
 });
 
@@ -78,6 +79,7 @@ export type ExpenseDialogProject = {
   clientLogoUrl?: string | null;
 };
 export type ExpenseDialogClient = { id: string; companyName: string; logoUrl?: string | null };
+export type ExpenseDialogService = { id: string; name: string };
 
 type NewExpenseDialogProps = {
   open: boolean;
@@ -88,6 +90,7 @@ type NewExpenseDialogProps = {
   teamMembers?: TeamMemberOption[];
   projects?: ExpenseDialogProject[];
   clients?: ExpenseDialogClient[];
+  services?: ExpenseDialogService[];
   /** Pre-fill when adding an expense from a project (or other) context */
   defaultProjectId?: string;
   defaultClientId?: string;
@@ -106,6 +109,7 @@ export function NewExpenseDialog({
   teamMembers = [],
   projects = [],
   clients = [],
+  services: serviceOptions = [],
   defaultProjectId,
   defaultClientId,
 }: NewExpenseDialogProps) {
@@ -124,6 +128,7 @@ export function NewExpenseDialog({
       teamMemberId: null,
       projectId: null,
       clientId: null,
+      serviceIds: [],
       isBillable: false,
     },
   });
@@ -151,6 +156,7 @@ export function NewExpenseDialog({
         teamMemberId: expense.teamMemberId ?? null,
         projectId: expense.projectId ?? null,
         clientId: expense.clientId ?? null,
+        serviceIds: expense.serviceIds ?? [],
         isBillable: expense.isBillable ?? false,
       });
     } else if (open && !expense) {
@@ -164,6 +170,7 @@ export function NewExpenseDialog({
         teamMemberId: null,
         projectId: defaultProjectId ?? null,
         clientId: defaultClientId ?? null,
+        serviceIds: [],
         isBillable: false,
       });
     }
@@ -201,6 +208,7 @@ export function NewExpenseDialog({
       teamMemberId: values.teamMemberId ?? null,
       projectId: values.projectId ?? null,
       clientId: values.clientId ?? null,
+      serviceIds: values.serviceIds ?? [],
       isBillable: values.isBillable,
     };
     if (isEdit && expense) {
@@ -408,6 +416,38 @@ export function NewExpenseDialog({
                     <FormMessage />
                   </FormItem>
                 )}
+              />
+            )}
+            {form.watch("category") === "salaries" && serviceOptions.length > 0 && (
+              <FormField
+                control={form.control}
+                name="serviceIds"
+                render={({ field }) => {
+                  const selected = field.value ?? [];
+                  const toggle = (id: string) => {
+                    const next = selected.includes(id)
+                      ? selected.filter((s: string) => s !== id)
+                      : [...selected, id];
+                    field.onChange(next);
+                  };
+                  return (
+                    <FormItem>
+                      <FormLabel className="block text-left">Services Provided</FormLabel>
+                      <div className="rounded-md border p-3 space-y-2 max-h-40 overflow-y-auto">
+                        {serviceOptions.map((s) => (
+                          <label key={s.id} className="flex items-center gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={selected.includes(s.id)}
+                              onCheckedChange={() => toggle(s.id)}
+                            />
+                            <span className="text-sm">{s.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
             )}
             <FormField

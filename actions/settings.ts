@@ -15,6 +15,7 @@ import {
   type ChangePasswordInput,
   type SettingsRow,
 } from "@/lib/settings-schema";
+import { assertAdminSession } from "@/lib/auth-helpers";
 
 export async function getSettings() {
   try {
@@ -44,6 +45,13 @@ export async function updateAgencyProfile(input: AgencyProfileInput) {
   const parsed = agencyProfileSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
+  }
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return {
+      ok: false as const,
+      error: { _form: [gate.error === "forbidden" ? "Forbidden" : "Unauthorized"] },
+    };
   }
   const data = parsed.data;
   try {
@@ -83,6 +91,13 @@ export async function updateInvoiceDefaults(input: InvoiceDefaultsInput) {
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   }
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return {
+      ok: false as const,
+      error: { _form: [gate.error === "forbidden" ? "Forbidden" : "Unauthorized"] },
+    };
+  }
   const data = parsed.data;
   try {
     await ensureSettingsRow();
@@ -109,6 +124,13 @@ export async function updateBranding(input: BrandingInput) {
   const parsed = brandingSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
+  }
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return {
+      ok: false as const,
+      error: { _form: [gate.error === "forbidden" ? "Forbidden" : "Unauthorized"] },
+    };
   }
   const data = parsed.data;
   try {

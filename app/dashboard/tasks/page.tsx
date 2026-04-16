@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
 import { getTasks } from "@/actions/tasks";
 import { getProjects } from "@/actions/projects";
 import { getTeamMembers, getAssigneesForTaskIds } from "@/actions/assignments";
@@ -12,6 +15,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function TasksPage() {
+  const session = await getServerSession(authOptions);
+  const isMember = sessionUserRole(session) === "member";
+
   const [tasksResult, projectsResult, teamMembersResult] = await Promise.all([
     getTasks({}),
     getProjects({}),
@@ -34,7 +40,7 @@ export default async function TasksPage() {
   const assigneesByTaskId = assigneesResult.data ?? {};
 
   return (
-    <div className="flex flex-col gap-4" dir="ltr" lang="en">
+    <div className="flex flex-col gap-4">
       <TasksPageContent
         initialTasks={tasks}
         projects={projects.map((p) => ({
@@ -45,6 +51,7 @@ export default async function TasksPage() {
         }))}
         teamMembers={teamMembers}
         assigneesByTaskId={assigneesByTaskId}
+        memberView={isMember}
       />
     </div>
   );

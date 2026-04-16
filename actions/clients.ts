@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { getServerSession } from "next-auth";
 import { and, asc, count, eq, inArray, isNotNull, isNull, sum } from "drizzle-orm";
 import {
   db,
@@ -23,6 +24,8 @@ import {
 import { rollupRevenueByClient } from "@/lib/client-revenue-stats";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { logActivityWithActor } from "@/actions/activity-log";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
 
 export async function deleteClient(id: string) {
   const uuidSchema = z.string().uuid();
@@ -618,6 +621,11 @@ async function mergePipelinePotentialValue<T extends { id: string }>(
 /** Active and archived client rows with project counts and revenue rollups (payments + legacy paid). */
 export async function getAllClientsWithStats() {
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const [activeList, archivedList] = await Promise.all([
       db
         .select()
@@ -650,6 +658,11 @@ export async function getAllClientsWithStats() {
 
 export async function getClientsList() {
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const list = await db
       .select()
       .from(clients)
@@ -669,6 +682,11 @@ export async function getClientsList() {
 /** Active clients with project counts and assigned tags (for list / CRM views). */
 export async function getClientsWithTags() {
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const list = await db
       .select()
       .from(clients)
@@ -689,6 +707,11 @@ export async function getClientsWithTags() {
 /** All clients (active + archived) with tags and summed project budgets (pipeline potential value). */
 export async function getClientsForPipeline() {
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const list = await db
       .select()
       .from(clients)
@@ -708,6 +731,11 @@ export async function getClientsForPipeline() {
 
 export async function getArchivedClientsList() {
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const list = await db
       .select()
       .from(clients)
@@ -727,6 +755,11 @@ export async function getArchivedClientsList() {
 /** Archived clients with project counts and tags (for list UI). */
 export async function getArchivedClientsWithTags() {
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const list = await db
       .select()
       .from(clients)
@@ -783,6 +816,11 @@ export async function getClientById(id: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const [row] = await db
       .select()
       .from(clients)

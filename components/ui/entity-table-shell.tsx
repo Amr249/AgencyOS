@@ -29,7 +29,7 @@ export function EntityTableShell({
   footer,
   emptyState,
   isEmpty = false,
-  dir = "rtl",
+  dir,
   children,
 }: EntityTableShellProps) {
   return (

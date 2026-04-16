@@ -27,3 +27,6 @@ export async function getSarToEgpRate(): Promise<number> {
   }
   return FALLBACK_SAR_TO_EGP;
 }
+
+/** Formatted amount digits (no symbol). Pair with `SarCurrencyIcon` in UI. */
+export { formatAmount } from "./utils";

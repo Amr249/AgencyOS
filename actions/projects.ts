@@ -3,9 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { differenceInCalendarDays, parseISO, startOfDay } from "date-fns";
 import { z } from "zod";
+import { getServerSession } from "next-auth";
 import { eq, isNull, and, sql, asc, desc, inArray, gt } from "drizzle-orm";
 import { db, projects, clients, phases, tasks, projectMembers, expenses, timeLogs } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { authOptions } from "@/lib/auth";
+import { assertAdminSession, sessionUserRole } from "@/lib/auth-helpers";
+import { getMemberProjectIdsForUser, memberHasProjectAccess } from "@/lib/member-context";
 import { syncProjectServices } from "@/actions/project-services";
 import { logActivityWithActor } from "@/actions/activity-log";
 import {
@@ -26,6 +30,10 @@ const DEFAULT_PHASES = [
 ];
 
 export async function createProject(input: CreateProjectInput) {
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return { ok: false as const, error: { _form: ["Forbidden"] } };
+  }
   const parsed = createProjectSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
@@ -90,6 +98,10 @@ export async function createProject(input: CreateProjectInput) {
 }
 
 export async function updateProject(input: UpdateProjectInput) {
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return { ok: false as const, error: { _form: ["Forbidden"] } };
+  }
   const parsed = updateProjectSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
@@ -142,6 +154,10 @@ export async function updateProject(input: UpdateProjectInput) {
 }
 
 export async function updateProjectNotes(projectId: string, notes: string | null) {
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return { ok: false as const, error: "Forbidden" };
+  }
   const idParsed = z.string().uuid().safeParse(projectId);
   if (!idParsed.success) {
     return { ok: false as const, error: "Invalid project id" };
@@ -165,6 +181,10 @@ export async function updateProjectNotes(projectId: string, notes: string | null
 }
 
 export async function deleteProject(id: string) {
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return { ok: false as const, error: "Forbidden" };
+  }
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) {
     return { ok: false as const, error: "Invalid project id" };
@@ -201,6 +221,10 @@ export async function deleteProject(id: string) {
 }
 
 export async function deleteProjects(ids: string[]) {
+  const gate = await assertAdminSession();
+  if (!gate.ok) {
+    return { ok: false as const, error: "Forbidden" };
+  }
   const parsed = z.array(z.string().uuid()).safeParse(ids);
   if (!parsed.success || ids.length === 0) {
     return { ok: false as const, error: "Invalid project ids" };
@@ -228,7 +252,22 @@ export async function getProjects(filters?: {
   search?: string;
 }) {
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    const role = sessionUserRole(session);
+    if (!userId) return { ok: false as const, error: "Unauthorized" };
+    if (role !== "admin" && role !== "member") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const conditions = [isNull(projects.deletedAt)];
+    if (role === "member") {
+      const memberIds = await getMemberProjectIdsForUser(userId);
+      if (memberIds.length === 0) {
+        return { ok: true as const, data: [] };
+      }
+      conditions.push(inArray(projects.id, memberIds));
+    }
     if (filters?.status && filters.status !== "all") {
       conditions.push(eq(projects.status, filters.status as (typeof projects.$inferSelect)["status"]));
     }
@@ -277,6 +316,28 @@ export async function getProjectsByClientId(clientId: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    const role = sessionUserRole(session);
+    if (!userId) return { ok: false as const, error: "Unauthorized" };
+    if (role !== "admin" && role !== "member") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
+    const memberProjectIds =
+      role === "member" ? await getMemberProjectIdsForUser(userId) : null;
+    if (role === "member" && (!memberProjectIds || memberProjectIds.length === 0)) {
+      return { ok: true as const, data: [] };
+    }
+
+    const byClientConditions = [
+      eq(projects.clientId, parsed.data),
+      isNull(projects.deletedAt),
+    ];
+    if (memberProjectIds && memberProjectIds.length > 0) {
+      byClientConditions.push(inArray(projects.id, memberProjectIds));
+    }
+
     const rows = await db
       .select({
         id: projects.id,
@@ -295,7 +356,7 @@ export async function getProjectsByClientId(clientId: string) {
       })
       .from(projects)
       .innerJoin(clients, eq(projects.clientId, clients.id))
-      .where(and(eq(projects.clientId, parsed.data), isNull(projects.deletedAt)))
+      .where(and(...byClientConditions))
       .orderBy(desc(projects.createdAt));
     return { ok: true as const, data: rows };
   } catch (e) {
@@ -352,6 +413,18 @@ export async function getProjectById(id: string) {
     if (!row || row.project.deletedAt) {
       return { ok: false as const, error: "Project not found" };
     }
+
+    const session = await getServerSession(authOptions);
+    const uid = session?.user?.id;
+    if (sessionUserRole(session) === "member" && uid) {
+      const allowed = await memberHasProjectAccess(uid, parsed.data);
+      if (!allowed) {
+        return { ok: false as const, error: "Forbidden" };
+      }
+    } else if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const projectPhases = await db
       .select()
       .from(phases)
@@ -443,6 +516,11 @@ export async function getProjectBudgetSummary(projectId: string) {
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
   try {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+
     const [proj] = await db
       .select({
         budget: projects.budget,
@@ -564,6 +642,8 @@ export async function updatePhaseStatus(
   phaseId: string,
   status: (typeof phaseStatusValues)[number]
 ) {
+  const gate = await assertAdminSession();
+  if (!gate.ok) return { ok: false as const, error: "Forbidden" };
   const idParsed = z.string().uuid().safeParse(phaseId);
   if (!idParsed.success) return { ok: false as const, error: "Invalid phase id" };
   try {

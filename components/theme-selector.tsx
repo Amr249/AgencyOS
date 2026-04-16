@@ -4,22 +4,22 @@ import { useTheme } from "next-themes";
 import { Moon, Sun, Monitor } from "lucide-react";
 
 const options = [
-  { value: "light" as const, label: "فاتح", icon: Sun },
-  { value: "dark" as const, label: "داكن", icon: Moon },
-  { value: "system" as const, label: "تلقائي", icon: Monitor },
+  { value: "light" as const, label: "Light", icon: Sun },
+  { value: "dark" as const, label: "Dark", icon: Moon },
+  { value: "system" as const, label: "System", icon: Monitor },
 ];
 
 export function ThemeSelector() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="flex gap-3 justify-end flex-wrap" dir="rtl">
+    <div className="flex flex-wrap gap-3">
       {options.map(({ value, label, icon: Icon }) => (
         <button
           key={value}
           type="button"
           onClick={() => setTheme(value)}
-          className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer w-28
+          className={`flex w-28 cursor-pointer flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all
             ${theme === value
               ? "border-primary bg-primary/10"
               : "border-border hover:border-primary/50"

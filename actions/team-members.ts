@@ -2,10 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { getServerSession } from "next-auth";
 import { eq, and, inArray, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teamMembers, projectMembers } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { authOptions } from "@/lib/auth";
+import { assertAdminSession, sessionUserRole } from "@/lib/auth-helpers";
+import { getMemberProjectIdsForUser, memberHasProjectAccess } from "@/lib/member-context";
 
 export type TeamMemberRow = {
   id: string;
@@ -31,29 +35,69 @@ export async function getTeamMembers(): Promise<
   { ok: true; data: TeamMemberRow[] } | { ok: false; error: string }
 > {
   try {
-    const rows = await db
-      .select({
-        id: teamMembers.id,
-        name: teamMembers.name,
-        role: teamMembers.role,
-        avatarUrl: teamMembers.avatarUrl,
-        email: teamMembers.email,
-        status: teamMembers.status,
-      })
-      .from(teamMembers)
-      .where(eq(teamMembers.status, "active"))
-      .orderBy(asc(teamMembers.name));
-    return {
-      ok: true,
-      data: rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        role: r.role,
-        avatarUrl: r.avatarUrl,
-        email: r.email,
-        status: r.status,
-      })),
-    };
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    const role = sessionUserRole(session);
+    if (!userId) return { ok: false, error: "Unauthorized" };
+
+    if (role === "admin") {
+      const rows = await db
+        .select({
+          id: teamMembers.id,
+          name: teamMembers.name,
+          role: teamMembers.role,
+          avatarUrl: teamMembers.avatarUrl,
+          email: teamMembers.email,
+          status: teamMembers.status,
+        })
+        .from(teamMembers)
+        .where(eq(teamMembers.status, "active"))
+        .orderBy(asc(teamMembers.name));
+      return {
+        ok: true,
+        data: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          role: r.role,
+          avatarUrl: r.avatarUrl,
+          email: r.email,
+          status: r.status,
+        })),
+      };
+    }
+
+    if (role === "member") {
+      const projectIds = await getMemberProjectIdsForUser(userId);
+      if (projectIds.length === 0) {
+        return { ok: true, data: [] };
+      }
+      const rows = await db
+        .selectDistinct({
+          id: teamMembers.id,
+          name: teamMembers.name,
+          role: teamMembers.role,
+          avatarUrl: teamMembers.avatarUrl,
+          email: teamMembers.email,
+          status: teamMembers.status,
+        })
+        .from(projectMembers)
+        .innerJoin(teamMembers, eq(projectMembers.teamMemberId, teamMembers.id))
+        .where(and(inArray(projectMembers.projectId, projectIds), eq(teamMembers.status, "active")))
+        .orderBy(asc(teamMembers.name));
+      return {
+        ok: true,
+        data: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          role: r.role,
+          avatarUrl: r.avatarUrl,
+          email: r.email,
+          status: r.status,
+        })),
+      };
+    }
+
+    return { ok: false, error: "Forbidden" };
   } catch (e) {
     console.error("getTeamMembers", e);
     if (isDbConnectionError(e)) {
@@ -70,6 +114,17 @@ export async function getProjectMembers(projectId: string): Promise<
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false, error: "Invalid project id" };
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    const role = sessionUserRole(session);
+    if (!userId) return { ok: false, error: "Unauthorized" };
+    if (role === "member") {
+      const allowed = await memberHasProjectAccess(userId, parsed.data);
+      if (!allowed) return { ok: false, error: "Forbidden" };
+    } else if (role !== "admin") {
+      return { ok: false, error: "Forbidden" };
+    }
+
     const rows = await db
       .select({
         id: projectMembers.id,
@@ -147,6 +202,8 @@ export async function assignMemberToProject(
   teamMemberId: string,
   roleOnProject?: string | null
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const gate = await assertAdminSession();
+  if (!gate.ok) return { ok: false, error: "Forbidden" };
   const pParsed = z.string().uuid().safeParse(projectId);
   const mParsed = z.string().uuid().safeParse(teamMemberId);
   if (!pParsed.success || !mParsed.success) return { ok: false, error: "Invalid id" };
@@ -172,6 +229,8 @@ export async function removeMemberFromProject(
   projectId: string,
   projectMemberId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const gate = await assertAdminSession();
+  if (!gate.ok) return { ok: false, error: "Forbidden" };
   const pParsed = z.string().uuid().safeParse(projectId);
   const pmParsed = z.string().uuid().safeParse(projectMemberId);
   if (!pParsed.success || !pmParsed.success) return { ok: false, error: "Invalid id" };
