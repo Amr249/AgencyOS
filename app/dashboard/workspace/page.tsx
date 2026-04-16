@@ -6,6 +6,7 @@ import { getTasks } from "@/actions/tasks";
 import { getProjects } from "@/actions/projects";
 import { getTeamMembers, getAssigneesForTaskIds } from "@/actions/assignments";
 import { TasksPageContent } from "@/components/modules/tasks/tasks-page-content";
+import { getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
@@ -17,6 +18,12 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function TasksPage() {
   const session = await getServerSession(authOptions);
   const isMember = sessionUserRole(session) === "member";
+
+  let memberTeamMemberId: string | null = null;
+  if (isMember && session?.user?.id) {
+    const ids = await getTeamMemberIdsForSessionUser(session.user.id);
+    memberTeamMemberId = ids[0] ?? null;
+  }
 
   const [tasksResult, projectsResult, teamMembersResult] = await Promise.all([
     getTasks({}),
@@ -52,6 +59,7 @@ export default async function TasksPage() {
         teamMembers={teamMembers}
         assigneesByTaskId={assigneesByTaskId}
         memberView={isMember}
+        memberTeamMemberId={memberTeamMemberId}
       />
     </div>
   );

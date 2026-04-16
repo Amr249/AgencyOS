@@ -63,6 +63,8 @@ type TasksPageContentProps = {
   teamMembers: TeamMember[];
   assigneesByTaskId: Record<string, AssigneeForCard[]>;
   memberView?: boolean;
+  /** Logged-in member's team_member id (workspace only). Used for self-assigned new tasks. */
+  memberTeamMemberId?: string | null;
 };
 
 const PRIORITY_OPTIONS_EN = [
@@ -161,6 +163,7 @@ export function TasksPageContent({
   teamMembers,
   assigneesByTaskId,
   memberView = false,
+  memberTeamMemberId = null,
 }: TasksPageContentProps) {
   const router = useRouter();
   const translateErr = useTranslateActionError();
@@ -495,6 +498,8 @@ export function TasksPageContent({
         }))}
         defaultStatus={newTaskDefaultStatus}
         onSuccess={refetch}
+        memberView={memberView}
+        memberTeamMemberId={memberTeamMemberId}
       />
 
       <TaskDetailModal
