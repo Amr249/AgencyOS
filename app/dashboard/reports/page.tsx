@@ -16,6 +16,8 @@ import {
 import { getTeamCostBreakdownThisMonth } from "@/actions/expenses";
 import { getSarToEgpRate } from "@/lib/currency";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { ExternalLink } from "lucide-react";
 import { ProductivityReportsTab } from "@/components/reports/productivity-reports-tab";
 import { ReportsFinancialTab } from "@/app/dashboard/reports/reports-financial-tab";
 
@@ -91,7 +93,15 @@ export default async function ReportsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6 text-left" dir="ltr">
-      <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
+        <Link href="/dashboard/proposals/mostaql-reports">
+          <Button variant="outline">
+            <ExternalLink className="me-2 h-4 w-4" />
+            Mostaql market reports
+          </Button>
+        </Link>
+      </div>
 
       <Tabs defaultValue="financial" className="w-full">
         <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap max-w-full md:grid md:max-w-md md:grid-cols-2" dir="ltr">

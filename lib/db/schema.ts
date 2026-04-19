@@ -597,6 +597,68 @@ export const proposalServices = pgTable(
   ]
 );
 
+/**
+ * Mostaql market scrape runs — one row per scrape job triggered from
+ * /dashboard/proposals/mostaql-reports. Tracks progress + outcome.
+ */
+export const mostaqlScrapeRuns = pgTable(
+  "mostaql_scrape_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** running | success | partial | failed */
+    status: text("status").notNull().default("running"),
+    pagesRequested: integer("pages_requested").notNull().default(1),
+    pagesFetched: integer("pages_fetched").notNull().default(0),
+    projectsFound: integer("projects_found").notNull().default(0),
+    projectsSaved: integer("projects_saved").notNull().default(0),
+    /** Categories filter applied (slugs). */
+    categoriesJson: jsonb("categories_json").$type<string[]>().notNull().default([]),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("mostaql_scrape_runs_started_at_idx").on(table.startedAt),
+    index("mostaql_scrape_runs_status_idx").on(table.status),
+  ]
+);
+
+/** Scraped Mostaql project rows — one per project per scrape run. */
+export const mostaqlProjects = pgTable(
+  "mostaql_projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => mostaqlScrapeRuns.id, { onDelete: "cascade" }),
+    /** Numeric Mostaql project id parsed from the URL (e.g. "1231393"). */
+    mostaqlId: text("mostaql_id"),
+    url: text("url").notNull(),
+    title: text("title"),
+    category: text("category"),
+    subcategory: text("subcategory"),
+    budgetMin: numeric("budget_min", { precision: 12, scale: 2 }),
+    budgetMax: numeric("budget_max", { precision: 12, scale: 2 }),
+    /** SAR or USD. */
+    currency: text("currency"),
+    description: text("description"),
+    skillsTags: jsonb("skills_tags").$type<string[]>().notNull().default([]),
+    clientName: text("client_name"),
+    clientUrl: text("client_url"),
+    offersCount: integer("offers_count"),
+    /** open | closed | unknown */
+    projectStatus: text("project_status"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    durationDays: integer("duration_days"),
+    scrapedAt: timestamp("scraped_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("mostaql_projects_run_id_idx").on(table.runId),
+    index("mostaql_projects_mostaql_id_idx").on(table.mostaqlId),
+    uniqueIndex("mostaql_projects_run_project_unique").on(table.runId, table.mostaqlId),
+  ]
+);
+
 // expenses
 export const expenses = pgTable("expenses", {
   id: uuid("id").primaryKey().defaultRandom(),

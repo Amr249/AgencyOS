@@ -12,6 +12,7 @@ import {
 import { format } from "date-fns";
 import { arSA, enUS } from "date-fns/locale";
 import type { Locale } from "date-fns";
+import type { Matcher } from "react-day-picker";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,8 @@ interface DatePickerArProps {
   direction?: "rtl" | "ltr";
   locale?: Locale;
   popoverAlign?: "start" | "center" | "end";
+  /** Passed to the underlying Calendar (e.g. `{ after: endDate }` for a start field). */
+  calendarDisabled?: Matcher | Matcher[];
 }
 
 export function DatePickerAr({
@@ -35,6 +38,7 @@ export function DatePickerAr({
   direction,
   locale: localeProp,
   popoverAlign = "end",
+  calendarDisabled,
 }: DatePickerArProps) {
   const appLocale = useLocale();
   const isAr = appLocale === "ar";
@@ -72,6 +76,7 @@ export function DatePickerAr({
           defaultMonth={value}
           dir={dir}
           locale={dateFnsLocale}
+          disabled={calendarDisabled}
           initialFocus
         />
       </PopoverContent>
