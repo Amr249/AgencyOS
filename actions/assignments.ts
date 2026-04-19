@@ -7,9 +7,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { isDbConnectionError } from "@/lib/db-errors";
-import { getTeamMemberIdsForSessionUser } from "@/lib/member-context";
+import { getTeamMemberIdsForSessionUser, memberMayViewTaskById } from "@/lib/member-context";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getTeamMembers as loadTeamMembersForSession } from "@/actions/team-members";
+import { notifyTaskAssigned } from "@/actions/notifications";
 
 // ── Active team members (assignee picker; scoped for members) ──────────────────
 export async function getTeamMembers() {
@@ -63,6 +64,12 @@ export async function assignTask(taskId: string, teamMemberId: string) {
       taskId,
       teamMemberId,
       assignedBy: session.user.id,
+    });
+
+    await notifyTaskAssigned({
+      taskId,
+      teamMemberId,
+      actorUserId: session.user.id,
     });
 
     revalidatePath("/dashboard");
@@ -160,6 +167,20 @@ export async function getMyTasks() {
 // ── Get all assignees for a specific task (junction rows; userId = team_member id for UI compat) ──
 export async function getTaskAssignees(taskId: string) {
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (!userId) {
+      return { data: null, error: "Not authorized." };
+    }
+    if (sessionUserRole(session) === "member") {
+      const ok = await memberMayViewTaskById(taskId, userId);
+      if (!ok) {
+        return { data: null, error: "Forbidden." };
+      }
+    } else if (sessionUserRole(session) !== "admin") {
+      return { data: null, error: "Forbidden." };
+    }
+
     const assignees = await db
       .select({
         userId: teamMembers.id,

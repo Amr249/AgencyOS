@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   projectMembers,
@@ -12,6 +12,38 @@ import {
 function normEmail(e: string | null | undefined): string | null {
   const s = (e ?? "").trim().toLowerCase();
   return s.length ? s : null;
+}
+
+/**
+ * Reverse of `getTeamMemberIdsForSessionUser`: given a `team_members.id`, find the
+ * matching `users.id` so we can address them in tables keyed on the auth user
+ * (e.g. `notifications.user_id`).
+ *
+ * Resolution order:
+ * 1) explicit `team_members.user_id` FK
+ * 2) legacy: `team_members.email` equals some `users.email` (case/whitespace insensitive)
+ *
+ * Returns `null` if the team member has no linkable login (e.g. a contractor
+ * who was added to the roster but never invited).
+ */
+export async function resolveUserIdForTeamMember(teamMemberId: string): Promise<string | null> {
+  const [member] = await db
+    .select({ userId: teamMembers.userId, email: teamMembers.email })
+    .from(teamMembers)
+    .where(eq(teamMembers.id, teamMemberId))
+    .limit(1);
+  if (!member) return null;
+  if (member.userId) return member.userId;
+
+  const em = normEmail(member.email);
+  if (!em) return null;
+
+  const [userRow] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(sql`lower(trim(coalesce(${users.email}, ''))) = ${em}`)
+    .limit(1);
+  return userRow?.id ?? null;
 }
 
 /**
@@ -146,4 +178,53 @@ export async function memberIsAssignedToTask(taskId: string, userId: string): Pr
   }
 
   return false;
+}
+
+/** Walk `parent_task_id` until the root task (for any depth). */
+export async function findRootTaskId(taskId: string): Promise<string | null> {
+  let current: string | null = taskId;
+  const visited = new Set<string>();
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    const [row] = await db
+      .select({ parentTaskId: tasks.parentTaskId })
+      .from(tasks)
+      .where(eq(tasks.id, current))
+      .limit(1);
+    if (!row) return null;
+    if (row.parentTaskId == null) return current;
+    current = row.parentTaskId;
+  }
+  return null;
+}
+
+/**
+ * True if this user is assigned to the root or any descendant subtask (same rules as
+ * `memberIsAssignedToTask` per node).
+ */
+export async function memberIsAssignedInTaskTree(rootTaskId: string, userId: string): Promise<boolean> {
+  if (await memberIsAssignedToTask(rootTaskId, userId)) return true;
+  let frontier = [rootTaskId];
+  const seen = new Set<string>([rootTaskId]);
+  while (frontier.length > 0) {
+    const children = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(inArray(tasks.parentTaskId, frontier), isNull(tasks.deletedAt)));
+    frontier = [];
+    for (const c of children) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      if (await memberIsAssignedToTask(c.id, userId)) return true;
+      frontier.push(c.id);
+    }
+  }
+  return false;
+}
+
+/** Member may open this task in the UI if they have an assignment anywhere in its root tree. */
+export async function memberMayViewTaskById(taskId: string, userId: string): Promise<boolean> {
+  const rootId = await findRootTaskId(taskId);
+  if (!rootId) return false;
+  return memberIsAssignedInTaskTree(rootId, userId);
 }

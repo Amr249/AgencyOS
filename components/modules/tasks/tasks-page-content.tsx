@@ -22,15 +22,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { getTasks, deleteTask, updateTaskStatus } from "@/actions/tasks";
+import { getAssigneesForTaskIds } from "@/actions/assignments";
 import { toast } from "sonner";
 import type { TaskWithProject, GetTasksFilters } from "@/actions/tasks";
 import { TasksKanban, type KanbanStatus } from "./tasks-kanban";
 import { TasksListView } from "./tasks-list-view";
 import { TasksCalendarView } from "./tasks-calendar-view";
-import { TasksTimesheetView } from "./tasks-timesheet-view";
 import { NewTaskModal } from "./new-task-modal";
 import { TaskDetailModal } from "./task-detail-modal";
-import { CalendarDays, ClipboardList, LayoutGrid, List, Plus, Users } from "lucide-react";
+import { CalendarDays, LayoutGrid, List, Plus, Users, X } from "lucide-react";
 import { useTranslateActionError } from "@/hooks/use-translate-action-error";
 import { isDbErrorKey } from "@/lib/i18n-errors";
 import { TASK_STATUS_LABELS_EN, TASK_PRIORITY_LABELS_EN } from "@/types";
@@ -40,6 +40,9 @@ import {
   ProjectSelectOptionRow,
   type ProjectPickerOption,
 } from "@/components/entity-select-option";
+import { DateRangePickerAr } from "@/components/ui/date-picker-ar";
+import { formatCalendarDate } from "@/lib/calendar-date";
+import type { DateRange } from "react-day-picker";
 
 type ProjectOption = ProjectPickerOption;
 
@@ -146,7 +149,6 @@ const TASKS_AR = {
   kanban: "كانبان",
   list: "قائمة",
   calendar: "تقويم",
-  timesheet: "جدول الساعات",
   newTask: "مهمة جديدة",
   searchPlaceholder: "البحث باسم المهمة",
   allProjects: "جميع المشاريع",
@@ -155,13 +157,16 @@ const TASKS_AR = {
   deleteDesc: "سيتم حذف المهمة. لا يمكن التراجع عن هذا الإجراء.",
   cancel: "إلغاء",
   delete: "حذف",
+  dueRange: "مدى تاريخ الاستحقاق",
+  dueRangePlaceholder: "اختر البداية والنهاية",
+  clearDates: "مسح التواريخ",
 };
 
 export function TasksPageContent({
   initialTasks,
   projects,
   teamMembers,
-  assigneesByTaskId,
+  assigneesByTaskId: initialAssigneesByTaskId,
   memberView = false,
   memberTeamMemberId = null,
 }: TasksPageContentProps) {
@@ -169,20 +174,40 @@ export function TasksPageContent({
   const translateErr = useTranslateActionError();
 
   const [tasks, setTasks] = React.useState<TaskWithProject[]>(initialTasks);
-  const [viewMode, setViewMode] = React.useState<
-    "kanban" | "list" | "calendar" | "timesheet"
-  >("kanban");
+  const [assigneesByTaskId, setAssigneesByTaskId] =
+    React.useState<Record<string, AssigneeForCard[]>>(initialAssigneesByTaskId);
+  const [viewMode, setViewMode] = React.useState<"kanban" | "list" | "calendar">("kanban");
   const [search, setSearch] = React.useState("");
   const [projectFilter, setProjectFilter] = React.useState<string>("all");
   const [priorityFilter, setPriorityFilter] = React.useState<string>("all");
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [memberFilter, setMemberFilter] = React.useState<string>("all");
+  const [dueRange, setDueRange] = React.useState<DateRange | undefined>(undefined);
   const [newTaskOpen, setNewTaskOpen] = React.useState(false);
   const [newTaskDefaultStatus, setNewTaskDefaultStatus] = React.useState<
     "todo" | "in_progress" | "in_review" | "done" | "blocked"
   >("todo");
   const [taskDetailId, setTaskDetailId] = React.useState<string | null>(null);
   const [taskIdToDelete, setTaskIdToDelete] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setAssigneesByTaskId(initialAssigneesByTaskId);
+  }, [initialAssigneesByTaskId]);
+
+  React.useEffect(() => {
+    if (memberView) setMemberFilter("all");
+  }, [memberView]);
+
+  const syncAssigneesForTasks = React.useCallback((taskList: TaskWithProject[]) => {
+    const ids = taskList.map((t) => t.id);
+    if (ids.length === 0) {
+      setAssigneesByTaskId({});
+      return;
+    }
+    getAssigneesForTaskIds(ids).then((res) => {
+      if (res.data) setAssigneesByTaskId(res.data);
+    });
+  }, []);
 
   const refetch = React.useCallback(() => {
     getTasks({
@@ -191,11 +216,28 @@ export function TasksPageContent({
       priority: priorityFilter === "all" || !priorityFilter ? undefined : priorityFilter,
       status: statusFilter === "all" || !statusFilter ? undefined : statusFilter,
       teamMemberId: memberFilter === "all" ? undefined : memberFilter,
+      dueDateFrom: dueRange?.from ? formatCalendarDate(dueRange.from) : undefined,
+      dueDateTo: dueRange?.to ? formatCalendarDate(dueRange.to) : undefined,
     } as GetTasksFilters).then((res) => {
-      if (res.ok) setTasks(res.data);
+      if (res.ok) {
+        setTasks(res.data);
+        syncAssigneesForTasks(res.data);
+      }
     });
     router.refresh();
-  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter, router]);
+  }, [
+    search,
+    projectFilter,
+    priorityFilter,
+    statusFilter,
+    memberFilter,
+    dueRange,
+    router,
+    syncAssigneesForTasks,
+  ]);
+
+  const dueFromKey = dueRange?.from ? formatCalendarDate(dueRange.from) : "";
+  const dueToKey = dueRange?.to ? formatCalendarDate(dueRange.to) : "";
 
   const filtersRef = React.useRef({
     search,
@@ -203,6 +245,8 @@ export function TasksPageContent({
     priorityFilter,
     statusFilter,
     memberFilter,
+    dueFromKey,
+    dueToKey,
   });
   React.useEffect(() => {
     const prev = filtersRef.current;
@@ -211,8 +255,18 @@ export function TasksPageContent({
       prev.projectFilter === projectFilter &&
       prev.priorityFilter === priorityFilter &&
       prev.statusFilter === statusFilter &&
-      prev.memberFilter === memberFilter;
-    filtersRef.current = { search, projectFilter, priorityFilter, statusFilter, memberFilter };
+      prev.memberFilter === memberFilter &&
+      prev.dueFromKey === dueFromKey &&
+      prev.dueToKey === dueToKey;
+    filtersRef.current = {
+      search,
+      projectFilter,
+      priorityFilter,
+      statusFilter,
+      memberFilter,
+      dueFromKey,
+      dueToKey,
+    };
     if (same) return;
     getTasks({
       search: search.trim() || undefined,
@@ -220,10 +274,15 @@ export function TasksPageContent({
       priority: priorityFilter === "all" || !priorityFilter ? undefined : priorityFilter,
       status: statusFilter === "all" || !statusFilter ? undefined : statusFilter,
       teamMemberId: memberFilter === "all" ? undefined : memberFilter,
+      dueDateFrom: dueRange?.from ? formatCalendarDate(dueRange.from) : undefined,
+      dueDateTo: dueRange?.to ? formatCalendarDate(dueRange.to) : undefined,
     } as GetTasksFilters).then((res) => {
-      if (res.ok) setTasks(res.data);
+      if (res.ok) {
+        setTasks(res.data);
+        syncAssigneesForTasks(res.data);
+      }
     });
-  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter]);
+  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter, dueFromKey, dueToKey, syncAssigneesForTasks]);
 
   const sortedTeamMembers = React.useMemo(
     () => [...teamMembers].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })),
@@ -258,9 +317,9 @@ export function TasksPageContent({
         toast.error(isDbErrorKey(err) ? translateErr(err) : err || "Could not update status");
         return;
       }
-      toast.success("Status updated");
+      toast.success(memberView ? "تم تحديث الحالة" : "Status updated");
     },
-    [tasks, translateErr]
+    [tasks, translateErr, memberView]
   );
 
   const confirmDelete = () => {
@@ -326,15 +385,6 @@ export function TasksPageContent({
             <CalendarDays className="me-1 h-4 w-4" />
             {memberView ? TASKS_AR.calendar : "Calendar"}
           </Button>
-          <Button
-            variant={viewMode === "timesheet" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("timesheet")}
-            title={memberView ? TASKS_AR.timesheet : "Timesheet"}
-          >
-            <ClipboardList className="me-1 h-4 w-4" />
-            {memberView ? TASKS_AR.timesheet : "Timesheet"}
-          </Button>
           <Button onClick={() => handleAddTask()}>
             <Plus className="me-1 h-4 w-4" />
             {memberView ? TASKS_AR.newTask : "New task"}
@@ -387,51 +437,83 @@ export function TasksPageContent({
             ))}
           </SelectContent>
         </Select>
-        <Select value={memberFilter} onValueChange={setMemberFilter}>
-          <SelectTrigger
-            className="w-full min-w-0 sm:min-w-[200px] sm:max-w-[260px]"
-            aria-label={memberView ? "تصفية حسب العضو" : "Filter by team member"}
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-2 text-start">
-              {memberFilter === "all" ? (
-                <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
-                  <Users className="h-4 w-4 shrink-0" aria-hidden />
-                </span>
-              ) : selectedMemberForFilter ? (
-                <Avatar className="h-7 w-7 shrink-0">
-                  <AvatarImage src={selectedMemberForFilter.avatarUrl ?? undefined} alt="" />
-                  <AvatarFallback className="text-[10px]">
-                    {memberInitials(selectedMemberForFilter.name || selectedMemberForFilter.email || "?")}
-                  </AvatarFallback>
-                </Avatar>
-              ) : (
-                <span className="bg-muted flex h-7 w-7 shrink-0 rounded-full" aria-hidden />
-              )}
-              <span className="truncate">{memberFilterLabel}</span>
-            </span>
-          </SelectTrigger>
-          <SelectContent dir={dir}>
-            <SelectItem value="all" textValue={memberView ? TASKS_AR.allMembers : "All members"}>
-              <span className="inline-flex min-w-0 max-w-full items-center gap-2">
-                <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
-                  <Users className="h-4 w-4 shrink-0" aria-hidden />
-                </span>
-                <span className="min-w-0 truncate">{memberView ? TASKS_AR.allMembers : "All members"}</span>
-              </span>
-            </SelectItem>
-            {sortedTeamMembers.map((m) => (
-              <SelectItem key={m.id} value={m.id} textValue={m.name || m.email || m.id}>
-                <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+        {!memberView ? (
+          <Select value={memberFilter} onValueChange={setMemberFilter}>
+            <SelectTrigger
+              className="w-full min-w-0 sm:min-w-[200px] sm:max-w-[260px]"
+              aria-label="Filter by team member"
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+                {memberFilter === "all" ? (
+                  <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+                    <Users className="h-4 w-4 shrink-0" aria-hidden />
+                  </span>
+                ) : selectedMemberForFilter ? (
                   <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
-                    <AvatarFallback className="text-[10px]">{memberInitials(m.name || m.email || "?")}</AvatarFallback>
+                    <AvatarImage src={selectedMemberForFilter.avatarUrl ?? undefined} alt="" />
+                    <AvatarFallback className="text-[10px]">
+                      {memberInitials(selectedMemberForFilter.name || selectedMemberForFilter.email || "?")}
+                    </AvatarFallback>
                   </Avatar>
-                  <span className="min-w-0 truncate">{m.name || m.email || m.id}</span>
+                ) : (
+                  <span className="bg-muted flex h-7 w-7 shrink-0 rounded-full" aria-hidden />
+                )}
+                <span className="truncate">{memberFilterLabel}</span>
+              </span>
+            </SelectTrigger>
+            <SelectContent dir={dir}>
+              <SelectItem value="all" textValue="All members">
+                <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+                  <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+                    <Users className="h-4 w-4 shrink-0" aria-hidden />
+                  </span>
+                  <span className="min-w-0 truncate">All members</span>
                 </span>
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              {sortedTeamMembers.map((m) => (
+                <SelectItem key={m.id} value={m.id} textValue={m.name || m.email || m.id}>
+                  <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+                    <Avatar className="h-7 w-7 shrink-0">
+                      <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
+                      <AvatarFallback className="text-[10px]">{memberInitials(m.name || m.email || "?")}</AvatarFallback>
+                    </Avatar>
+                    <span className="min-w-0 truncate">{m.name || m.email || m.id}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {(viewMode === "kanban" || viewMode === "list") && (
+          <div className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-xs">
+              {memberView ? TASKS_AR.dueRange : "Due date range"}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <DateRangePickerAr
+                direction={dir}
+                popoverAlign={memberView ? "end" : "start"}
+                className="w-full min-w-0 sm:w-72"
+                value={dueRange}
+                onChange={setDueRange}
+                placeholder={memberView ? TASKS_AR.dueRangePlaceholder : "Pick start & end dates"}
+                numberOfMonths={2}
+              />
+              {dueRange?.from && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 shrink-0"
+                  onClick={() => setDueRange(undefined)}
+                >
+                  <X className="me-1 h-4 w-4" />
+                  {memberView ? TASKS_AR.clearDates : "Clear"}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
         {(viewMode === "list" || viewMode === "calendar") && (
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full sm:w-[140px]">
@@ -472,16 +554,9 @@ export function TasksPageContent({
           onAssigneesRefresh={refetch}
           memberView={memberView}
         />
-      ) : viewMode === "calendar" ? (
+      ) : (
         <TasksCalendarView
           tasks={tasks}
-          onOpenTask={setTaskDetailId}
-          memberView={memberView}
-        />
-      ) : (
-        <TasksTimesheetView
-          tasks={tasks}
-          assigneesByTaskId={assigneesByTaskId}
           onOpenTask={setTaskDetailId}
           memberView={memberView}
         />

@@ -6,7 +6,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { notifications, users } from "@/lib/db/schema";
+import { notifications, projects, tasks, users } from "@/lib/db/schema";
+import { resolveUserIdForTeamMember } from "@/lib/member-context";
 
 export type NotificationRow = {
   id: string;
@@ -85,6 +86,70 @@ export async function notifyUserAndAdmins(input: {
     linkUrl: input.linkUrl ?? null,
     actorId: input.actorId,
   });
+}
+
+/**
+ * Notify a team member that they have been assigned to a task.
+ *
+ * Loads the task title + project name, resolves the team member to a
+ * `users.id`, and writes a single in-app notification (type `task.assigned`).
+ *
+ * Silent no-op when:
+ *  - the team member is not linked to any login (no recipient to address),
+ *  - the recipient is the same user as the actor (self-assignment),
+ *  - the task or its project cannot be loaded.
+ *
+ * Errors are swallowed so the caller's primary write is never blocked.
+ */
+export async function notifyTaskAssigned(input: {
+  taskId: string;
+  teamMemberId: string;
+  actorUserId: string | null;
+}): Promise<void> {
+  try {
+    const recipientUserId = await resolveUserIdForTeamMember(input.teamMemberId);
+    if (!recipientUserId) return;
+    if (input.actorUserId && recipientUserId === input.actorUserId) return;
+
+    const [taskRow] = await db
+      .select({
+        title: tasks.title,
+        projectId: tasks.projectId,
+        projectName: projects.name,
+      })
+      .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .where(eq(tasks.id, input.taskId))
+      .limit(1);
+    if (!taskRow) return;
+
+    let actorName: string | null = null;
+    if (input.actorUserId) {
+      const [actorRow] = await db
+        .select({ name: users.name })
+        .from(users)
+        .where(eq(users.id, input.actorUserId))
+        .limit(1);
+      actorName = actorRow?.name?.trim() || null;
+    }
+
+    const taskTitle = taskRow.title?.trim() || "مهمة";
+    const projectName = taskRow.projectName?.trim() || "مشروع";
+    const body = actorName
+      ? `${actorName} عيّنك لمهمة «${taskTitle}» في مشروع «${projectName}».`
+      : `تم تعيينك لمهمة «${taskTitle}» في مشروع «${projectName}».`;
+
+    await createNotificationsForUsers({
+      userIds: [recipientUserId],
+      type: "task.assigned",
+      title: "تم تعيينك لمهمة جديدة",
+      body,
+      linkUrl: `/dashboard/projects/${taskRow.projectId}`,
+      actorId: input.actorUserId ?? null,
+    });
+  } catch (e) {
+    console.error("notifyTaskAssigned", e);
+  }
 }
 
 export async function listMyNotifications(limit = 30): Promise<

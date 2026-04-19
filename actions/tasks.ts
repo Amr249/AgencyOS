@@ -4,18 +4,19 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
-import { eq, isNull, and, or, ilike, desc, inArray } from "drizzle-orm";
+import { eq, isNull, isNotNull, and, or, ilike, desc, inArray, gte, lte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tasks, projects, milestones, clients, projectMembers, taskAssignments } from "@/lib/db";
 import { logActivityWithActor } from "@/actions/activity-log";
+import { notifyTaskAssigned } from "@/actions/notifications";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import {
   getMemberProjectIdsForUser,
   getTeamMemberIdsForSessionUser,
-  memberCanAccessTask,
   memberHasProjectAccess,
   memberIsAssignedToTask,
+  memberMayViewTaskById,
 } from "@/lib/member-context";
 
 const taskStatusValues = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
@@ -45,6 +46,11 @@ const updateTaskSchema = z.object({
   milestoneId: z.string().uuid().nullable().optional(),
 });
 
+const ymd = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
+  .optional();
+
 const getTasksFiltersSchema = z.object({
   projectId: z.string().uuid().optional(),
   milestoneId: z.string().uuid().optional(),
@@ -53,6 +59,10 @@ const getTasksFiltersSchema = z.object({
   search: z.string().optional(),
   /** Team member id: tasks assigned via `tasks.assignee_id` or `task_assignments`. */
   teamMemberId: z.string().uuid().optional(),
+  /** Inclusive lower bound on `tasks.due_date` (calendar day, YYYY-MM-DD). */
+  dueDateFrom: ymd,
+  /** Inclusive upper bound on `tasks.due_date` (calendar day, YYYY-MM-DD). */
+  dueDateTo: ymd,
 });
 
 const createSubtaskSchema = z.object({
@@ -118,17 +128,60 @@ export async function getTasks(filters?: GetTasksFilters) {
 
     if (role === "member") {
       const memberProjectIds = await getMemberProjectIdsForUser(userId);
-      if (memberProjectIds.length === 0) {
+      const memberIds = await getTeamMemberIdsForSessionUser(userId);
+      if (memberProjectIds.length === 0 || memberIds.length === 0) {
+        return { ok: true as const, data: [] };
+      }
+      const projectScope = f.projectId
+        ? memberProjectIds.includes(f.projectId)
+          ? [f.projectId]
+          : []
+        : memberProjectIds;
+      if (f.projectId && projectScope.length === 0) {
         return { ok: true as const, data: [] };
       }
       if (f.projectId) {
-        if (!memberProjectIds.includes(f.projectId)) {
-          return { ok: true as const, data: [] };
-        }
         conditions.push(eq(tasks.projectId, f.projectId));
       } else {
         conditions.push(inArray(tasks.projectId, memberProjectIds));
       }
+
+      const assignedViaJunction = db
+        .select({ taskId: taskAssignments.taskId })
+        .from(taskAssignments)
+        .where(inArray(taskAssignments.teamMemberId, memberIds));
+
+      const assignedRows = await db
+        .select({ id: tasks.id, parentTaskId: tasks.parentTaskId })
+        .from(tasks)
+        .where(
+          and(
+            isNull(tasks.deletedAt),
+            inArray(tasks.projectId, projectScope),
+            or(inArray(tasks.assigneeId, memberIds), inArray(tasks.id, assignedViaJunction))!
+          )
+        );
+
+      if (assignedRows.length === 0) {
+        return { ok: true as const, data: [] };
+      }
+
+      const allInScope = await db
+        .select({ id: tasks.id, parentTaskId: tasks.parentTaskId })
+        .from(tasks)
+        .where(and(isNull(tasks.deletedAt), inArray(tasks.projectId, projectScope)));
+
+      const parentById = new Map(allInScope.map((r) => [r.id, r.parentTaskId] as const));
+      function rootOf(id: string): string {
+        let cur = id;
+        for (;;) {
+          const p = parentById.get(cur);
+          if (p == null) return cur;
+          cur = p;
+        }
+      }
+      const rootIds = [...new Set(assignedRows.map((r) => rootOf(r.id)))];
+      conditions.push(inArray(tasks.id, rootIds));
     } else if (f.projectId) {
       conditions.push(eq(tasks.projectId, f.projectId));
     }
@@ -140,12 +193,18 @@ export async function getTasks(filters?: GetTasksFilters) {
       conditions.push(ilike(tasks.title, `%${f.search.trim()}%`));
     }
 
-    if (f.teamMemberId) {
+    if (f.teamMemberId && role === "admin") {
       const assignedViaJunction = db
         .select({ taskId: taskAssignments.taskId })
         .from(taskAssignments)
         .where(eq(taskAssignments.teamMemberId, f.teamMemberId));
       conditions.push(or(eq(tasks.assigneeId, f.teamMemberId), inArray(tasks.id, assignedViaJunction))!);
+    }
+
+    if (f.dueDateFrom || f.dueDateTo) {
+      conditions.push(isNotNull(tasks.dueDate));
+      if (f.dueDateFrom) conditions.push(gte(tasks.dueDate, f.dueDateFrom));
+      if (f.dueDateTo) conditions.push(lte(tasks.dueDate, f.dueDateTo));
     }
 
     const rows = await db
@@ -271,13 +330,13 @@ export async function getTaskById(id: string) {
 
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member" && session?.user?.id) {
-      const can = await memberHasProjectAccess(session.user.id, row.projectId);
-      if (!can) return { ok: false as const, error: "Task not found" };
+      const may = await memberMayViewTaskById(parsed.data, session.user.id);
+      if (!may) return { ok: false as const, error: "Task not found" };
     } else if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
 
-    const subtasks = await db
+    const subtasksRaw = await db
       .select({
         id: tasks.id,
         projectId: tasks.projectId,
@@ -295,6 +354,15 @@ export async function getTaskById(id: string) {
       .from(tasks)
       .where(and(eq(tasks.parentTaskId, row.id), isNull(tasks.deletedAt)))
       .orderBy(tasks.createdAt);
+
+    let subtasks = subtasksRaw;
+    if (sessionUserRole(session) === "member" && session?.user?.id) {
+      const filtered: typeof subtasksRaw = [];
+      for (const s of subtasksRaw) {
+        if (await memberIsAssignedToTask(s.id, session.user.id)) filtered.push(s);
+      }
+      subtasks = filtered;
+    }
 
     return {
       ok: true as const,
@@ -375,6 +443,12 @@ export async function createTask(input: CreateTaskInput) {
           assignedBy: session?.user?.id ?? null,
         })
         .onConflictDoNothing();
+
+      await notifyTaskAssigned({
+        taskId: row.id,
+        teamMemberId: assigneeIdForInsert,
+        actorUserId: session?.user?.id ?? null,
+      });
     }
 
     await logActivityWithActor({
@@ -411,8 +485,8 @@ export async function updateTask(input: UpdateTaskInput) {
       if (!session?.user?.id) {
         return { ok: false as const, error: { _form: ["Not authorized"] } };
       }
-      const can = await memberCanAccessTask(id, session.user.id);
-      if (!can) {
+      const may = await memberMayViewTaskById(id, session.user.id);
+      if (!may) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
       }
       const owns = await memberIsAssignedToTask(id, session.user.id);
@@ -475,13 +549,15 @@ export async function updateTask(input: UpdateTaskInput) {
     if (data.assigneeId !== undefined) updatePayload.assigneeId = data.assigneeId;
 
     let previousStatus: string | undefined;
-    if (data.status !== undefined) {
+    let previousAssigneeId: string | null | undefined;
+    if (data.status !== undefined || data.assigneeId !== undefined) {
       const [prevRow] = await db
-        .select({ status: tasks.status })
+        .select({ status: tasks.status, assigneeId: tasks.assigneeId })
         .from(tasks)
         .where(eq(tasks.id, id))
         .limit(1);
       previousStatus = prevRow?.status;
+      previousAssigneeId = prevRow?.assigneeId ?? null;
     }
 
     const [row] = await db
@@ -490,6 +566,17 @@ export async function updateTask(input: UpdateTaskInput) {
       .where(eq(tasks.id, id))
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["Task not found"] } };
+    if (
+      data.assigneeId !== undefined &&
+      data.assigneeId !== null &&
+      data.assigneeId !== previousAssigneeId
+    ) {
+      await notifyTaskAssigned({
+        taskId: row.id,
+        teamMemberId: data.assigneeId,
+        actorUserId: session?.user?.id ?? null,
+      });
+    }
     if (
       data.status !== undefined &&
       previousStatus !== undefined &&
@@ -539,8 +626,8 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
-      const can = await memberCanAccessTask(idParsed.data, session.user.id);
-      if (!can) return { ok: false as const, error: "Forbidden" };
+      const may = await memberMayViewTaskById(idParsed.data, session.user.id);
+      if (!may) return { ok: false as const, error: "Forbidden" };
       const owns = await memberIsAssignedToTask(idParsed.data, session.user.id);
       if (!owns) return { ok: false as const, error: "Forbidden" };
     }
@@ -593,8 +680,8 @@ export async function deleteTask(id: string) {
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
-      const can = await memberCanAccessTask(parsed.data, session.user.id);
-      if (!can) return { ok: false as const, error: "Forbidden" };
+      const may = await memberMayViewTaskById(parsed.data, session.user.id);
+      if (!may) return { ok: false as const, error: "Forbidden" };
       const owns = await memberIsAssignedToTask(parsed.data, session.user.id);
       if (!owns) return { ok: false as const, error: "Forbidden" };
     }
@@ -643,10 +730,8 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
       if (!session?.user?.id) {
         return { ok: false as const, error: { _form: ["Not authorized"] } };
       }
-      const can = await memberCanAccessTask(parsed.data.parentId, session.user.id);
-      if (!can) return { ok: false as const, error: { _form: ["Forbidden"] } };
-      const ownsParent = await memberIsAssignedToTask(parsed.data.parentId, session.user.id);
-      if (!ownsParent) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const mayParent = await memberMayViewTaskById(parsed.data.parentId, session.user.id);
+      if (!mayParent) return { ok: false as const, error: { _form: ["Forbidden"] } };
     }
 
     const [parent] = await db
@@ -705,8 +790,8 @@ export async function toggleSubtask(id: string) {
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
-      const can = await memberCanAccessTask(parsed.data, session.user.id);
-      if (!can) return { ok: false as const, error: "Forbidden" };
+      const may = await memberMayViewTaskById(parsed.data, session.user.id);
+      if (!may) return { ok: false as const, error: "Forbidden" };
       const owns = await memberIsAssignedToTask(parsed.data, session.user.id);
       if (!owns) return { ok: false as const, error: "Forbidden" };
     }

@@ -172,26 +172,30 @@ function KanbanDraggableTask({
 
   return (
     <div ref={setNodeRef} className={cn("relative", isDragging && "opacity-40")}>
-      <button
-        type="button"
-        className={cn(
-          "absolute inset-s-1 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-md",
-          "text-muted-foreground hover:bg-muted hover:text-foreground",
-          "touch-none cursor-grab active:cursor-grabbing",
-          "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-        )}
-        aria-label={memberView ? "سحب لنقل المهمة" : "Drag to move task"}
-        {...listeners}
-        {...attributes}
-      >
-        <GripVertical className="h-4 w-4 shrink-0" />
-      </button>
       <TaskCard
         task={task}
         assignees={assignees}
         className="ps-10"
         copyLocale={memberView ? "ar" : "en"}
         hideProjectLink={memberView}
+        hideAssignees={memberView}
+        dragHandle={
+          <button
+            type="button"
+            className={cn(
+              "absolute inset-s-1 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-md",
+              "text-muted-foreground hover:bg-muted hover:text-foreground",
+              "touch-none cursor-grab active:cursor-grabbing",
+              "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+            )}
+            aria-label={memberView ? "سحب لنقل المهمة" : "Drag to move task"}
+            {...listeners}
+            {...attributes}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical className="h-4 w-4 shrink-0" />
+          </button>
+        }
         onEdit={() => onOpenTask(task.id)}
         onDelete={() => onDeleteTask(task.id)}
       />
@@ -297,6 +301,7 @@ export function TasksKanban({
               assignees={assigneesByTaskId[activeTask.id] ?? []}
               copyLocale={memberView ? "ar" : "en"}
               hideProjectLink={memberView}
+              hideAssignees={memberView}
               onEdit={() => {}}
               onDelete={() => {}}
             />

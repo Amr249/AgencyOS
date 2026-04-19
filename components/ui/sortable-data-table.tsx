@@ -249,6 +249,23 @@ export type SortableDataTableProps<T> = {
     defaultView: string;
     saveView: string;
     deleteView: string;
+    /** Placeholder shown in the saved-view <Select> trigger. */
+    placeholder?: string;
+  };
+  /** Column visibility dropdown trigger label (defaults to English "Columns"). */
+  columnsLabel?: string;
+  /** Pagination toolbar copy (defaults to English). */
+  paginationLabels?: {
+    /** "Showing {from}{toSuffix} of {total}" */
+    showing: (args: { from: number; to: number; total: number; toSuffix: string }) => React.ReactNode;
+    /** "({n} selected)" */
+    selected: (n: number) => React.ReactNode;
+    /** "{n} / page" rendered for the page-size <Select> options. */
+    perPage: (n: number) => React.ReactNode;
+    /** "Page {current} of {total}" */
+    pagePosition: (args: { current: number; total: number }) => React.ReactNode;
+    previous: string;
+    next: string;
   };
 };
 
@@ -277,6 +294,8 @@ export function SortableDataTable<T>({
   tableDir: tableDirProp,
   sortToolbarLabels,
   savedViewsLabels,
+  columnsLabel,
+  paginationLabels,
 }: SortableDataTableProps<T>) {
   const resolvedTableDir: "ltr" | "rtl" = tableDirProp ?? (uiVariant === "clients" ? "ltr" : "rtl");
   const clientsTextStart = uiVariant === "clients" && resolvedTableDir === "ltr";
@@ -290,6 +309,25 @@ export function SortableDataTable<T>({
     defaultView: "Default view",
     saveView: "Save view",
     deleteView: "Delete view",
+    placeholder: "Saved view",
+  };
+  const columnsBtnLabel = columnsLabel ?? "Columns";
+  const pagLbl = paginationLabels ?? {
+    showing: ({ from, total, toSuffix }) => (
+      <>
+        Showing {from}
+        {toSuffix} of {total}
+      </>
+    ),
+    selected: (n) => <>({n} selected)</>,
+    perPage: (n) => <>{n} / page</>,
+    pagePosition: ({ current, total }) => (
+      <>
+        Page {current} of {total}
+      </>
+    ),
+    previous: "Previous",
+    next: "Next",
   };
 
   const storageKeySort = `sort-${tableId}`;
@@ -503,7 +541,7 @@ export function SortableDataTable<T>({
           <>
             <Select value={selectedViewId} onValueChange={applySavedView}>
               <SelectTrigger className="h-8 w-[180px] text-muted-foreground">
-                <SelectValue placeholder="Saved view" />
+                <SelectValue placeholder={viewLbl.placeholder ?? "Saved view"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">{viewLbl.defaultView}</SelectItem>
@@ -553,7 +591,7 @@ export function SortableDataTable<T>({
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 gap-1.5" type="button">
                 <Columns3 className="h-4 w-4" />
-                Columns
+                {columnsBtnLabel}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
@@ -747,14 +785,13 @@ export function SortableDataTable<T>({
               const { pageIndex, pageSize } = table.getState().pagination;
               const from = filtered === 0 ? 0 : pageIndex * pageSize + 1;
               const to = Math.min((pageIndex + 1) * pageSize, filtered);
+              const toSuffix = from !== 0 ? `–${to}` : "";
+              const selectedCount = table.getFilteredSelectedRowModel().rows.length;
               return (
                 <>
-                  Showing {from}
-                  {from !== 0 ? `–${to}` : ""} of {filtered}
-                  {table.getFilteredSelectedRowModel().rows.length > 0 ? (
-                    <span className="ms-1">
-                      ({table.getFilteredSelectedRowModel().rows.length} selected)
-                    </span>
+                  {pagLbl.showing({ from, to, total: filtered, toSuffix })}
+                  {selectedCount > 0 ? (
+                    <span className="ms-1">{pagLbl.selected(selectedCount)}</span>
                   ) : null}
                 </>
               );
@@ -785,7 +822,7 @@ export function SortableDataTable<T>({
                 <SelectContent>
                   {resolvedPageSizes.map((n) => (
                     <SelectItem key={n} value={String(n)}>
-                      {n} / page
+                      {pagLbl.perPage(n)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -799,11 +836,13 @@ export function SortableDataTable<T>({
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
               >
-                Previous
+                {pagLbl.previous}
               </Button>
               <span className="text-muted-foreground min-w-[5.5rem] text-center text-sm tabular-nums">
-                Page {table.getState().pagination.pageIndex + 1} of{" "}
-                {Math.max(1, table.getPageCount())}
+                {pagLbl.pagePosition({
+                  current: table.getState().pagination.pageIndex + 1,
+                  total: Math.max(1, table.getPageCount()),
+                })}
               </span>
               <Button
                 type="button"
@@ -812,7 +851,7 @@ export function SortableDataTable<T>({
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
               >
-                Next
+                {pagLbl.next}
               </Button>
             </div>
           </div>

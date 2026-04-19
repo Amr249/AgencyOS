@@ -105,6 +105,10 @@ type TaskCardProps = {
   copyLocale?: "ar" | "en";
   /** Team members: show project name only (no link to project pages). */
   hideProjectLink?: boolean;
+  /** Member portal: do not show assignee avatars (privacy / simpler card). */
+  hideAssignees?: boolean;
+  /** Kanban: grip control rendered inside the card so it does not stack above the whole surface. */
+  dragHandle?: React.ReactNode;
   /** Extra classes on the root (e.g. room for a Kanban drag handle). */
   className?: string;
 };
@@ -116,6 +120,8 @@ export function TaskCard({
   onDelete,
   copyLocale = "ar",
   hideProjectLink = false,
+  hideAssignees = false,
+  dragHandle,
   className,
 }: TaskCardProps) {
   const overdue = isTaskOverdue(task.dueDate, task.status);
@@ -130,11 +136,10 @@ export function TaskCard({
 
   return (
     <div
-      role="button"
       tabIndex={0}
       dir={copyLocale === "en" ? "ltr" : undefined}
       className={cn(
-        "group relative rounded-xl border bg-card p-4 pe-11 shadow-sm transition-colors hover:bg-muted/40",
+        "group relative cursor-pointer rounded-xl border bg-card p-4 pe-11 shadow-sm transition-colors hover:bg-muted/40",
         className
       )}
       onClick={onEdit}
@@ -145,6 +150,7 @@ export function TaskCard({
         }
       }}
     >
+      {dragHandle}
       <p className="line-clamp-2 text-start font-semibold leading-snug tracking-tight">{task.title}</p>
 
       {hideProjectLink ? (
@@ -199,7 +205,7 @@ export function TaskCard({
             {formatHours(loggedHours)}
           </span>
         )}
-        {assignees.length > 0 ? (
+        {!hideAssignees && assignees.length > 0 ? (
           <div className="ms-auto shrink-0">
             <AssigneeAvatars assignees={assignees} max={3} />
           </div>

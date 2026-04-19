@@ -50,6 +50,84 @@ const TASK_PRIORITY_VALUES = ["low", "medium", "high", "urgent"] as const;
 type TaskStatusValue = (typeof TASK_STATUS_VALUES)[number];
 type TaskPriorityValue = (typeof TASK_PRIORITY_VALUES)[number];
 
+const TASKS_LIST_AR = {
+  searchByName: "البحث باسم المهمة",
+  task: "المهمة",
+  project: "المشروع",
+  priority: "الأولوية",
+  status: "الحالة",
+  dueDate: "تاريخ الاستحقاق",
+  assignees: "المعينون",
+  allProjects: "جميع المشاريع",
+  allPriorities: "جميع الأولويات",
+  allStatuses: "جميع الحالات",
+  overdueSuffix: " (متأخرة)",
+  edit: "تعديل",
+  delete: "حذف",
+  clearDate: "مسح التاريخ",
+  assignTeamMembers: "تعيين أعضاء الفريق",
+  noTeamMembersAvailable: "لا يوجد أعضاء فريق متاحون.",
+  manageAssigneesAria: "إدارة المعينين",
+  priorityAria: "الأولوية",
+  statusAria: "الحالة",
+  noTasksFound: "لا توجد مهام.",
+  couldNotUpdatePriority: "تعذّر تحديث الأولوية",
+  couldNotUpdateStatus: "تعذّر تحديث الحالة",
+  couldNotUpdateDueDate: "تعذّر تحديث تاريخ الاستحقاق",
+  couldNotUpdateAssignees: "تعذّر تحديث المعينين",
+  defaultView: "العرض الافتراضي",
+  saveView: "حفظ العرض",
+  deleteView: "حذف العرض",
+  savedViewPlaceholder: "العروض المحفوظة",
+  columns: "الأعمدة",
+  noSorting: "بدون ترتيب",
+  sortPlaceholder: "ترتيب",
+  sortedBy: "مرتب حسب:",
+  clearSortAria: "إزالة الترتيب",
+  previous: "السابق",
+  next: "التالي",
+} as const;
+
+const TASKS_LIST_EN = {
+  searchByName: "Search by task name",
+  task: "Task",
+  project: "Project",
+  priority: "Priority",
+  status: "Status",
+  dueDate: "Due Date",
+  assignees: "Assignees",
+  allProjects: "All projects",
+  allPriorities: "All priorities",
+  allStatuses: "All statuses",
+  overdueSuffix: " (overdue)",
+  edit: "Edit",
+  delete: "Delete",
+  clearDate: "Clear date",
+  assignTeamMembers: "Assign team members",
+  noTeamMembersAvailable: "No team members available.",
+  manageAssigneesAria: "Manage assignees",
+  priorityAria: "Priority",
+  statusAria: "Status",
+  noTasksFound: "No tasks found.",
+  couldNotUpdatePriority: "Could not update priority",
+  couldNotUpdateStatus: "Could not update status",
+  couldNotUpdateDueDate: "Could not update due date",
+  couldNotUpdateAssignees: "Could not update assignees",
+  defaultView: "Default view",
+  saveView: "Save view",
+  deleteView: "Delete view",
+  savedViewPlaceholder: "Saved view",
+  columns: "Columns",
+  noSorting: "No sorting",
+  sortPlaceholder: "Sort",
+  sortedBy: "Sorted by:",
+  clearSortAria: "Clear sort",
+  previous: "Previous",
+  next: "Next",
+} as const;
+
+type TasksListLabels = typeof TASKS_LIST_EN | typeof TASKS_LIST_AR;
+
 function formatDate(d: string | null, locale = "en-US") {
   if (!d) return "—";
   try {
@@ -115,8 +193,8 @@ type TasksListViewProps = {
 
 const ALL = "__all__";
 
-function titleFilterMeta(memberView: boolean): TableColumnFilterMeta {
-  return { variant: "text", placeholder: memberView ? "البحث باسم المهمة" : "Search by task name" };
+function titleFilterMeta(labels: TasksListLabels): TableColumnFilterMeta {
+  return { variant: "text", placeholder: labels.searchByName };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,9 +205,10 @@ type PriorityCellProps = {
   labels: Record<string, string>;
   editable: boolean;
   onPatched?: (id: string, patch: Partial<TaskWithProject>) => void;
+  uiLabels: TasksListLabels;
 };
 
-function PriorityCell({ task, labels, editable, onPatched }: PriorityCellProps) {
+function PriorityCell({ task, labels, editable, onPatched, uiLabels }: PriorityCellProps) {
   const [saving, setSaving] = React.useState(false);
   const badge = (
     <Badge
@@ -159,12 +238,12 @@ function PriorityCell({ task, labels, editable, onPatched }: PriorityCellProps) 
         setSaving(false);
         if (!res.ok) {
           onPatched?.(task.id, { priority: prev });
-          toast.error("Could not update priority");
+          toast.error(uiLabels.couldNotUpdatePriority);
         }
       }}
     >
       <SelectTrigger
-        aria-label="Priority"
+        aria-label={uiLabels.priorityAria}
         hideChevron
         className={cn(
           "inline-flex h-auto w-auto min-h-0 items-center gap-1 rounded-md border-0 px-2 py-0.5 text-xs font-medium shadow-none focus:ring-0 focus:ring-offset-0",
@@ -200,9 +279,10 @@ type StatusCellProps = {
   labels: Record<string, string>;
   editable: boolean;
   onPatched?: (id: string, patch: Partial<TaskWithProject>) => void;
+  uiLabels: TasksListLabels;
 };
 
-function StatusCell({ task, labels, editable, onPatched }: StatusCellProps) {
+function StatusCell({ task, labels, editable, onPatched, uiLabels }: StatusCellProps) {
   const [saving, setSaving] = React.useState(false);
   const badge = (
     <Badge
@@ -232,12 +312,12 @@ function StatusCell({ task, labels, editable, onPatched }: StatusCellProps) {
         setSaving(false);
         if (!res.ok) {
           onPatched?.(task.id, { status: prev });
-          toast.error("Could not update status");
+          toast.error(uiLabels.couldNotUpdateStatus);
         }
       }}
     >
       <SelectTrigger
-        aria-label="Status"
+        aria-label={uiLabels.statusAria}
         hideChevron
         className={cn(
           "inline-flex h-auto w-auto min-h-0 items-center gap-1 rounded-md border-0 px-2 py-0.5 text-xs font-medium shadow-none focus:ring-0 focus:ring-offset-0",
@@ -273,16 +353,18 @@ type DueDateCellProps = {
   task: TaskTableRow;
   editable: boolean;
   onPatched?: (id: string, patch: Partial<TaskWithProject>) => void;
+  uiLabels: TasksListLabels;
+  dateLocale: string;
 };
 
-function DueDateCell({ task, editable, onPatched }: DueDateCellProps) {
+function DueDateCell({ task, editable, onPatched, uiLabels, dateLocale }: DueDateCellProps) {
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const overdue = isTaskOverdue(task.dueDate, task.status);
   const label = (
     <span className={cn("text-sm", overdue && "font-medium text-red-600")}>
-      {formatDate(task.dueDate)}
-      {overdue && " (overdue)"}
+      {formatDate(task.dueDate, dateLocale)}
+      {overdue && uiLabels.overdueSuffix}
     </span>
   );
   if (!editable) return label;
@@ -298,7 +380,7 @@ function DueDateCell({ task, editable, onPatched }: DueDateCellProps) {
     setSaving(false);
     if (!res.ok) {
       onPatched?.(task.id, { dueDate: prev });
-      toast.error("Could not update due date");
+      toast.error(uiLabels.couldNotUpdateDueDate);
     }
   }
 
@@ -315,8 +397,8 @@ function DueDateCell({ task, editable, onPatched }: DueDateCellProps) {
             saving && "opacity-60"
           )}
         >
-          {formatDate(task.dueDate)}
-          {overdue && " (overdue)"}
+          {formatDate(task.dueDate, dateLocale)}
+          {overdue && uiLabels.overdueSuffix}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
@@ -340,7 +422,7 @@ function DueDateCell({ task, editable, onPatched }: DueDateCellProps) {
                 setOpen(false);
               }}
             >
-              Clear date
+              {uiLabels.clearDate}
             </Button>
           </div>
         ) : null}
@@ -355,6 +437,8 @@ type AssigneesCellProps = {
   editable: boolean;
   teamMembers: TeamMember[];
   onChanged?: () => void;
+  uiLabels: TasksListLabels;
+  popoverDir: "ltr" | "rtl";
 };
 
 function AssigneesCell({
@@ -363,6 +447,8 @@ function AssigneesCell({
   editable,
   teamMembers,
   onChanged,
+  uiLabels,
+  popoverDir,
 }: AssigneesCellProps) {
   const [open, setOpen] = React.useState(false);
   const [pendingId, setPendingId] = React.useState<string | null>(null);
@@ -381,7 +467,7 @@ function AssigneesCell({
   }));
 
   const stack = (
-    <AvatarStack members={members} max={3} direction="ltr" className="justify-start" />
+    <AvatarStack members={members} max={3} direction={popoverDir} className="justify-start" />
   );
   if (!editable) return stack;
 
@@ -398,7 +484,7 @@ function AssigneesCell({
     setPendingId(null);
     if (!res.success) {
       setLocalIds(localIds);
-      toast.error(res.error ?? "Could not update assignees");
+      toast.error(res.error ?? uiLabels.couldNotUpdateAssignees);
       return;
     }
     onChanged?.();
@@ -410,7 +496,7 @@ function AssigneesCell({
         <button
           type="button"
           className="flex items-center gap-2 rounded-md px-1 py-0.5 hover:bg-accent"
-          aria-label="Manage assignees"
+          aria-label={uiLabels.manageAssigneesAria}
         >
           {members.length === 0 ? (
             <span className="text-muted-foreground inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed text-sm">
@@ -421,13 +507,13 @@ function AssigneesCell({
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-2" align="start" dir="ltr">
+      <PopoverContent className="w-72 p-2" align="start" dir={popoverDir}>
         <p className="text-muted-foreground mb-2 border-b px-2 pb-2 text-xs">
-          Assign team members
+          {uiLabels.assignTeamMembers}
         </p>
         {teamMembers.length === 0 ? (
           <p className="text-muted-foreground px-2 py-6 text-center text-sm">
-            No team members available.
+            {uiLabels.noTeamMembersAvailable}
           </p>
         ) : (
           <div className="max-h-60 space-y-1 overflow-y-auto">
@@ -487,6 +573,9 @@ export function TasksListView({
   const editable = !memberView;
   const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
   const priorityLabels = memberView ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
+  const uiLabels: TasksListLabels = memberView ? TASKS_LIST_AR : TASKS_LIST_EN;
+  const popoverDir: "ltr" | "rtl" = memberView ? "rtl" : "ltr";
+  const dateLocale = memberView ? "ar-EG" : "en-US";
   const rows: TaskTableRow[] = React.useMemo(
     () =>
       tasks.map((t) => ({
@@ -522,16 +611,16 @@ export function TasksListView({
       variant: "select",
       options: projectOptions.map((p) => ({ value: p.id, label: p.name })),
       allValue: ALL,
-      allLabel: "All projects",
+      allLabel: uiLabels.allProjects,
     };
-  }, [projectOptions]);
+  }, [projectOptions, uiLabels]);
 
   const assigneeFilterMeta = React.useMemo((): TableColumnFilterMeta => {
-    return { variant: "text", placeholder: "Assignees" };
-  }, []);
+    return { variant: "text", placeholder: uiLabels.assignees };
+  }, [uiLabels]);
 
-  const taskTableColumns = React.useMemo<ColumnDef<TaskTableRow>[]>(
-    () => [
+  const taskTableColumns = React.useMemo<ColumnDef<TaskTableRow>[]>(() => {
+    const cols: ColumnDef<TaskTableRow>[] = [
       {
         id: "drag",
         header: () => null,
@@ -549,7 +638,7 @@ export function TasksListView({
           const title = String(row.original.title ?? "").toLowerCase();
           return title.includes(String(filterValue).toLowerCase());
         },
-        meta: { columnFilter: titleFilterMeta(memberView) },
+        meta: { columnFilter: titleFilterMeta(uiLabels) },
         header: ({ column }) => (
           <Button
             variant="ghost"
@@ -557,7 +646,8 @@ export function TasksListView({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <span className="text-start">
-              Task {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+              {uiLabels.task}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -587,7 +677,8 @@ export function TasksListView({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <span className="text-start">
-              Project {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+              {uiLabels.project}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -630,7 +721,7 @@ export function TasksListView({
             variant: "select",
             options: priorityFilterOptions,
             allValue: ALL,
-            allLabel: "All priorities",
+            allLabel: uiLabels.allPriorities,
           },
         },
         header: ({ column }) => (
@@ -640,7 +731,8 @@ export function TasksListView({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <span className="text-start">
-              Priority {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+              {uiLabels.priority}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -650,6 +742,7 @@ export function TasksListView({
             labels={priorityLabels}
             editable={editable}
             onPatched={onTaskPatched}
+            uiLabels={uiLabels}
           />
         ),
       },
@@ -666,7 +759,7 @@ export function TasksListView({
             variant: "select",
             options: statusFilterOptions,
             allValue: ALL,
-            allLabel: "All statuses",
+            allLabel: uiLabels.allStatuses,
           },
         },
         header: ({ column }) => (
@@ -676,7 +769,8 @@ export function TasksListView({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <span className="text-start">
-              Status {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+              {uiLabels.status}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -686,6 +780,7 @@ export function TasksListView({
             labels={statusLabels}
             editable={editable}
             onPatched={onTaskPatched}
+            uiLabels={uiLabels}
           />
         ),
       },
@@ -708,16 +803,25 @@ export function TasksListView({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <span className="text-start">
-              Due Date{" "}
+              {uiLabels.dueDate}{" "}
               {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
         cell: ({ row }) => (
-          <DueDateCell task={row.original} editable={editable} onPatched={onTaskPatched} />
+          <DueDateCell
+            task={row.original}
+            editable={editable}
+            onPatched={onTaskPatched}
+            uiLabels={uiLabels}
+            dateLocale={dateLocale}
+          />
         ),
       },
-      {
+    ];
+
+    if (!memberView) {
+      cols.push({
         accessorKey: "assigneeSortKey",
         id: "assignees",
         enableSorting: true,
@@ -734,7 +838,8 @@ export function TasksListView({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             <span className="text-start">
-              {memberView ? "المعينون" : "Assignees"} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+              {uiLabels.assignees}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -745,51 +850,60 @@ export function TasksListView({
             editable={editable}
             teamMembers={teamMembers}
             onChanged={onAssigneesRefresh}
+            uiLabels={uiLabels}
+            popoverDir={popoverDir}
           />
         ),
-      },
-      {
-        id: "actions",
-        enableSorting: false,
-        enableHiding: false,
-        header: () => null,
-        cell: ({ row }) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="text-start">
-              <DropdownMenuItem onClick={() => onOpenTask(row.original.id)}>Edit</DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => onDeleteTask(row.original.id)}
-              >
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ),
-      },
-    ],
-    [
-      onOpenTask,
-      onDeleteTask,
-      onTaskPatched,
-      onAssigneesRefresh,
-      assigneesByTaskId,
-      teamMembers,
-      projectFilterMeta,
-      priorityFilterOptions,
-      statusFilterOptions,
-      assigneeFilterMeta,
-      memberView,
-      editable,
-      statusLabels,
-      priorityLabels,
-    ]
-  );
+      });
+    }
+
+    cols.push({
+      id: "actions",
+      enableSorting: false,
+      enableHiding: false,
+      header: () => null,
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="text-start">
+            <DropdownMenuItem onClick={() => onOpenTask(row.original.id)}>
+              {uiLabels.edit}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => onDeleteTask(row.original.id)}
+            >
+              {uiLabels.delete}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    });
+
+    return cols;
+  }, [
+    onOpenTask,
+    onDeleteTask,
+    onTaskPatched,
+    onAssigneesRefresh,
+    assigneesByTaskId,
+    teamMembers,
+    projectFilterMeta,
+    priorityFilterOptions,
+    statusFilterOptions,
+    assigneeFilterMeta,
+    memberView,
+    editable,
+    statusLabels,
+    priorityLabels,
+    uiLabels,
+    popoverDir,
+    dateLocale,
+  ]);
 
   return (
     <EntityTableShell
@@ -816,17 +930,27 @@ export function TasksListView({
                   <span className="truncate">{task.projectName}</span>
                 </p>
                 <div className="mt-1">
-                  <DueDateCell task={task} editable={editable} onPatched={onTaskPatched} />
-                </div>
-                <div className="mt-1.5">
-                  <AssigneesCell
+                  <DueDateCell
                     task={task}
-                    assignees={assigneesByTaskId[task.id] ?? []}
                     editable={editable}
-                    teamMembers={teamMembers}
-                    onChanged={onAssigneesRefresh}
+                    onPatched={onTaskPatched}
+                    uiLabels={uiLabels}
+                    dateLocale={dateLocale}
                   />
                 </div>
+                {!memberView ? (
+                  <div className="mt-1.5">
+                    <AssigneesCell
+                      task={task}
+                      assignees={assigneesByTaskId[task.id] ?? []}
+                      editable={editable}
+                      teamMembers={teamMembers}
+                      onChanged={onAssigneesRefresh}
+                      uiLabels={uiLabels}
+                      popoverDir={popoverDir}
+                    />
+                  </div>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <StatusCell
@@ -834,12 +958,14 @@ export function TasksListView({
                   labels={statusLabels}
                   editable={editable}
                   onPatched={onTaskPatched}
+                  uiLabels={uiLabels}
                 />
                 <PriorityCell
                   task={task}
                   labels={priorityLabels}
                   editable={editable}
                   onPatched={onTaskPatched}
+                  uiLabels={uiLabels}
                 />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -852,12 +978,14 @@ export function TasksListView({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="text-start">
-                    <DropdownMenuItem onClick={() => onOpenTask(task.id)}>Edit</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onOpenTask(task.id)}>
+                      {uiLabels.edit}
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => onDeleteTask(task.id)}
                     >
-                      Delete
+                      {uiLabels.delete}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -873,29 +1001,57 @@ export function TasksListView({
             data={rows}
             tableId="tasks-table"
             getRowId={(t) => t.id}
-            columnLabels={memberView ? {
-              title: "المهمة",
-              projectName: "المشروع",
-              priority: "الأولوية",
-              status: "الحالة",
-              dueDate: "تاريخ الاستحقاق",
-              assignees: "المعينون",
-            } : {
-              title: "Task",
-              projectName: "Project",
-              priority: "Priority",
-              status: "Status",
-              dueDate: "Due Date",
-              assignees: "Assignees",
+            columnLabels={{
+              title: uiLabels.task,
+              projectName: uiLabels.project,
+              priority: uiLabels.priority,
+              status: uiLabels.status,
+              dueDate: uiLabels.dueDate,
+              assignees: uiLabels.assignees,
             }}
             uiVariant="clients"
-            emptyStateMessage="No tasks found."
+            tableDir={memberView ? "rtl" : undefined}
+            emptyStateMessage={uiLabels.noTasksFound}
             enablePagination
             pageSizeOptions={[10, 25, 50]}
             enableColumnFilterRow
             enableColumnVisibilityControl
             persistColumnVisibility
             enableSavedViews
+            sortToolbarLabels={{
+              none: uiLabels.noSorting,
+              sortPlaceholder: uiLabels.sortPlaceholder,
+              sortedBy: uiLabels.sortedBy,
+              clearSortAria: uiLabels.clearSortAria,
+            }}
+            savedViewsLabels={{
+              defaultView: uiLabels.defaultView,
+              saveView: uiLabels.saveView,
+              deleteView: uiLabels.deleteView,
+              placeholder: uiLabels.savedViewPlaceholder,
+            }}
+            columnsLabel={uiLabels.columns}
+            paginationLabels={
+              memberView
+                ? {
+                    showing: ({ from, total, toSuffix }) => (
+                      <>
+                        عرض {from}
+                        {toSuffix} من {total}
+                      </>
+                    ),
+                    selected: (n) => <>({n} محدد)</>,
+                    perPage: (n) => <>{n} / صفحة</>,
+                    pagePosition: ({ current, total }) => (
+                      <>
+                        صفحة {current} من {total}
+                      </>
+                    ),
+                    previous: uiLabels.previous,
+                    next: uiLabels.next,
+                  }
+                : undefined
+            }
           />
         </div>
       }

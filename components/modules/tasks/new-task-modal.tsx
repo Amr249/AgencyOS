@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { createTask } from "@/actions/tasks";
+import { getMilestonesByProjectId } from "@/actions/milestones";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +45,7 @@ import { ProjectSelectOptionRow, TeamMemberSelectOptionRow } from "@/components/
 
 /** Radix Select reserves empty string; use a sentinel for "no assignee". */
 const ASSIGNEE_NONE = "__none__";
+const MILESTONE_NONE = "__no_milestone__";
 
 type FormValues = {
   title: string;
@@ -52,6 +54,7 @@ type FormValues = {
   status: "todo" | "in_progress" | "in_review" | "done" | "blocked";
   priority: "low" | "medium" | "high" | "urgent";
   assigneeId?: string;
+  milestoneId?: string;
   startDate?: string;
   dueDate?: string;
 };
@@ -64,6 +67,7 @@ function buildFormSchema(memberView: boolean) {
     status: z.enum(["todo", "in_progress", "in_review", "done", "blocked"]),
     priority: z.enum(["low", "medium", "high", "urgent"]),
     assigneeId: z.string().optional(),
+    milestoneId: z.string().optional(),
     startDate: z.string().optional(),
     dueDate: z.string().optional(),
   });
@@ -99,6 +103,10 @@ const AR = {
   titlePh: "عنوان المهمة",
   project: "المشروع",
   projectPh: "اختر مشروعاً",
+  milestone: "المعلم",
+  milestonePh: "بدون معلم",
+  milestoneLoading: "جاري تحميل المعالم…",
+  milestoneEmpty: "لا معالم لهذا المشروع",
   descLabel: "الوصف",
   descPh: "تفاصيل اختيارية",
   status: "الحالة",
@@ -147,10 +155,44 @@ export function NewTaskModal({
       status: defaultStatus,
       priority: "medium",
       assigneeId: memberView && memberTeamMemberId ? memberTeamMemberId : "",
+      milestoneId: "",
       startDate: "",
       dueDate: defaultDueDate ?? "",
     },
   });
+
+  const watchedProjectId = form.watch("projectId");
+  const [milestoneRows, setMilestoneRows] = React.useState<
+    { id: string; name: string; dueDate: string | null }[]
+  >([]);
+  const [milestonesLoading, setMilestonesLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open || !watchedProjectId) {
+      setMilestoneRows([]);
+      return;
+    }
+    let cancelled = false;
+    setMilestonesLoading(true);
+    getMilestonesByProjectId(watchedProjectId).then((res) => {
+      if (cancelled) return;
+      setMilestonesLoading(false);
+      if (res.ok) {
+        setMilestoneRows(
+          res.data.map((m) => ({
+            id: m.id,
+            name: m.name,
+            dueDate: m.dueDate,
+          }))
+        );
+      } else {
+        setMilestoneRows([]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, watchedProjectId]);
 
   React.useEffect(() => {
     if (open) {
@@ -161,6 +203,7 @@ export function NewTaskModal({
         status: defaultStatus,
         priority: "medium",
         assigneeId: memberView && memberTeamMemberId ? memberTeamMemberId : "",
+        milestoneId: "",
         startDate: "",
         dueDate: defaultDueDate ?? "",
       });
@@ -170,6 +213,7 @@ export function NewTaskModal({
   async function onSubmit(values: FormValues) {
     const assigneeId =
       memberView && memberTeamMemberId ? memberTeamMemberId : values.assigneeId || null;
+    const milestoneId = values.milestoneId?.trim() || undefined;
     const result = await createTask({
       projectId: values.projectId,
       title: values.title,
@@ -177,6 +221,7 @@ export function NewTaskModal({
       status: values.status,
       priority: values.priority,
       assigneeId,
+      milestoneId,
       startDate: values.startDate || undefined,
       dueDate: values.dueDate || undefined,
     });
@@ -232,7 +277,13 @@ export function NewTaskModal({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{memberView ? AR.project : "Project"}</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select
+                    onValueChange={(v) => {
+                      field.onChange(v);
+                      form.setValue("milestoneId", "");
+                    }}
+                    value={field.value}
+                  >
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder={memberView ? AR.projectPh : "Select project"} />
@@ -250,6 +301,63 @@ export function NewTaskModal({
                       ))}
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="milestoneId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{memberView ? AR.milestone : "Milestone"}</FormLabel>
+                  <Select
+                    disabled={!watchedProjectId || milestonesLoading}
+                    onValueChange={(v) => field.onChange(v === MILESTONE_NONE ? "" : v)}
+                    value={field.value ? field.value : MILESTONE_NONE}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            milestonesLoading
+                              ? memberView
+                                ? AR.milestoneLoading
+                                : "Loading milestones…"
+                              : memberView
+                                ? AR.milestonePh
+                                : "No milestone"
+                          }
+                        />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent dir={selectDir}>
+                      <SelectItem
+                        value={MILESTONE_NONE}
+                        textValue={memberView ? AR.milestonePh : "No milestone"}
+                      >
+                        {memberView ? AR.milestonePh : "No milestone"}
+                      </SelectItem>
+                      {!milestonesLoading &&
+                        milestoneRows.map((m) => (
+                          <SelectItem key={m.id} value={m.id} textValue={m.name}>
+                            <span className="flex flex-col gap-0.5 text-start">
+                              <span>{m.name}</span>
+                              {m.dueDate ? (
+                                <span className="text-muted-foreground text-xs">
+                                  {memberView ? `استحقاق ${m.dueDate}` : `Due ${m.dueDate}`}
+                                </span>
+                              ) : null}
+                            </span>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {!milestonesLoading && milestoneRows.length === 0 && watchedProjectId ? (
+                    <p className="text-muted-foreground text-xs">
+                      {memberView ? AR.milestoneEmpty : "This project has no milestones yet."}
+                    </p>
+                  ) : null}
                   <FormMessage />
                 </FormItem>
               )}

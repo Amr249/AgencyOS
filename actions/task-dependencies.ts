@@ -3,9 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
+import { getServerSession } from "next-auth";
 import { db } from "@/lib/db";
 import { taskDependencies, tasks } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
+import { memberMayViewTaskById } from "@/lib/member-context";
 
 const dependencyTypes = [
   "finish_to_start",
@@ -141,6 +145,21 @@ export async function addDependency(input: z.infer<typeof addDependencySchema>) 
       return { ok: false as const, error: "Task not found." as const };
     }
 
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (!userId) {
+      return { ok: false as const, error: "Not authorized." as const };
+    }
+    if (sessionUserRole(session) === "member") {
+      const a = await memberMayViewTaskById(taskId, userId);
+      const b = await memberMayViewTaskById(dependsOnTaskId, userId);
+      if (!a || !b) {
+        return { ok: false as const, error: "Forbidden." as const };
+      }
+    } else if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden." as const };
+    }
+
     const existing = await db.query.taskDependencies.findFirst({
       where: and(eq(taskDependencies.taskId, taskId), eq(taskDependencies.dependsOnTaskId, dependsOnTaskId)),
       columns: { id: true },
@@ -208,6 +227,20 @@ export async function removeDependency(id: string) {
       return { ok: false as const, error: "Dependency not found." as const };
     }
 
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (!userId) {
+      return { ok: false as const, error: "Not authorized." as const };
+    }
+    if (sessionUserRole(session) === "member") {
+      const ok = await memberMayViewTaskById(row.task.id, userId);
+      if (!ok) {
+        return { ok: false as const, error: "Forbidden." as const };
+      }
+    } else if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden." as const };
+    }
+
     await db.delete(taskDependencies).where(eq(taskDependencies.id, parsed.data.id));
 
     revalidatePath("/dashboard/workspace");
@@ -232,6 +265,20 @@ export async function getTaskDependencies(taskId: string) {
       return { ok: false as const, error: parsed.error.flatten().fieldErrors };
     }
 
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (!userId) {
+      return { ok: false as const, error: "Not authorized." as const };
+    }
+    if (sessionUserRole(session) === "member") {
+      const ok = await memberMayViewTaskById(parsed.data.taskId, userId);
+      if (!ok) {
+        return { ok: false as const, error: "Forbidden." as const };
+      }
+    } else if (sessionUserRole(session) !== "admin") {
+      return { ok: false as const, error: "Forbidden." as const };
+    }
+
     const rows = await db.query.taskDependencies.findMany({
       where: or(
         eq(taskDependencies.taskId, parsed.data.taskId),
@@ -247,10 +294,24 @@ export async function getTaskDependencies(taskId: string) {
       },
     });
 
-    const blockedBy = rows.filter((r) => r.taskId === parsed.data.taskId);
-    const blocks = rows.filter((r) => r.dependsOnTaskId === parsed.data.taskId);
+    let blockedBy = rows.filter((r) => r.taskId === parsed.data.taskId);
+    let blocks = rows.filter((r) => r.dependsOnTaskId === parsed.data.taskId);
 
-    return { ok: true as const, data: { blockedBy, blocks, all: rows } };
+    if (sessionUserRole(session) === "member") {
+      const bb: typeof blockedBy = [];
+      for (const r of blockedBy) {
+        if (await memberMayViewTaskById(r.dependsOnTask.id, userId)) bb.push(r);
+      }
+      blockedBy = bb;
+      const bk: typeof blocks = [];
+      for (const r of blocks) {
+        if (await memberMayViewTaskById(r.task.id, userId)) bk.push(r);
+      }
+      blocks = bk;
+    }
+
+    const all = sessionUserRole(session) === "member" ? [...blockedBy, ...blocks] : rows;
+    return { ok: true as const, data: { blockedBy, blocks, all } };
   } catch (e) {
     if (isDbConnectionError(e)) {
       return { ok: false as const, error: getDbErrorKey(e) };
