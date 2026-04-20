@@ -189,6 +189,11 @@ type TasksListViewProps = {
   /** Called after an assignment change so the parent can refetch assigneesByTaskId. */
   onAssigneesRefresh?: () => void;
   memberView?: boolean;
+  /**
+   * When `memberView` is true, allow inline editing of a task's status and priority only.
+   * Other cells (due date, assignees, delete) remain read-only.
+   */
+  memberCanEdit?: boolean;
 };
 
 const ALL = "__all__";
@@ -569,8 +574,10 @@ export function TasksListView({
   onTaskPatched,
   onAssigneesRefresh,
   memberView = false,
+  memberCanEdit = false,
 }: TasksListViewProps) {
   const editable = !memberView;
+  const editableStatusPriority = editable || memberCanEdit;
   const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
   const priorityLabels = memberView ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
   const uiLabels: TasksListLabels = memberView ? TASKS_LIST_AR : TASKS_LIST_EN;
@@ -740,7 +747,7 @@ export function TasksListView({
           <PriorityCell
             task={row.original}
             labels={priorityLabels}
-            editable={editable}
+            editable={editableStatusPriority}
             onPatched={onTaskPatched}
             uiLabels={uiLabels}
           />
@@ -778,7 +785,7 @@ export function TasksListView({
           <StatusCell
             task={row.original}
             labels={statusLabels}
-            editable={editable}
+            editable={editableStatusPriority}
             onPatched={onTaskPatched}
             uiLabels={uiLabels}
           />
@@ -873,12 +880,14 @@ export function TasksListView({
             <DropdownMenuItem onClick={() => onOpenTask(row.original.id)}>
               {uiLabels.edit}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => onDeleteTask(row.original.id)}
-            >
-              {uiLabels.delete}
-            </DropdownMenuItem>
+            {!memberView ? (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => onDeleteTask(row.original.id)}
+              >
+                {uiLabels.delete}
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -898,6 +907,7 @@ export function TasksListView({
     assigneeFilterMeta,
     memberView,
     editable,
+    editableStatusPriority,
     statusLabels,
     priorityLabels,
     uiLabels,
@@ -956,14 +966,14 @@ export function TasksListView({
                 <StatusCell
                   task={task}
                   labels={statusLabels}
-                  editable={editable}
+                  editable={editableStatusPriority}
                   onPatched={onTaskPatched}
                   uiLabels={uiLabels}
                 />
                 <PriorityCell
                   task={task}
                   labels={priorityLabels}
-                  editable={editable}
+                  editable={editableStatusPriority}
                   onPatched={onTaskPatched}
                   uiLabels={uiLabels}
                 />
@@ -981,12 +991,14 @@ export function TasksListView({
                     <DropdownMenuItem onClick={() => onOpenTask(task.id)}>
                       {uiLabels.edit}
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => onDeleteTask(task.id)}
-                    >
-                      {uiLabels.delete}
-                    </DropdownMenuItem>
+                    {!memberView ? (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => onDeleteTask(task.id)}
+                      >
+                        {uiLabels.delete}
+                      </DropdownMenuItem>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

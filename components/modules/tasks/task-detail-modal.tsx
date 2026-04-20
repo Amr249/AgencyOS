@@ -98,6 +98,7 @@ type TeamMember = {
 
 type Assignee = {
   userId: string;
+  authUserId?: string | null;
   name: string;
   email: string;
   avatarUrl: string | null;
@@ -286,6 +287,7 @@ export function TaskDetailModal({
 }: TaskDetailModalProps) {
   const { data: session } = useSession();
   const sessionUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
+  const sessionUserEmail = (session?.user as { email?: string | null } | undefined)?.email ?? null;
   const isAdmin = (session?.user as { role?: string })?.role === "admin";
   const ui = React.useMemo(() => (memberView ? AR_UI : EN_UI), [memberView]);
   const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
@@ -855,7 +857,14 @@ export function TaskDetailModal({
                 canUpload={
                   isAdmin ||
                   (!!sessionUserId &&
-                    currentAssignees.some((a) => a.userId === sessionUserId))
+                    currentAssignees.some(
+                      (a) =>
+                        (a.authUserId && a.authUserId === sessionUserId) ||
+                        (!!sessionUserEmail &&
+                          !!a.email &&
+                          a.email.trim().toLowerCase() ===
+                            sessionUserEmail.trim().toLowerCase())
+                    ))
                 }
                 canDeleteAny={isAdmin}
                 currentUserId={sessionUserId}

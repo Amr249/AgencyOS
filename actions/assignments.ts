@@ -184,6 +184,7 @@ export async function getTaskAssignees(taskId: string) {
     const assignees = await db
       .select({
         userId: teamMembers.id,
+        authUserId: teamMembers.userId,
         name: teamMembers.name,
         email: teamMembers.email,
         avatarUrl: teamMembers.avatarUrl,
@@ -197,6 +198,7 @@ export async function getTaskAssignees(taskId: string) {
     const normalized = assignees.map((a) => ({
       ...a,
       email: a.email ?? "",
+      authUserId: a.authUserId ?? null,
     }));
 
     return { data: normalized, error: null };

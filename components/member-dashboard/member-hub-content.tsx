@@ -17,7 +17,7 @@ import {
 import type { MemberProjectRow, MemberSalaryExpenseRow } from "@/actions/member-dashboard";
 import { MemberPaymentsDataTable } from "@/components/member-dashboard/member-financial-tables";
 import { MemberTaskCharts, MemberEarningsChart } from "@/components/member-dashboard/member-hub-charts";
-import { MemberMyTasksList } from "@/components/member-dashboard/member-my-tasks-list";
+import { MemberMyTasksTable } from "@/components/member-dashboard/member-my-tasks-table";
 import type { WorkspaceMyTaskGroups } from "@/actions/workspace";
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_PILL_CLASS } from "@/types";
 import { AvatarStack } from "@/components/ui/avatar-stack";
@@ -181,7 +181,7 @@ export async function MemberHubContent({
           <CardDescription>{t("tasksHint")}</CardDescription>
         </CardHeader>
         <CardContent className="px-2 sm:px-6">
-          <MemberMyTasksList groups={groups} />
+          <MemberMyTasksTable groups={groups} />
         </CardContent>
       </Card>
 

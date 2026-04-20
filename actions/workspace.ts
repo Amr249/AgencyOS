@@ -420,12 +420,17 @@ export type WorkspaceMyTaskRow = {
   dueDate: string | null;
   projectId: string;
   projectName: string;
+  /** `projects.cover_image_url` used by the rich tasks table thumb. */
+  projectCoverImageUrl: string | null;
+  /** `clients.logo_url` used as fallback when project cover is empty. */
+  projectClientLogoUrl: string | null;
   clientName: string | null;
   assigneeName: string | null;
   assigneeAvatarUrl: string | null;
   assigneeId: string | null;
   actualHours: string | null;
   description: string | null;
+  createdAt: Date;
 };
 
 export type WorkspaceMyTaskGroups = {
@@ -533,12 +538,15 @@ export async function getWorkspaceMyTasks(): Promise<
         dueDate: tasks.dueDate,
         projectId: projects.id,
         projectName: projects.name,
+        projectCoverImageUrl: projects.coverImageUrl,
+        projectClientLogoUrl: clients.logoUrl,
         clientName: clients.companyName,
         assigneeName: teamMembers.name,
         assigneeAvatarUrl: teamMembers.avatarUrl,
         assigneeId: tasks.assigneeId,
         actualHours: tasks.actualHours,
         description: tasks.description,
+        createdAt: tasks.createdAt,
       })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
