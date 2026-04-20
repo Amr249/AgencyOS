@@ -114,12 +114,12 @@ export async function runTaskDueReminderJob(): Promise<
     const nameByMemberId = await namesForTeamMemberIds([...allMemberIds]);
 
     for (const task of rows) {
-      const rawDue = task.dueDate;
+      const rawDue: unknown = task.dueDate;
       const dueStr =
-        rawDue instanceof Date
-          ? rawDue.toISOString().slice(0, 10)
-          : typeof rawDue === "string"
-            ? rawDue.slice(0, 10)
+        typeof rawDue === "string"
+          ? rawDue.slice(0, 10)
+          : rawDue instanceof Date
+            ? rawDue.toISOString().slice(0, 10)
             : String(rawDue).slice(0, 10);
       const titleSafe = task.title?.trim() || "مهمة";
       const projectSafe = task.projectName?.trim() || "مشروع";
