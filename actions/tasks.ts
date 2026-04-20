@@ -68,6 +68,8 @@ const getTasksFiltersSchema = z.object({
   /** Filter to any of these statuses. */
   statuses: z.array(z.enum(taskStatusValues)).optional(),
   priority: z.enum(taskPriorityValues).optional(),
+  /** Filter to any of these priorities. */
+  priorities: z.array(z.enum(taskPriorityValues)).optional(),
   search: z.string().optional(),
   /** Team member id: tasks assigned via `tasks.assignee_id` or `task_assignments`. */
   teamMemberId: z.string().uuid().optional(),
@@ -133,6 +135,8 @@ export async function getTasks(filters?: GetTasksFilters) {
     f.projectIds?.length ? f.projectIds : f.projectId ? [f.projectId] : undefined;
   const statusesFilter =
     f.statuses?.length ? f.statuses : f.status ? [f.status] : undefined;
+  const prioritiesFilter =
+    f.priorities?.length ? f.priorities : f.priority ? [f.priority] : undefined;
   const teamMemberIdsFilter =
     f.teamMemberIds?.length ? f.teamMemberIds : f.teamMemberId ? [f.teamMemberId] : undefined;
 
@@ -203,7 +207,7 @@ export async function getTasks(filters?: GetTasksFilters) {
 
     if (f.milestoneId) conditions.push(eq(tasks.milestoneId, f.milestoneId));
     if (statusesFilter?.length) conditions.push(inArray(tasks.status, statusesFilter));
-    if (f.priority) conditions.push(eq(tasks.priority, f.priority));
+    if (prioritiesFilter?.length) conditions.push(inArray(tasks.priority, prioritiesFilter));
     if (f.search?.trim()) {
       conditions.push(ilike(tasks.title, `%${f.search.trim()}%`));
     }
