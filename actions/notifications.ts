@@ -25,9 +25,43 @@ async function currentUserId(): Promise<string | null> {
   return session?.user?.id ?? null;
 }
 
-async function listAdminUserIds(): Promise<string[]> {
+export async function listAdminUserIds(): Promise<string[]> {
   const rows = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
   return rows.map((r) => r.id);
+}
+
+/**
+ * Insert a single notification when `dedupeKey` is new (partial unique index on `dedupe_key`).
+ * Returns true if a row was inserted, false if skipped as duplicate.
+ */
+export async function insertDedupedNotification(input: {
+  userId: string;
+  dedupeKey: string;
+  type: string;
+  title: string;
+  body?: string | null;
+  linkUrl?: string | null;
+  actorId?: string | null;
+}): Promise<boolean> {
+  try {
+    const [row] = await db
+      .insert(notifications)
+      .values({
+        userId: input.userId,
+        dedupeKey: input.dedupeKey,
+        type: input.type,
+        title: input.title,
+        body: input.body ?? null,
+        linkUrl: input.linkUrl ?? null,
+        actorId: input.actorId ?? null,
+      })
+      .onConflictDoNothing({ target: notifications.dedupeKey })
+      .returning({ id: notifications.id });
+    return !!row;
+  } catch (e) {
+    console.error("insertDedupedNotification", e);
+    return false;
+  }
 }
 
 type CreateNotificationInput = {

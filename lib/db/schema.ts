@@ -19,7 +19,7 @@ import {
   boolean,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // Enums (v2 Solo)
 export const userRoleEnum = pgEnum("user_role", ["admin", "member"]);
@@ -136,6 +136,11 @@ export const notifications = pgTable(
     /** Optional deep-link (e.g. /dashboard/account). */
     linkUrl: text("link_url"),
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * Idempotency for scheduled reminders: unique when set (partial unique index in DB).
+     * Format e.g. `task_due_soon:${userId}:${taskId}:${dueDate}`.
+     */
+    dedupeKey: text("dedupe_key"),
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -143,6 +148,9 @@ export const notifications = pgTable(
     index("notifications_user_id_idx").on(table.userId),
     index("notifications_user_read_idx").on(table.userId, table.readAt),
     index("notifications_created_at_idx").on(table.createdAt),
+    uniqueIndex("notifications_dedupe_key_uidx")
+      .on(table.dedupeKey)
+      .where(sql`${table.dedupeKey} is not null`),
   ]
 );
 
