@@ -38,7 +38,6 @@ import { formatCalendarDate } from "@/lib/calendar-date";
 import type { DateRange } from "react-day-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 type ProjectOption = ProjectPickerOption & {
   /** `projects.status` – used to surface active projects at the top of the filter. */
@@ -517,7 +516,7 @@ export function TasksPageContent({
             <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium">
               {memberView ? TASKS_AR.filterProjects : FILTER_EN.projects}
             </div>
-            <ScrollArea className="max-h-72">
+            <div className="max-h-72 overflow-y-auto overscroll-contain">
               <div className="flex flex-col gap-0 p-2">
                 {sortedProjects.active.length > 0 ? (
                   <div
@@ -576,7 +575,7 @@ export function TasksPageContent({
                   </label>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
             <div className="border-t p-2">
               <Button
                 type="button"
@@ -614,7 +613,7 @@ export function TasksPageContent({
             <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium">
               {memberView ? TASKS_AR.filterPriorities : FILTER_EN.priorities}
             </div>
-            <ScrollArea className="max-h-72">
+            <div className="max-h-72 overflow-y-auto overscroll-contain">
               <div className="flex flex-col gap-0 p-2">
                 {priorityOptionsMulti.map((o) => (
                   <label
@@ -638,7 +637,7 @@ export function TasksPageContent({
                   </label>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
             <div className="border-t p-2">
               <Button
                 type="button"
@@ -671,7 +670,7 @@ export function TasksPageContent({
             <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium">
               {memberView ? TASKS_AR.filterStatuses : FILTER_EN.statuses}
             </div>
-            <ScrollArea className="max-h-72">
+            <div className="max-h-72 overflow-y-auto overscroll-contain">
               <div className="flex flex-col gap-0 p-2">
                 {statusOptionsMulti.map((o) => (
                   <label
@@ -692,7 +691,7 @@ export function TasksPageContent({
                   </label>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
             <div className="border-t p-2">
               <Button
                 type="button"
@@ -725,7 +724,7 @@ export function TasksPageContent({
             <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium">
               {memberView ? TASKS_AR.filterMembers : FILTER_EN.members}
             </div>
-            <ScrollArea className="max-h-72">
+            <div className="max-h-72 overflow-y-auto overscroll-contain">
               <div className="flex flex-col gap-0 p-2">
                 {sortedTeamMembers.map((m) => (
                   <label
@@ -748,7 +747,7 @@ export function TasksPageContent({
                   </label>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
             <div className="border-t p-2">
               <Button
                 type="button"
