@@ -194,10 +194,6 @@ export function TasksPageContent({
     setAssigneesByTaskId(initialAssigneesByTaskId);
   }, [initialAssigneesByTaskId]);
 
-  React.useEffect(() => {
-    if (memberView) setMemberFilter("all");
-  }, [memberView]);
-
   const syncAssigneesForTasks = React.useCallback((taskList: TaskWithProject[]) => {
     const ids = taskList.map((t) => t.id);
     if (ids.length === 0) {
@@ -222,6 +218,9 @@ export function TasksPageContent({
       if (res.ok) {
         setTasks(res.data);
         syncAssigneesForTasks(res.data);
+      } else {
+        const err = typeof res.error === "string" ? res.error : "";
+        toast.error(isDbErrorKey(err) ? translateErr(err) : err || "Could not load tasks");
       }
     });
     router.refresh();
@@ -234,6 +233,7 @@ export function TasksPageContent({
     dueRange,
     router,
     syncAssigneesForTasks,
+    translateErr,
   ]);
 
   const dueFromKey = dueRange?.from ? formatCalendarDate(dueRange.from) : "";
@@ -280,19 +280,16 @@ export function TasksPageContent({
       if (res.ok) {
         setTasks(res.data);
         syncAssigneesForTasks(res.data);
+      } else {
+        const err = typeof res.error === "string" ? res.error : "";
+        toast.error(isDbErrorKey(err) ? translateErr(err) : err || "Could not load tasks");
       }
     });
-  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter, dueFromKey, dueToKey, syncAssigneesForTasks]);
+  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter, dueFromKey, dueToKey, syncAssigneesForTasks, translateErr]);
 
   const sortedTeamMembers = React.useMemo(
     () => [...teamMembers].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })),
     [teamMembers]
-  );
-
-  const selectedMemberForFilter = React.useMemo(
-    () =>
-      memberFilter === "all" ? null : (sortedTeamMembers.find((m) => m.id === memberFilter) ?? null),
-    [memberFilter, sortedTeamMembers]
   );
 
   const handleAddTask = (status?: "todo" | "in_progress" | "in_review" | "done" | "blocked") => {
@@ -340,18 +337,6 @@ export function TasksPageContent({
   const dir = memberView ? "rtl" : "ltr";
   const PRIORITY_OPTIONS = memberView ? PRIORITY_OPTIONS_AR : PRIORITY_OPTIONS_EN;
   const STATUS_OPTIONS = memberView ? STATUS_OPTIONS_AR : STATUS_OPTIONS_EN;
-  const priorityFilterLabel =
-    PRIORITY_OPTIONS.find((o) => o.value === priorityFilter)?.label ?? PRIORITY_OPTIONS[0].label;
-  const memberFilterLabel =
-    memberFilter === "all"
-      ? memberView
-        ? TASKS_AR.allMembers
-        : "All members"
-      : selectedMemberForFilter
-        ? selectedMemberForFilter.name || selectedMemberForFilter.email || selectedMemberForFilter.id
-        : memberView
-          ? TASKS_AR.allMembers
-          : "All members";
 
   return (
     <div dir={dir} lang={memberView ? "ar" : "en"} className="space-y-4">
@@ -421,10 +406,8 @@ export function TasksPageContent({
             className="w-full min-w-0 sm:w-[168px]"
             aria-label={memberView ? "تصفية حسب الأولوية" : "Filter by priority"}
           >
-            <span className="flex min-w-0 flex-1 items-center gap-2 text-start">
-              <PriorityFilterDot value={priorityFilter} />
-              <span className="truncate">{priorityFilterLabel}</span>
-            </span>
+            {/* Selection preview comes only from SelectValue (matches SelectItem row: dot + label). */}
+            <SelectValue placeholder={PRIORITY_OPTIONS[0].label} />
           </SelectTrigger>
           <SelectContent dir={dir}>
             {PRIORITY_OPTIONS.map((o) => (
@@ -437,53 +420,40 @@ export function TasksPageContent({
             ))}
           </SelectContent>
         </Select>
-        {!memberView ? (
-          <Select value={memberFilter} onValueChange={setMemberFilter}>
-            <SelectTrigger
-              className="w-full min-w-0 sm:min-w-[200px] sm:max-w-[260px]"
-              aria-label="Filter by team member"
+        <Select value={memberFilter} onValueChange={setMemberFilter}>
+          <SelectTrigger
+            className="w-full min-w-0 sm:min-w-[200px] sm:max-w-[260px]"
+            aria-label={memberView ? "تصفية حسب العضو" : "Filter by team member"}
+          >
+            <SelectValue placeholder={memberView ? TASKS_AR.allMembers : "All members"} />
+          </SelectTrigger>
+          <SelectContent dir={dir}>
+            <SelectItem
+              value="all"
+              textValue={memberView ? TASKS_AR.allMembers : "All members"}
             >
-              <span className="flex min-w-0 flex-1 items-center gap-2 text-start">
-                {memberFilter === "all" ? (
-                  <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
-                    <Users className="h-4 w-4 shrink-0" aria-hidden />
-                  </span>
-                ) : selectedMemberForFilter ? (
-                  <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarImage src={selectedMemberForFilter.avatarUrl ?? undefined} alt="" />
-                    <AvatarFallback className="text-[10px]">
-                      {memberInitials(selectedMemberForFilter.name || selectedMemberForFilter.email || "?")}
-                    </AvatarFallback>
-                  </Avatar>
-                ) : (
-                  <span className="bg-muted flex h-7 w-7 shrink-0 rounded-full" aria-hidden />
-                )}
-                <span className="truncate">{memberFilterLabel}</span>
+              <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+                <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+                  <Users className="h-4 w-4 shrink-0" aria-hidden />
+                </span>
+                <span className="min-w-0 truncate">
+                  {memberView ? TASKS_AR.allMembers : "All members"}
+                </span>
               </span>
-            </SelectTrigger>
-            <SelectContent dir={dir}>
-              <SelectItem value="all" textValue="All members">
+            </SelectItem>
+            {sortedTeamMembers.map((m) => (
+              <SelectItem key={m.id} value={m.id} textValue={m.name || m.email || m.id}>
                 <span className="inline-flex min-w-0 max-w-full items-center gap-2">
-                  <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
-                    <Users className="h-4 w-4 shrink-0" aria-hidden />
-                  </span>
-                  <span className="min-w-0 truncate">All members</span>
+                  <Avatar className="h-7 w-7 shrink-0">
+                    <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
+                    <AvatarFallback className="text-[10px]">{memberInitials(m.name || m.email || "?")}</AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0 truncate">{m.name || m.email || m.id}</span>
                 </span>
               </SelectItem>
-              {sortedTeamMembers.map((m) => (
-                <SelectItem key={m.id} value={m.id} textValue={m.name || m.email || m.id}>
-                  <span className="inline-flex min-w-0 max-w-full items-center gap-2">
-                    <Avatar className="h-7 w-7 shrink-0">
-                      <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
-                      <AvatarFallback className="text-[10px]">{memberInitials(m.name || m.email || "?")}</AvatarFallback>
-                    </Avatar>
-                    <span className="min-w-0 truncate">{m.name || m.email || m.id}</span>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
+            ))}
+          </SelectContent>
+        </Select>
         {(viewMode === "kanban" || viewMode === "list") && (
           <div className="flex flex-col gap-1">
             <span className="text-muted-foreground text-xs">

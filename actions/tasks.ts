@@ -193,7 +193,7 @@ export async function getTasks(filters?: GetTasksFilters) {
       conditions.push(ilike(tasks.title, `%${f.search.trim()}%`));
     }
 
-    if (f.teamMemberId && role === "admin") {
+    if (f.teamMemberId) {
       const assignedViaJunction = db
         .select({ taskId: taskAssignments.taskId })
         .from(taskAssignments)

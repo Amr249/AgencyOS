@@ -51,8 +51,10 @@ import {
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { addDependency, getTaskDependencies, removeDependency } from "@/actions/task-dependencies";
-import { Pencil, Trash2, X } from "lucide-react";
+import { CalendarIcon, Pencil, Trash2, X } from "lucide-react";
 import { ProjectSelectThumb } from "@/components/entity-select-option";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 
 type TaskWithSubtasks = {
   id: string;
@@ -142,7 +144,10 @@ const EN_UI = {
   srTitle: "Task details",
   srDesc: "View and edit this task",
   project: "Project:",
-  dueDate: "Due date:",
+  dueDateLabel: "Due date",
+  clearDueDate: "Clear date",
+  tDueDateUpdated: "Due date updated",
+  tDueDateFail: "Could not update due date",
   milestone: "Milestone",
   noMilestone: "No milestone",
   description: "Description",
@@ -199,7 +204,10 @@ const AR_UI: { [K in keyof TaskDetailUi]: string } = {
   srTitle: "تفاصيل المهمة",
   srDesc: "عرض المهمة وتعديلها",
   project: "المشروع:",
-  dueDate: "تاريخ الاستحقاق:",
+  dueDateLabel: "تاريخ الاستحقاق",
+  clearDueDate: "مسح التاريخ",
+  tDueDateUpdated: "تم تحديث تاريخ الاستحقاق",
+  tDueDateFail: "تعذّر تحديث تاريخ الاستحقاق",
   milestone: "المعلم",
   noMilestone: "بدون معلم",
   description: "الوصف",
@@ -261,6 +269,13 @@ function formatTaskDate(d: string | null, memberView: boolean) {
   }
 }
 
+function toIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function TaskDetailModal({
   taskId,
   teamMembers,
@@ -293,6 +308,8 @@ export function TaskDetailModal({
   const [selectedDependencyTaskId, setSelectedDependencyTaskId] = React.useState("");
   const [addingDependency, setAddingDependency] = React.useState(false);
   const [milestoneOptions, setMilestoneOptions] = React.useState<MilestoneOption[]>([]);
+  const [dueDateOpen, setDueDateOpen] = React.useState(false);
+  const [savingDueDate, setSavingDueDate] = React.useState(false);
 
   const open = !!taskId;
 
@@ -308,8 +325,10 @@ export function TaskDetailModal({
       setEditingSubtaskId(null);
       setSubtaskEditTitle("");
       setSubtaskIdToDelete(null);
+      setDueDateOpen(false);
       return;
     }
+    setDueDateOpen(false);
     setTask(null);
     setLoading(true);
     Promise.all([
@@ -492,6 +511,37 @@ export function TaskDetailModal({
           toast.success(ui.tPriorityUpdated);
           onSuccess();
         }
+      });
+    },
+    [taskId, task, onSuccess, ui]
+  );
+
+  const handleDueDateSelect = React.useCallback(
+    (next: string | null) => {
+      if (!taskId || !task) return;
+      if (next === task.dueDate) {
+        setDueDateOpen(false);
+        return;
+      }
+      setSavingDueDate(true);
+      updateTask({ id: taskId, dueDate: next }).then((res) => {
+        setSavingDueDate(false);
+        if (res.ok) {
+          setTask((prev) => (prev ? { ...prev, dueDate: next } : null));
+          toast.success(ui.tDueDateUpdated);
+          setDueDateOpen(false);
+          onSuccess();
+          return;
+        }
+        const err = res.error;
+        let msg = ui.tDueDateFail;
+        if (err && typeof err === "object" && "_form" in err) {
+          const f = (err as { _form?: string[] })._form;
+          if (f?.[0]) msg = f[0];
+        } else if (typeof err === "string") {
+          msg = err;
+        }
+        toast.error(msg);
       });
     },
     [taskId, task, onSuccess, ui]
@@ -717,9 +767,55 @@ export function TaskDetailModal({
                   </Link>
                 )}
               </p>
-              <p className="text-muted-foreground text-sm">
-                {ui.dueDate} {formatTaskDate(task.dueDate, memberView)}
-              </p>
+              <div className="space-y-1">
+                <label htmlFor={`task-due-${task.id}`} className="text-muted-foreground block text-sm">
+                  {ui.dueDateLabel}
+                </label>
+                <Popover open={dueDateOpen} onOpenChange={setDueDateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id={`task-due-${task.id}`}
+                      type="button"
+                      variant="outline"
+                      disabled={savingDueDate}
+                      className={cn(
+                        "min-w-[10rem] justify-start gap-2 font-normal",
+                        !task.dueDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                      {formatTaskDate(task.dueDate, memberView)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-auto p-0"
+                    align={memberView ? "end" : "start"}
+                    dir={layoutDir}
+                  >
+                    <Calendar
+                      mode="single"
+                      selected={task.dueDate ? new Date(task.dueDate + "T12:00:00") : undefined}
+                      onSelect={(d) => {
+                        void handleDueDateSelect(d ? toIsoDate(d) : null);
+                      }}
+                      initialFocus
+                    />
+                    {task.dueDate ? (
+                      <div className="flex items-center justify-end border-t p-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={savingDueDate}
+                          onClick={() => void handleDueDateSelect(null)}
+                        >
+                          {ui.clearDueDate}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </PopoverContent>
+                </Popover>
+              </div>
               {!task.parentTaskId ? (
                 <div className="space-y-1">
                   <label className="text-muted-foreground block text-sm">{ui.milestone}</label>
