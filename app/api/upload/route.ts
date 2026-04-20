@@ -21,6 +21,7 @@ export async function POST(request: Request) {
   const folderParam = formData.get("folder") as string | null;
   const scope = (formData.get("scope") as string) || "client-logo";
   const projectId = formData.get("projectId") as string | null;
+  const taskId = formData.get("taskId") as string | null;
   const invoiceId = formData.get("invoiceId") as string | null;
   const expenseId = formData.get("expenseId") as string | null;
 
@@ -38,6 +39,8 @@ export async function POST(request: Request) {
     folder = `agencyos/invoices/${invoiceId}`;
   } else if (scope === "expense-attachment" && expenseId && /^[0-9a-f-]{36}$/i.test(expenseId)) {
     folder = `agencyos/expenses/${expenseId}`;
+  } else if (scope === "task-attachment" && taskId && /^[0-9a-f-]{36}$/i.test(taskId)) {
+    folder = `agencyos/tasks/${taskId}`;
   } else if (scope === "agency-logo") {
     folder = IMAGEKIT_AGENCY_LOGO_FOLDER;
   } else if (scope === "client-logo") {

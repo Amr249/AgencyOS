@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { createTask } from "@/actions/tasks";
-import { getMilestonesByProjectId } from "@/actions/milestones";
+import { getMilestonesByProjectId, getMilestonesByProjectIdForAssignee } from "@/actions/milestones";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -127,6 +127,9 @@ function mapServerErrorToAr(msg: string): string {
   const m = msg.trim();
   if (m === "Forbidden") return AR.forbidden;
   if (m === "Not authorized") return AR.unauthorized;
+  if (m === "You are not assigned to this milestone") {
+    return "أنت غير معيَّن لهذا المعلم.";
+  }
   return m;
 }
 
@@ -172,9 +175,19 @@ export function NewTaskModal({
       setMilestoneRows([]);
       return;
     }
+    if (memberView && !memberTeamMemberId) {
+      setMilestoneRows([]);
+      setMilestonesLoading(false);
+      return;
+    }
     let cancelled = false;
     setMilestonesLoading(true);
-    getMilestonesByProjectId(watchedProjectId).then((res) => {
+    const loader =
+      memberView && memberTeamMemberId
+        ? getMilestonesByProjectIdForAssignee(watchedProjectId, memberTeamMemberId)
+        : getMilestonesByProjectId(watchedProjectId);
+
+    loader.then((res) => {
       if (cancelled) return;
       setMilestonesLoading(false);
       if (res.ok) {
@@ -192,7 +205,16 @@ export function NewTaskModal({
     return () => {
       cancelled = true;
     };
-  }, [open, watchedProjectId]);
+  }, [open, watchedProjectId, memberView, memberTeamMemberId]);
+
+  React.useEffect(() => {
+    if (milestonesLoading) return;
+    const mid = form.getValues("milestoneId")?.trim();
+    if (!mid) return;
+    if (milestoneRows.length === 0 || !milestoneRows.some((r) => r.id === mid)) {
+      form.setValue("milestoneId", "");
+    }
+  }, [milestoneRows, milestonesLoading, form]);
 
   React.useEffect(() => {
     if (open) {

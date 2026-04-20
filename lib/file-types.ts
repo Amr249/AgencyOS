@@ -22,9 +22,16 @@ export type FileRow = {
   sizeBytes: number | null;
   clientId: string | null;
   projectId: string | null;
+  taskId: string | null;
   invoiceId: string | null;
   expenseId: string | null;
   documentType: FileDocumentType | null;
   description: string | null;
+  /** `users.id` of the uploader, null for legacy rows. */
+  uploadedBy: string | null;
+  /** Display name of the uploader (`team_members.name` matched via `team_members.user_id`), null if unknown. */
+  uploadedByName: string | null;
+  /** Avatar URL of the uploader (`team_members.avatar_url`), null if unknown. */
+  uploadedByAvatarUrl: string | null;
   createdAt: Date;
 };

@@ -55,6 +55,7 @@ import { CalendarIcon, Pencil, Trash2, X } from "lucide-react";
 import { ProjectSelectThumb } from "@/components/entity-select-option";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { TaskAttachments } from "@/components/modules/tasks/task-attachments";
 
 type TaskWithSubtasks = {
   id: string;
@@ -284,6 +285,7 @@ export function TaskDetailModal({
   memberView = false,
 }: TaskDetailModalProps) {
   const { data: session } = useSession();
+  const sessionUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
   const isAdmin = (session?.user as { role?: string })?.role === "admin";
   const ui = React.useMemo(() => (memberView ? AR_UI : EN_UI), [memberView]);
   const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
@@ -847,6 +849,17 @@ export function TaskDetailModal({
                   placeholder={ui.noDescriptionPh}
                 />
               </div>
+              <TaskAttachments
+                taskId={task.id}
+                memberView={memberView}
+                canUpload={
+                  isAdmin ||
+                  (!!sessionUserId &&
+                    currentAssignees.some((a) => a.userId === sessionUserId))
+                }
+                canDeleteAny={isAdmin}
+                currentUserId={sessionUserId}
+              />
               <Card className="gap-3 py-4">
                 <CardContent className="space-y-3 px-4">
                   <h4 className="text-sm font-medium">{ui.dependencies}</h4>

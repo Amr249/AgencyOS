@@ -222,20 +222,8 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
       if (createResult.ok && createResult.data) {
         const row = createResult.data;
         const newDoc: FileRow = {
-          id: row.id,
-          name: row.name,
-          imagekitFileId: row.imagekitFileId,
-          imagekitUrl: row.imagekitUrl,
-          filePath: row.filePath,
-          mimeType: row.mimeType,
+          ...row,
           sizeBytes: row.sizeBytes != null ? Number(row.sizeBytes) : null,
-          clientId: row.clientId,
-          projectId: row.projectId,
-          invoiceId: row.invoiceId,
-          expenseId: row.expenseId,
-          documentType: row.documentType ?? null,
-          description: row.description ?? null,
-          createdAt: row.createdAt,
         };
         setDocuments((prev) => [newDoc, ...prev]);
         toast.success("Document uploaded.");

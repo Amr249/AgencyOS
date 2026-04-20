@@ -6,7 +6,15 @@ import { getServerSession } from "next-auth";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { eq, isNull, isNotNull, and, or, ilike, desc, inArray, gte, lte } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { tasks, projects, milestones, clients, projectMembers, taskAssignments } from "@/lib/db";
+import {
+  tasks,
+  projects,
+  milestones,
+  clients,
+  projectMembers,
+  taskAssignments,
+  milestoneTeamMembers,
+} from "@/lib/db";
 import { logActivityWithActor } from "@/actions/activity-log";
 import { notifyTaskAssigned } from "@/actions/notifications";
 import { authOptions } from "@/lib/auth";
@@ -53,12 +61,18 @@ const ymd = z
 
 const getTasksFiltersSchema = z.object({
   projectId: z.string().uuid().optional(),
+  /** Filter to any of these projects (intersects with member-visible projects for members). */
+  projectIds: z.array(z.string().uuid()).optional(),
   milestoneId: z.string().uuid().optional(),
   status: z.enum(taskStatusValues).optional(),
+  /** Filter to any of these statuses. */
+  statuses: z.array(z.enum(taskStatusValues)).optional(),
   priority: z.enum(taskPriorityValues).optional(),
   search: z.string().optional(),
   /** Team member id: tasks assigned via `tasks.assignee_id` or `task_assignments`. */
   teamMemberId: z.string().uuid().optional(),
+  /** Tasks assigned to any of these team members (assignee or junction). */
+  teamMemberIds: z.array(z.string().uuid()).optional(),
   /** Inclusive lower bound on `tasks.due_date` (calendar day, YYYY-MM-DD). */
   dueDateFrom: ymd,
   /** Inclusive upper bound on `tasks.due_date` (calendar day, YYYY-MM-DD). */
@@ -115,6 +129,13 @@ export async function getTasks(filters?: GetTasksFilters) {
   if (!parsed.success) return { ok: false as const, error: "Invalid filters" };
 
   const f = parsed.success ? parsed.data : {};
+  const projectIdsFilter =
+    f.projectIds?.length ? f.projectIds : f.projectId ? [f.projectId] : undefined;
+  const statusesFilter =
+    f.statuses?.length ? f.statuses : f.status ? [f.status] : undefined;
+  const teamMemberIdsFilter =
+    f.teamMemberIds?.length ? f.teamMemberIds : f.teamMemberId ? [f.teamMemberId] : undefined;
+
   try {
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -132,19 +153,13 @@ export async function getTasks(filters?: GetTasksFilters) {
       if (memberProjectIds.length === 0 || memberIds.length === 0) {
         return { ok: true as const, data: [] };
       }
-      const projectScope = f.projectId
-        ? memberProjectIds.includes(f.projectId)
-          ? [f.projectId]
-          : []
+      const projectScope = projectIdsFilter?.length
+        ? memberProjectIds.filter((id) => projectIdsFilter.includes(id))
         : memberProjectIds;
-      if (f.projectId && projectScope.length === 0) {
+      if (projectIdsFilter?.length && projectScope.length === 0) {
         return { ok: true as const, data: [] };
       }
-      if (f.projectId) {
-        conditions.push(eq(tasks.projectId, f.projectId));
-      } else {
-        conditions.push(inArray(tasks.projectId, memberProjectIds));
-      }
+      conditions.push(inArray(tasks.projectId, projectScope));
 
       const assignedViaJunction = db
         .select({ taskId: taskAssignments.taskId })
@@ -182,23 +197,25 @@ export async function getTasks(filters?: GetTasksFilters) {
       }
       const rootIds = [...new Set(assignedRows.map((r) => rootOf(r.id)))];
       conditions.push(inArray(tasks.id, rootIds));
-    } else if (f.projectId) {
-      conditions.push(eq(tasks.projectId, f.projectId));
+    } else if (projectIdsFilter?.length) {
+      conditions.push(inArray(tasks.projectId, projectIdsFilter));
     }
 
     if (f.milestoneId) conditions.push(eq(tasks.milestoneId, f.milestoneId));
-    if (f.status) conditions.push(eq(tasks.status, f.status));
+    if (statusesFilter?.length) conditions.push(inArray(tasks.status, statusesFilter));
     if (f.priority) conditions.push(eq(tasks.priority, f.priority));
     if (f.search?.trim()) {
       conditions.push(ilike(tasks.title, `%${f.search.trim()}%`));
     }
 
-    if (f.teamMemberId) {
+    if (teamMemberIdsFilter?.length) {
       const assignedViaJunction = db
         .select({ taskId: taskAssignments.taskId })
         .from(taskAssignments)
-        .where(eq(taskAssignments.teamMemberId, f.teamMemberId));
-      conditions.push(or(eq(tasks.assigneeId, f.teamMemberId), inArray(tasks.id, assignedViaJunction))!);
+        .where(inArray(taskAssignments.teamMemberId, teamMemberIdsFilter));
+      conditions.push(
+        or(inArray(tasks.assigneeId, teamMemberIdsFilter), inArray(tasks.id, assignedViaJunction))!
+      );
     }
 
     if (f.dueDateFrom || f.dueDateTo) {
@@ -414,6 +431,24 @@ export async function createTask(input: CreateTaskInput) {
     if (data.milestoneId) {
       const mv = await validateMilestoneForProject(data.milestoneId, data.projectId);
       if (!mv.ok) return { ok: false as const, error: { _form: [mv.error] } };
+      if (role === "member" && assigneeIdForInsert) {
+        const [assigned] = await db
+          .select({ milestoneId: milestoneTeamMembers.milestoneId })
+          .from(milestoneTeamMembers)
+          .where(
+            and(
+              eq(milestoneTeamMembers.milestoneId, data.milestoneId),
+              eq(milestoneTeamMembers.teamMemberId, assigneeIdForInsert)
+            )
+          )
+          .limit(1);
+        if (!assigned) {
+          return {
+            ok: false as const,
+            error: { _form: ["You are not assigned to this milestone"] },
+          };
+        }
+      }
     }
 
     const [row] = await db
@@ -536,6 +571,28 @@ export async function updateTask(input: UpdateTaskInput) {
       }
       const mv = await validateMilestoneForProject(data.milestoneId, current.projectId);
       if (!mv.ok) return { ok: false as const, error: { _form: [mv.error] } };
+      if (sessionUserRole(session) === "member" && session?.user?.id) {
+        const memberIds = await getTeamMemberIdsForSessionUser(session.user.id);
+        const selfTeamMemberId = memberIds[0];
+        if (selfTeamMemberId) {
+          const [assigned] = await db
+            .select({ milestoneId: milestoneTeamMembers.milestoneId })
+            .from(milestoneTeamMembers)
+            .where(
+              and(
+                eq(milestoneTeamMembers.milestoneId, data.milestoneId),
+                eq(milestoneTeamMembers.teamMemberId, selfTeamMemberId)
+              )
+            )
+            .limit(1);
+          if (!assigned) {
+            return {
+              ok: false as const,
+              error: { _form: ["You are not assigned to this milestone"] },
+            };
+          }
+        }
+      }
     }
 
     const updatePayload: Record<string, unknown> = {};

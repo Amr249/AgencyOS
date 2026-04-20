@@ -30,7 +30,7 @@ import { TasksListView } from "./tasks-list-view";
 import { TasksCalendarView } from "./tasks-calendar-view";
 import { NewTaskModal } from "./new-task-modal";
 import { TaskDetailModal } from "./task-detail-modal";
-import { CalendarDays, LayoutGrid, List, Plus, Users, X } from "lucide-react";
+import { CalendarDays, ChevronDown, LayoutGrid, List, Plus, X } from "lucide-react";
 import { useTranslateActionError } from "@/hooks/use-translate-action-error";
 import { isDbErrorKey } from "@/lib/i18n-errors";
 import { TASK_STATUS_LABELS_EN, TASK_PRIORITY_LABELS_EN } from "@/types";
@@ -43,6 +43,9 @@ import {
 import { DateRangePickerAr } from "@/components/ui/date-picker-ar";
 import { formatCalendarDate } from "@/lib/calendar-date";
 import type { DateRange } from "react-day-picker";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type ProjectOption = ProjectPickerOption;
 
@@ -160,6 +163,20 @@ const TASKS_AR = {
   dueRange: "مدى تاريخ الاستحقاق",
   dueRangePlaceholder: "اختر البداية والنهاية",
   clearDates: "مسح التواريخ",
+  filterProjects: "المشاريع",
+  filterStatuses: "الحالة",
+  filterMembers: "الأعضاء",
+  clearSelection: "مسح التحديد",
+  nProjects: "{n} مشاريع",
+  nStatuses: "{n} حالات",
+  nMembers: "{n} أعضاء",
+};
+
+const FILTER_EN = {
+  projects: "Projects",
+  statuses: "Status",
+  members: "Members",
+  clearSelection: "Clear selection",
 };
 
 export function TasksPageContent({
@@ -178,10 +195,11 @@ export function TasksPageContent({
     React.useState<Record<string, AssigneeForCard[]>>(initialAssigneesByTaskId);
   const [viewMode, setViewMode] = React.useState<"kanban" | "list" | "calendar">("kanban");
   const [search, setSearch] = React.useState("");
-  const [projectFilter, setProjectFilter] = React.useState<string>("all");
+  const [projectFilters, setProjectFilters] = React.useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = React.useState<string>("all");
-  const [statusFilter, setStatusFilter] = React.useState<string>("all");
-  const [memberFilter, setMemberFilter] = React.useState<string>("all");
+  const [statusFilters, setStatusFilters] = React.useState<string[]>([]);
+  const [memberFilters, setMemberFilters] = React.useState<string[]>([]);
+  const [filterPopover, setFilterPopover] = React.useState<null | "project" | "status" | "member">(null);
   const [dueRange, setDueRange] = React.useState<DateRange | undefined>(undefined);
   const [newTaskOpen, setNewTaskOpen] = React.useState(false);
   const [newTaskDefaultStatus, setNewTaskDefaultStatus] = React.useState<
@@ -208,10 +226,10 @@ export function TasksPageContent({
   const refetch = React.useCallback(() => {
     getTasks({
       search: search.trim() || undefined,
-      projectId: projectFilter === "all" ? undefined : projectFilter,
+      projectIds: projectFilters.length ? projectFilters : undefined,
       priority: priorityFilter === "all" || !priorityFilter ? undefined : priorityFilter,
-      status: statusFilter === "all" || !statusFilter ? undefined : statusFilter,
-      teamMemberId: memberFilter === "all" ? undefined : memberFilter,
+      statuses: statusFilters.length ? (statusFilters as GetTasksFilters["statuses"]) : undefined,
+      teamMemberIds: memberFilters.length ? memberFilters : undefined,
       dueDateFrom: dueRange?.from ? formatCalendarDate(dueRange.from) : undefined,
       dueDateTo: dueRange?.to ? formatCalendarDate(dueRange.to) : undefined,
     } as GetTasksFilters).then((res) => {
@@ -226,10 +244,10 @@ export function TasksPageContent({
     router.refresh();
   }, [
     search,
-    projectFilter,
+    projectFilters,
     priorityFilter,
-    statusFilter,
-    memberFilter,
+    statusFilters,
+    memberFilters,
     dueRange,
     router,
     syncAssigneesForTasks,
@@ -239,12 +257,16 @@ export function TasksPageContent({
   const dueFromKey = dueRange?.from ? formatCalendarDate(dueRange.from) : "";
   const dueToKey = dueRange?.to ? formatCalendarDate(dueRange.to) : "";
 
+  const projectKey = [...projectFilters].sort().join("\0");
+  const statusKey = [...statusFilters].sort().join("\0");
+  const memberKey = [...memberFilters].sort().join("\0");
+
   const filtersRef = React.useRef({
     search,
-    projectFilter,
+    projectKey,
     priorityFilter,
-    statusFilter,
-    memberFilter,
+    statusKey,
+    memberKey,
     dueFromKey,
     dueToKey,
   });
@@ -252,28 +274,28 @@ export function TasksPageContent({
     const prev = filtersRef.current;
     const same =
       prev.search === search &&
-      prev.projectFilter === projectFilter &&
+      prev.projectKey === projectKey &&
       prev.priorityFilter === priorityFilter &&
-      prev.statusFilter === statusFilter &&
-      prev.memberFilter === memberFilter &&
+      prev.statusKey === statusKey &&
+      prev.memberKey === memberKey &&
       prev.dueFromKey === dueFromKey &&
       prev.dueToKey === dueToKey;
     filtersRef.current = {
       search,
-      projectFilter,
+      projectKey,
       priorityFilter,
-      statusFilter,
-      memberFilter,
+      statusKey,
+      memberKey,
       dueFromKey,
       dueToKey,
     };
     if (same) return;
     getTasks({
       search: search.trim() || undefined,
-      projectId: projectFilter === "all" ? undefined : projectFilter,
+      projectIds: projectFilters.length ? projectFilters : undefined,
       priority: priorityFilter === "all" || !priorityFilter ? undefined : priorityFilter,
-      status: statusFilter === "all" || !statusFilter ? undefined : statusFilter,
-      teamMemberId: memberFilter === "all" ? undefined : memberFilter,
+      statuses: statusFilters.length ? (statusFilters as GetTasksFilters["statuses"]) : undefined,
+      teamMemberIds: memberFilters.length ? memberFilters : undefined,
       dueDateFrom: dueRange?.from ? formatCalendarDate(dueRange.from) : undefined,
       dueDateTo: dueRange?.to ? formatCalendarDate(dueRange.to) : undefined,
     } as GetTasksFilters).then((res) => {
@@ -285,12 +307,63 @@ export function TasksPageContent({
         toast.error(isDbErrorKey(err) ? translateErr(err) : err || "Could not load tasks");
       }
     });
-  }, [search, projectFilter, priorityFilter, statusFilter, memberFilter, dueFromKey, dueToKey, syncAssigneesForTasks, translateErr]);
+  }, [
+    search,
+    projectKey,
+    projectFilters,
+    priorityFilter,
+    statusKey,
+    statusFilters,
+    memberKey,
+    memberFilters,
+    dueFromKey,
+    dueToKey,
+    syncAssigneesForTasks,
+    translateErr,
+  ]);
 
   const sortedTeamMembers = React.useMemo(
     () => [...teamMembers].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })),
     [teamMembers]
   );
+
+  const statusOptionsMulti = React.useMemo(
+    () => (memberView ? STATUS_OPTIONS_AR : STATUS_OPTIONS_EN).filter((o) => o.value !== "all"),
+    [memberView]
+  );
+
+  const projectSummary = React.useMemo(() => {
+    if (projectFilters.length === 0) return memberView ? TASKS_AR.allProjects : "All projects";
+    if (projectFilters.length === 1) {
+      return projects.find((p) => p.id === projectFilters[0])?.name ?? "—";
+    }
+    return memberView
+      ? TASKS_AR.nProjects.replace("{n}", String(projectFilters.length))
+      : `${projectFilters.length} projects`;
+  }, [projectFilters, projects, memberView]);
+
+  const statusSummary = React.useMemo(() => {
+    const allStatusesLabel = memberView ? STATUS_OPTIONS_AR[0].label : STATUS_OPTIONS_EN[0].label;
+    if (statusFilters.length === 0) return allStatusesLabel;
+    if (statusFilters.length === 1) {
+      const row = statusOptionsMulti.find((x) => x.value === statusFilters[0]);
+      return row?.label ?? statusFilters[0];
+    }
+    return memberView
+      ? TASKS_AR.nStatuses.replace("{n}", String(statusFilters.length))
+      : `${statusFilters.length} statuses`;
+  }, [statusFilters, statusOptionsMulti, memberView]);
+
+  const memberSummary = React.useMemo(() => {
+    if (memberFilters.length === 0) return memberView ? TASKS_AR.allMembers : "All members";
+    if (memberFilters.length === 1) {
+      const m = sortedTeamMembers.find((x) => x.id === memberFilters[0]);
+      return m?.name || m?.email || m?.id || "—";
+    }
+    return memberView
+      ? TASKS_AR.nMembers.replace("{n}", String(memberFilters.length))
+      : `${memberFilters.length} members`;
+  }, [memberFilters, sortedTeamMembers, memberView]);
 
   const handleAddTask = (status?: "todo" | "in_progress" | "in_review" | "done" | "blocked") => {
     setNewTaskDefaultStatus(status ?? "todo");
@@ -384,29 +457,67 @@ export function TasksPageContent({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Select value={projectFilter} onValueChange={setProjectFilter}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder={memberView ? TASKS_AR.allProjects : "All projects"} />
-          </SelectTrigger>
-          <SelectContent dir={dir}>
-            <SelectItem value="all">{memberView ? TASKS_AR.allProjects : "All projects"}</SelectItem>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id} textValue={p.name}>
-                <ProjectSelectOptionRow
-                  coverImageUrl={p.coverImageUrl}
-                  clientLogoUrl={p.clientLogoUrl}
-                  name={p.name}
-                />
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Popover
+          open={filterPopover === "project"}
+          onOpenChange={(o) => setFilterPopover(o ? "project" : null)}
+        >
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full min-w-0 justify-between font-normal sm:w-[200px]"
+              aria-label={memberView ? TASKS_AR.filterProjects : FILTER_EN.projects}
+            >
+              <span className="truncate">{projectSummary}</span>
+              <ChevronDown className="text-muted-foreground size-4 shrink-0" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-0" align="start" dir={dir}>
+            <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium">
+              {memberView ? TASKS_AR.filterProjects : FILTER_EN.projects}
+            </div>
+            <ScrollArea className="max-h-72">
+              <div className="flex flex-col gap-0 p-2">
+                {projects.map((p) => (
+                  <label
+                    key={p.id}
+                    className="hover:bg-accent/60 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2"
+                  >
+                    <Checkbox
+                      checked={projectFilters.includes(p.id)}
+                      onCheckedChange={() =>
+                        setProjectFilters((prev) =>
+                          prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]
+                        )
+                      }
+                    />
+                    <ProjectSelectOptionRow
+                      coverImageUrl={p.coverImageUrl}
+                      clientLogoUrl={p.clientLogoUrl}
+                      name={p.name}
+                    />
+                  </label>
+                ))}
+              </div>
+            </ScrollArea>
+            <div className="border-t p-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setProjectFilters([])}
+              >
+                {memberView ? TASKS_AR.clearSelection : FILTER_EN.clearSelection}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
           <SelectTrigger
             className="w-full min-w-0 sm:w-[168px]"
             aria-label={memberView ? "تصفية حسب الأولوية" : "Filter by priority"}
           >
-            {/* Selection preview comes only from SelectValue (matches SelectItem row: dot + label). */}
             <SelectValue placeholder={PRIORITY_OPTIONS[0].label} />
           </SelectTrigger>
           <SelectContent dir={dir}>
@@ -420,40 +531,116 @@ export function TasksPageContent({
             ))}
           </SelectContent>
         </Select>
-        <Select value={memberFilter} onValueChange={setMemberFilter}>
-          <SelectTrigger
-            className="w-full min-w-0 sm:min-w-[200px] sm:max-w-[260px]"
-            aria-label={memberView ? "تصفية حسب العضو" : "Filter by team member"}
-          >
-            <SelectValue placeholder={memberView ? TASKS_AR.allMembers : "All members"} />
-          </SelectTrigger>
-          <SelectContent dir={dir}>
-            <SelectItem
-              value="all"
-              textValue={memberView ? TASKS_AR.allMembers : "All members"}
+        <Popover
+          open={filterPopover === "status"}
+          onOpenChange={(o) => setFilterPopover(o ? "status" : null)}
+        >
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full min-w-0 justify-between font-normal sm:w-[168px]"
+              aria-label={memberView ? TASKS_AR.filterStatuses : FILTER_EN.statuses}
             >
-              <span className="inline-flex min-w-0 max-w-full items-center gap-2">
-                <span className="bg-muted text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
-                  <Users className="h-4 w-4 shrink-0" aria-hidden />
-                </span>
-                <span className="min-w-0 truncate">
-                  {memberView ? TASKS_AR.allMembers : "All members"}
-                </span>
-              </span>
-            </SelectItem>
-            {sortedTeamMembers.map((m) => (
-              <SelectItem key={m.id} value={m.id} textValue={m.name || m.email || m.id}>
-                <span className="inline-flex min-w-0 max-w-full items-center gap-2">
-                  <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
-                    <AvatarFallback className="text-[10px]">{memberInitials(m.name || m.email || "?")}</AvatarFallback>
-                  </Avatar>
-                  <span className="min-w-0 truncate">{m.name || m.email || m.id}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              <span className="truncate">{statusSummary}</span>
+              <ChevronDown className="text-muted-foreground size-4 shrink-0" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 p-0" align="start" dir={dir}>
+            <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium">
+              {memberView ? TASKS_AR.filterStatuses : FILTER_EN.statuses}
+            </div>
+            <ScrollArea className="max-h-72">
+              <div className="flex flex-col gap-0 p-2">
+                {statusOptionsMulti.map((o) => (
+                  <label
+                    key={o.value}
+                    className="hover:bg-accent/60 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2"
+                  >
+                    <Checkbox
+                      checked={statusFilters.includes(o.value)}
+                      onCheckedChange={() =>
+                        setStatusFilters((prev) =>
+                          prev.includes(o.value)
+                            ? prev.filter((x) => x !== o.value)
+                            : [...prev, o.value]
+                        )
+                      }
+                    />
+                    <span className="text-sm">{o.label}</span>
+                  </label>
+                ))}
+              </div>
+            </ScrollArea>
+            <div className="border-t p-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setStatusFilters([])}
+              >
+                {memberView ? TASKS_AR.clearSelection : FILTER_EN.clearSelection}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+        <Popover
+          open={filterPopover === "member"}
+          onOpenChange={(o) => setFilterPopover(o ? "member" : null)}
+        >
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full min-w-0 justify-between font-normal sm:min-w-[200px] sm:max-w-[280px]"
+              aria-label={memberView ? TASKS_AR.filterMembers : FILTER_EN.members}
+            >
+              <span className="truncate">{memberSummary}</span>
+              <ChevronDown className="text-muted-foreground size-4 shrink-0" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-0" align="start" dir={dir}>
+            <div className="text-muted-foreground border-b px-3 py-2 text-xs font-medium">
+              {memberView ? TASKS_AR.filterMembers : FILTER_EN.members}
+            </div>
+            <ScrollArea className="max-h-72">
+              <div className="flex flex-col gap-0 p-2">
+                {sortedTeamMembers.map((m) => (
+                  <label
+                    key={m.id}
+                    className="hover:bg-accent/60 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2"
+                  >
+                    <Checkbox
+                      checked={memberFilters.includes(m.id)}
+                      onCheckedChange={() =>
+                        setMemberFilters((prev) =>
+                          prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
+                        )
+                      }
+                    />
+                    <Avatar className="h-7 w-7 shrink-0">
+                      <AvatarImage src={m.avatarUrl ?? undefined} alt="" />
+                      <AvatarFallback className="text-[10px]">{memberInitials(m.name || m.email || "?")}</AvatarFallback>
+                    </Avatar>
+                    <span className="min-w-0 flex-1 truncate text-sm">{m.name || m.email || m.id}</span>
+                  </label>
+                ))}
+              </div>
+            </ScrollArea>
+            <div className="border-t p-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setMemberFilters([])}
+              >
+                {memberView ? TASKS_AR.clearSelection : FILTER_EN.clearSelection}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
         {(viewMode === "kanban" || viewMode === "list") && (
           <div className="flex flex-col gap-1">
             <span className="text-muted-foreground text-xs">
@@ -483,20 +670,6 @@ export function TasksPageContent({
               )}
             </div>
           </div>
-        )}
-        {(viewMode === "list" || viewMode === "calendar") && (
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent dir={dir}>
-              {STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         )}
       </div>
 

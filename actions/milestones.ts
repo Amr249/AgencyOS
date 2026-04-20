@@ -1,9 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getServerSession } from "next-auth";
 import { and, asc, eq, gte, inArray, isNull, lte, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
+import { getTeamMemberIdsForSessionUser, memberHasProjectAccess } from "@/lib/member-context";
 import {
   milestones,
   projects,
@@ -241,6 +245,77 @@ export async function deleteMilestone(id: string) {
 
 export type MilestoneAssigneeRow = { teamMemberId: string; name: string; avatarUrl: string | null };
 
+type MilestoneCoreRow = {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  startDate: string;
+  dueDate: string;
+  status: (typeof milestoneStatusValues)[number];
+  completedAt: Date | null;
+  sortOrder: number;
+  createdAt: Date;
+};
+
+async function attachMilestoneProgress(rows: MilestoneCoreRow[]) {
+  const ids = rows.map((r) => r.id);
+  const progressById: Record<string, { total: number; completed: number; percent: number }> = {};
+  const assigneesById: Record<string, MilestoneAssigneeRow[]> = {};
+
+  if (ids.length > 0) {
+    const [progressRows, assigneeRows] = await Promise.all([
+      db
+        .select({
+          milestoneId: tasks.milestoneId,
+          total: sql<number>`count(*)::int`,
+          completed: sql<number>`count(*) filter (where ${tasks.status} = 'done')::int`,
+        })
+        .from(tasks)
+        .where(
+          and(inArray(tasks.milestoneId, ids), isNull(tasks.parentTaskId), isNull(tasks.deletedAt))
+        )
+        .groupBy(tasks.milestoneId),
+      db
+        .select({
+          milestoneId: milestoneTeamMembers.milestoneId,
+          teamMemberId: milestoneTeamMembers.teamMemberId,
+          name: teamMembers.name,
+          avatarUrl: teamMembers.avatarUrl,
+        })
+        .from(milestoneTeamMembers)
+        .innerJoin(teamMembers, eq(milestoneTeamMembers.teamMemberId, teamMembers.id))
+        .where(inArray(milestoneTeamMembers.milestoneId, ids)),
+    ]);
+
+    for (const pr of progressRows) {
+      if (!pr.milestoneId) continue;
+      const total = Number(pr.total) || 0;
+      const completed = Number(pr.completed) || 0;
+      progressById[pr.milestoneId] = {
+        total,
+        completed,
+        percent: total === 0 ? 0 : Math.round((completed / total) * 100),
+      };
+    }
+
+    for (const id of ids) assigneesById[id] = [];
+    for (const a of assigneeRows) {
+      assigneesById[a.milestoneId]!.push({
+        teamMemberId: a.teamMemberId,
+        name: a.name,
+        avatarUrl: a.avatarUrl,
+      });
+    }
+  }
+
+  return rows.map((m) => ({
+    ...m,
+    taskProgress: progressById[m.id] ?? { total: 0, completed: 0, percent: 0 },
+    assignees: assigneesById[m.id] ?? [],
+  }));
+}
+
 export async function getMilestonesByProjectId(projectId: string) {
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
@@ -263,61 +338,63 @@ export async function getMilestonesByProjectId(projectId: string) {
       .where(eq(milestones.projectId, parsed.data))
       .orderBy(asc(milestones.startDate), asc(milestones.sortOrder), asc(milestones.createdAt));
 
-    const ids = rows.map((r) => r.id);
-    const progressById: Record<string, { total: number; completed: number; percent: number }> = {};
-    const assigneesById: Record<string, MilestoneAssigneeRow[]> = {};
+    const data = await attachMilestoneProgress(rows);
 
-    if (ids.length > 0) {
-      const [progressRows, assigneeRows] = await Promise.all([
-        db
-          .select({
-            milestoneId: tasks.milestoneId,
-            total: sql<number>`count(*)::int`,
-            completed: sql<number>`count(*) filter (where ${tasks.status} = 'done')::int`,
-          })
-          .from(tasks)
-          .where(
-            and(inArray(tasks.milestoneId, ids), isNull(tasks.parentTaskId), isNull(tasks.deletedAt))
-          )
-          .groupBy(tasks.milestoneId),
-        db
-          .select({
-            milestoneId: milestoneTeamMembers.milestoneId,
-            teamMemberId: milestoneTeamMembers.teamMemberId,
-            name: teamMembers.name,
-            avatarUrl: teamMembers.avatarUrl,
-          })
-          .from(milestoneTeamMembers)
-          .innerJoin(teamMembers, eq(milestoneTeamMembers.teamMemberId, teamMembers.id))
-          .where(inArray(milestoneTeamMembers.milestoneId, ids)),
-      ]);
+    return { ok: true as const, data };
+  } catch (e) {
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: "Failed to load milestones" };
+  }
+}
 
-      for (const pr of progressRows) {
-        if (!pr.milestoneId) continue;
-        const total = Number(pr.total) || 0;
-        const completed = Number(pr.completed) || 0;
-        progressById[pr.milestoneId] = {
-          total,
-          completed,
-          percent: total === 0 ? 0 : Math.round((completed / total) * 100),
-        };
-      }
+/** Milestones on this project where the given team member is in `milestone_team_members`. Member session only. */
+export async function getMilestonesByProjectIdForAssignee(projectId: string, teamMemberId: string) {
+  const parsed = z
+    .object({ projectId: z.string().uuid(), teamMemberId: z.string().uuid() })
+    .safeParse({ projectId, teamMemberId });
+  if (!parsed.success) return { ok: false as const, error: "Invalid ids" };
 
-      for (const id of ids) assigneesById[id] = [];
-      for (const a of assigneeRows) {
-        assigneesById[a.milestoneId]!.push({
-          teamMemberId: a.teamMemberId,
-          name: a.name,
-          avatarUrl: a.avatarUrl,
-        });
-      }
+  try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (!userId || sessionUserRole(session) !== "member") {
+      return { ok: false as const, error: "Forbidden" };
+    }
+    const allowed = await memberHasProjectAccess(userId, parsed.data.projectId);
+    if (!allowed) return { ok: false as const, error: "Forbidden" };
+
+    const memberIds = await getTeamMemberIdsForSessionUser(userId);
+    if (!memberIds.includes(parsed.data.teamMemberId)) {
+      return { ok: false as const, error: "Forbidden" };
     }
 
-    const data = rows.map((m) => ({
-      ...m,
-      taskProgress: progressById[m.id] ?? { total: 0, completed: 0, percent: 0 },
-      assignees: assigneesById[m.id] ?? [],
-    }));
+    const rows = await db
+      .select({
+        id: milestones.id,
+        projectId: milestones.projectId,
+        name: milestones.name,
+        description: milestones.description,
+        startDate: milestones.startDate,
+        dueDate: milestones.dueDate,
+        status: milestones.status,
+        completedAt: milestones.completedAt,
+        sortOrder: milestones.sortOrder,
+        createdAt: milestones.createdAt,
+      })
+      .from(milestones)
+      .innerJoin(
+        milestoneTeamMembers,
+        and(
+          eq(milestoneTeamMembers.milestoneId, milestones.id),
+          eq(milestoneTeamMembers.teamMemberId, parsed.data.teamMemberId)
+        )
+      )
+      .where(eq(milestones.projectId, parsed.data.projectId))
+      .orderBy(asc(milestones.startDate), asc(milestones.sortOrder), asc(milestones.createdAt));
+
+    const data = await attachMilestoneProgress(rows);
 
     return { ok: true as const, data };
   } catch (e) {

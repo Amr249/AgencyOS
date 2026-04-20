@@ -410,11 +410,13 @@ export const files = pgTable("files", {
   expenseId: uuid("expense_id").references((): any => expenses.id, { onDelete: "cascade" }),
   documentType: fileDocumentTypeEnum("document_type"),
   description: text("description"),
+  uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (table) => [
   index("files_invoice_id_idx").on(table.invoiceId),
   index("files_expense_id_idx").on(table.expenseId),
+  index("files_task_id_idx").on(table.taskId),
 ]);
 
 // team_members

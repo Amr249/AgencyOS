@@ -71,6 +71,13 @@
       "when": 1774700000000,
       "tag": "0024_proposal_services",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1774800000000,
+      "tag": "0025_files_uploaded_by",
+      "breakpoints": true
     }
   ]
 }
