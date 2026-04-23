@@ -26,7 +26,7 @@ export default function PortalLoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const result = await signIn("client-portal", {
+    const result = await signIn("credentials", {
       email: email.trim(),
       password,
       redirect: false,

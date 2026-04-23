@@ -15,38 +15,30 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, credentials.email as string))
-          .limit(1);
-        if (!user) return null;
-        const valid = await bcrypt.compare(
-          credentials.password as string,
-          user.passwordHash
-        );
-        if (!valid) return null;
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          avatarUrl: user.avatarUrl,
-        };
-      },
-    }),
-    CredentialsProvider({
-      id: "client-portal",
-      name: "Client Portal",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
+      /** Agency users (`users`) first; otherwise client portal (`client_users`). Same `/login` form for both. */
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
         const email = String(credentials.email).trim().toLowerCase();
+        const password = String(credentials.password);
+
+        const [agencyUser] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1);
+
+        if (agencyUser) {
+          const valid = await bcrypt.compare(password, agencyUser.passwordHash);
+          if (!valid) return null;
+          return {
+            id: agencyUser.id,
+            name: agencyUser.name,
+            email: agencyUser.email,
+            role: agencyUser.role,
+            avatarUrl: agencyUser.avatarUrl,
+          };
+        }
+
         const [cu] = await db
           .select({
             id: clientUsers.id,
@@ -59,19 +51,24 @@ export const authOptions: NextAuthOptions = {
           .from(clientUsers)
           .where(eq(clientUsers.email, email))
           .limit(1);
+
         if (!cu?.isActive || !cu.passwordHash) return null;
-        const valid = await bcrypt.compare(String(credentials.password), cu.passwordHash);
-        if (!valid) return null;
+
+        const validPortal = await bcrypt.compare(password, cu.passwordHash);
+        if (!validPortal) return null;
+
         const [cl] = await db
           .select({
             portalEnabled: clients.portalEnabled,
-            deletedAt: clients.deletedAt,
           })
           .from(clients)
           .where(and(eq(clients.id, cu.clientId), isNull(clients.deletedAt)))
           .limit(1);
+
         if (!cl?.portalEnabled) return null;
+
         await db.update(clientUsers).set({ lastLoginAt: new Date() }).where(eq(clientUsers.id, cu.id));
+
         return {
           id: cu.id,
           name: cu.name ?? cu.email,
