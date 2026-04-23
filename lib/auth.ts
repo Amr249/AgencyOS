@@ -2,8 +2,8 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { clientUsers, clients, users } from "@/lib/db/schema";
+import { and, eq, isNull } from "drizzle-orm";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -37,6 +37,51 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
+    CredentialsProvider({
+      id: "client-portal",
+      name: "Client Portal",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+        const email = String(credentials.email).trim().toLowerCase();
+        const [cu] = await db
+          .select({
+            id: clientUsers.id,
+            clientId: clientUsers.clientId,
+            email: clientUsers.email,
+            name: clientUsers.name,
+            passwordHash: clientUsers.passwordHash,
+            isActive: clientUsers.isActive,
+          })
+          .from(clientUsers)
+          .where(eq(clientUsers.email, email))
+          .limit(1);
+        if (!cu?.isActive || !cu.passwordHash) return null;
+        const valid = await bcrypt.compare(String(credentials.password), cu.passwordHash);
+        if (!valid) return null;
+        const [cl] = await db
+          .select({
+            portalEnabled: clients.portalEnabled,
+            deletedAt: clients.deletedAt,
+          })
+          .from(clients)
+          .where(and(eq(clients.id, cu.clientId), isNull(clients.deletedAt)))
+          .limit(1);
+        if (!cl?.portalEnabled) return null;
+        await db.update(clientUsers).set({ lastLoginAt: new Date() }).where(eq(clientUsers.id, cu.id));
+        return {
+          id: cu.id,
+          name: cu.name ?? cu.email,
+          email: cu.email,
+          role: "client_portal",
+          avatarUrl: null,
+          clientId: cu.clientId,
+        };
+      },
+    }),
   ],
   callbacks: {
     async jwt({ token, user, trigger, session }) {
@@ -47,9 +92,11 @@ export const authOptions: NextAuthOptions = {
           avatarUrl: string | null;
           name?: string | null;
           email?: string | null;
+          clientId?: string | null;
         };
         token.role = u.role;
         token.avatarUrl = u.avatarUrl;
+        token.clientId = u.clientId ?? null;
         if (u.name != null) token.name = u.name;
         if (u.email != null) token.email = u.email;
       }
@@ -72,6 +119,7 @@ export const authOptions: NextAuthOptions = {
         session.user.email = (token.email as string | undefined) ?? session.user.email ?? "";
         session.user.role = token.role as string;
         session.user.avatarUrl = token.avatarUrl as string | null;
+        session.user.clientId = (token.clientId as string | undefined) ?? null;
         (session.user as { image?: string }).image = (token.avatarUrl as string) ?? undefined;
       }
       return session;

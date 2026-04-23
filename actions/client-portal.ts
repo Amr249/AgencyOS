@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { asc, eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { clientUsers, clients } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { assertAdminSession } from "@/lib/auth-helpers";
 
 function revalidateClient(clientId: string) {
   revalidatePath("/dashboard/clients");
@@ -16,6 +18,13 @@ const inviteSchema = z.object({
   clientId: z.string().uuid(),
   email: z.string().email("Invalid email"),
   name: z.string().min(1, "Name is required").max(200),
+  /** Optional initial password so the invitee can sign in immediately. Min 8 chars when set. */
+  initialPassword: z.string().min(8).optional(),
+});
+
+const setPasswordSchema = z.object({
+  clientUserId: z.string().uuid(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 export async function inviteClientUser(input: z.input<typeof inviteSchema>) {
@@ -35,6 +44,10 @@ export async function inviteClientUser(input: z.input<typeof inviteSchema>) {
       return { ok: false as const, error: "Client not found" };
     }
 
+    const passwordHash = parsed.data.initialPassword
+      ? await bcrypt.hash(parsed.data.initialPassword, 12)
+      : null;
+
     const [row] = await db
       .insert(clientUsers)
       .values({
@@ -42,6 +55,7 @@ export async function inviteClientUser(input: z.input<typeof inviteSchema>) {
         email,
         name: name.trim(),
         invitedAt: new Date(),
+        passwordHash,
       })
       .returning({
         id: clientUsers.id,
@@ -133,6 +147,34 @@ export async function enableClientPortal(clientId: string) {
       return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to enable portal" };
+  }
+}
+
+/** Admin: set or reset a portal user's password (e.g. if invite had no initial password). */
+export async function setClientPortalUserPassword(input: z.input<typeof setPasswordSchema>) {
+  const admin = await assertAdminSession();
+  if (!admin.ok) return { ok: false as const, error: "Forbidden" };
+
+  const parsed = setPasswordSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    const hash = await bcrypt.hash(parsed.data.password, 12);
+    const [updated] = await db
+      .update(clientUsers)
+      .set({ passwordHash: hash })
+      .where(eq(clientUsers.id, parsed.data.clientUserId))
+      .returning({ clientId: clientUsers.clientId });
+    if (!updated) return { ok: false as const, error: "User not found" };
+    revalidateClient(updated.clientId);
+    return { ok: true as const };
+  } catch (e) {
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: "Failed to set password" };
   }
 }
 

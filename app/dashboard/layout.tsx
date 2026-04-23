@@ -23,6 +23,10 @@ export default async function DashboardLayout({
     redirect("/login?callbackUrl=/dashboard");
   }
 
+  if ((session.user as { role?: string }).role === "client_portal") {
+    redirect("/portal");
+  }
+
   const userRole = sessionUserRole(session);
   const isMember = userRole === "member";
 

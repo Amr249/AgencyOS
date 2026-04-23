@@ -1,14 +1,21 @@
 import React from "react";
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { Document, renderToBuffer } from "@react-pdf/renderer";
 import { getInvoiceWithPayments } from "@/actions/invoices";
 import { getSettings } from "@/actions/settings";
+import { authOptions } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
 import { InvoicePdfDocument, type InvoicePdfStatus } from "@/components/modules/invoices/invoice-pdf-document";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
   const [invoiceResult, settingsResult] = await Promise.all([
     getInvoiceWithPayments(id),
@@ -23,6 +30,14 @@ export async function GET(_request: Request, { params }: Params) {
   }
 
   const invoice = invoiceResult.data;
+  const role = (session.user as { role?: string }).role;
+  if (role === "client_portal") {
+    const portalClientId = session.user.clientId ?? null;
+    if (!portalClientId || invoice.clientId !== portalClientId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
+
   const settings = settingsResult.ok ? settingsResult.data : null;
 
   const client = invoice.client;

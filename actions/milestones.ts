@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getTeamMemberIdsForSessionUser, memberHasProjectAccess } from "@/lib/member-context";
+import { getPortalSession } from "@/lib/portal-session";
 import {
   milestones,
   projects,
@@ -340,6 +341,52 @@ export async function getMilestonesByProjectId(projectId: string) {
 
     const data = await attachMilestoneProgress(rows);
 
+    return { ok: true as const, data };
+  } catch (e) {
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e) };
+    }
+    return { ok: false as const, error: "Failed to load milestones" };
+  }
+}
+
+/** Client portal: milestones + task progress for one project; omits assignee names. */
+export async function getPortalMilestonesByProjectId(projectId: string) {
+  const parsed = z.string().uuid().safeParse(projectId);
+  if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
+
+  const ctx = await getPortalSession();
+  if (!ctx) return { ok: false as const, error: "unauthorized" };
+
+  try {
+    const [proj] = await db
+      .select({ id: projects.id, clientId: projects.clientId })
+      .from(projects)
+      .where(and(eq(projects.id, parsed.data), isNull(projects.deletedAt)))
+      .limit(1);
+    if (!proj || proj.clientId !== ctx.clientId) {
+      return { ok: false as const, error: "forbidden" };
+    }
+
+    const rows = await db
+      .select({
+        id: milestones.id,
+        projectId: milestones.projectId,
+        name: milestones.name,
+        description: milestones.description,
+        startDate: milestones.startDate,
+        dueDate: milestones.dueDate,
+        status: milestones.status,
+        completedAt: milestones.completedAt,
+        sortOrder: milestones.sortOrder,
+        createdAt: milestones.createdAt,
+      })
+      .from(milestones)
+      .where(eq(milestones.projectId, parsed.data))
+      .orderBy(asc(milestones.startDate), asc(milestones.sortOrder), asc(milestones.createdAt));
+
+    const withProgress = await attachMilestoneProgress(rows);
+    const data = withProgress.map(({ assignees: _a, ...rest }) => rest);
     return { ok: true as const, data };
   } catch (e) {
     if (isDbConnectionError(e)) {

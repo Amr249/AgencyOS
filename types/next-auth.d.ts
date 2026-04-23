@@ -9,6 +9,8 @@ declare module "next-auth" {
       email: string;
       role: string;
       avatarUrl: string | null;
+      /** Set when `role` is `client_portal` (linked `clients.id`). */
+      clientId?: string | null;
     };
   }
 }
@@ -20,5 +22,6 @@ declare module "next-auth/jwt" {
     avatarUrl?: string | null;
     name?: string;
     email?: string;
+    clientId?: string | null;
   }
 }

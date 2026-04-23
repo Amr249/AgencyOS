@@ -10,6 +10,7 @@ import {
   disableClientPortal,
   enableClientPortal,
   inviteClientUser,
+  setClientPortalUserPassword,
 } from "@/actions/client-portal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,8 +82,12 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteName, setInviteName] = React.useState("");
+  const [invitePassword, setInvitePassword] = React.useState("");
   const [inviteSaving, setInviteSaving] = React.useState(false);
   const [deactivateId, setDeactivateId] = React.useState<string | null>(null);
+  const [pwdUserId, setPwdUserId] = React.useState<string | null>(null);
+  const [pwdValue, setPwdValue] = React.useState("");
+  const [pwdSaving, setPwdSaving] = React.useState(false);
 
   React.useEffect(() => {
     setPortalEnabled(initialPortalEnabled);
@@ -117,10 +122,12 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
     }
     setInviteSaving(true);
     try {
+      const pwdTrim = invitePassword.trim();
       const res = await inviteClientUser({
         clientId,
         email: inviteEmail.trim(),
         name: inviteName.trim(),
+        ...(pwdTrim.length >= 8 ? { initialPassword: pwdTrim } : {}),
       });
       if (!res.ok) {
         const err = res.error;
@@ -140,10 +147,35 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
       setInviteOpen(false);
       setInviteEmail("");
       setInviteName("");
+      setInvitePassword("");
       toast.success(t("portalInviteSuccess"));
       router.refresh();
     } finally {
       setInviteSaving(false);
+    }
+  }
+
+  async function confirmSetPassword() {
+    if (!pwdUserId || pwdValue.trim().length < 8) {
+      toast.error(t("portalPasswordMin"));
+      return;
+    }
+    setPwdSaving(true);
+    try {
+      const res = await setClientPortalUserPassword({
+        clientUserId: pwdUserId,
+        password: pwdValue.trim(),
+      });
+      if (!res.ok) {
+        toast.error(typeof res.error === "string" ? res.error : t("portalPasswordSetError"));
+        return;
+      }
+      setPwdUserId(null);
+      setPwdValue("");
+      toast.success(t("portalPasswordSetSuccess"));
+      router.refresh();
+    } finally {
+      setPwdSaving(false);
     }
   }
 
@@ -208,7 +240,7 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
                   <TableHead className={isRtl ? "text-right" : "text-left"}>{t("portalColStatus")}</TableHead>
                   <TableHead className={isRtl ? "text-right" : "text-left"}>{t("portalColLastLogin")}</TableHead>
                   <TableHead className={isRtl ? "text-right" : "text-left"}>{t("portalColInvited")}</TableHead>
-                  <TableHead className={`w-[100px] ${isRtl ? "text-right" : "text-left"}`}>
+                  <TableHead className={`w-[180px] ${isRtl ? "text-right" : "text-left"}`}>
                     {t("portalColActions")}
                   </TableHead>
                 </TableRow>
@@ -230,19 +262,26 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
                       {fmtTs(u.invitedAt, locale)}
                     </TableCell>
                     <TableCell>
-                      {u.isActive ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => setDeactivateId(u.id)}
-                        >
-                          {t("portalDeactivate")}
-                        </Button>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
-                      )}
+                      <div className={`flex flex-wrap gap-1 ${isRtl ? "justify-end" : "justify-start"}`}>
+                        {u.isActive ? (
+                          <>
+                            <Button type="button" variant="outline" size="sm" onClick={() => setPwdUserId(u.id)}>
+                              {t("portalSetPassword")}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDeactivateId(u.id)}
+                            >
+                              {t("portalDeactivate")}
+                            </Button>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -279,6 +318,18 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
                 placeholder={t("portalInviteNamePlaceholder")}
               />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="invite-password">{t("portalInvitePasswordOptional")}</Label>
+              <Input
+                id="invite-password"
+                type="password"
+                autoComplete="new-password"
+                value={invitePassword}
+                onChange={(e) => setInvitePassword(e.target.value)}
+                placeholder={t("portalInvitePasswordPlaceholder")}
+              />
+              <p className="text-muted-foreground text-xs">{t("portalInvitePasswordHint")}</p>
+            </div>
           </div>
           <DialogFooter className={isRtl ? "flex-row-reverse sm:justify-start" : ""}>
             <Button type="button" variant="outline" onClick={() => setInviteOpen(false)}>
@@ -286,6 +337,33 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
             </Button>
             <Button type="button" disabled={inviteSaving} onClick={() => void onInviteSubmit()}>
               {t("portalInviteSubmit")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!pwdUserId} onOpenChange={(o) => !o && setPwdUserId(null)}>
+        <DialogContent className={isRtl ? "text-right" : "text-left"} dir={isRtl ? "rtl" : "ltr"}>
+          <DialogHeader className={isRtl ? "text-right" : "text-left"}>
+            <DialogTitle>{t("portalSetPasswordTitle")}</DialogTitle>
+            <DialogDescription>{t("portalSetPasswordDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="portal-new-pwd">{t("portalNewPassword")}</Label>
+            <Input
+              id="portal-new-pwd"
+              type="password"
+              autoComplete="new-password"
+              value={pwdValue}
+              onChange={(e) => setPwdValue(e.target.value)}
+            />
+          </div>
+          <DialogFooter className={isRtl ? "flex-row-reverse sm:justify-start" : ""}>
+            <Button type="button" variant="outline" onClick={() => setPwdUserId(null)}>
+              {t("cancel")}
+            </Button>
+            <Button type="button" disabled={pwdSaving} onClick={() => void confirmSetPassword()}>
+              {t("portalSetPasswordSubmit")}
             </Button>
           </DialogFooter>
         </DialogContent>
