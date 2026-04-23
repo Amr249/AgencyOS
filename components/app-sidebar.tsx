@@ -12,6 +12,7 @@ import {
   IconReceipt,
   IconReport,
   IconLayoutKanban,
+  IconSparkles,
   IconUserCircle,
   IconUsers,
   IconWallet,
@@ -140,6 +141,11 @@ export function AppSidebar({
           dashboard={dashboard}
           settings={settings}
           groups={groups}
+          footerBeforeSettings={
+            !isMember
+              ? [{ title: t("aiChat"), url: "/dashboard/ai-chat", icon: IconSparkles }]
+              : undefined
+          }
           showSettings={!isMember}
           collapsibleGroups={!isMember}
         />

@@ -26,6 +26,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -66,20 +73,41 @@ function fmtTs(value: Date | string | null | undefined, locale: string): string 
   });
 }
 
+/** Saved CRM row on any client — used to prefill invite for this client’s portal (same pattern as picking a team member). */
+export type ClientCrmContactPreset = {
+  clientId: string;
+  companyName: string;
+  contactName: string | null;
+  contactEmail: string;
+};
+
 type Props = {
   clientId: string;
+  crmContactPresets: ClientCrmContactPreset[];
   initialPortalEnabled: boolean;
   initialUsers: ClientPortalUserRow[];
   isRtl?: boolean;
 };
 
-export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUsers, isRtl = false }: Props) {
+function presetDisplayName(p: ClientCrmContactPreset): string {
+  const n = p.contactName?.trim();
+  return n || p.companyName.trim() || p.contactEmail;
+}
+
+export function ClientPortalAccess({
+  clientId,
+  crmContactPresets,
+  initialPortalEnabled,
+  initialUsers,
+  isRtl = false,
+}: Props) {
   const t = useTranslations("clients");
   const router = useRouter();
   const [portalEnabled, setPortalEnabled] = React.useState(initialPortalEnabled);
   const [users, setUsers] = React.useState(initialUsers);
   const [togglePending, setTogglePending] = React.useState(false);
   const [inviteOpen, setInviteOpen] = React.useState(false);
+  const [invitePresetId, setInvitePresetId] = React.useState<string>("manual");
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteName, setInviteName] = React.useState("");
   const [invitePassword, setInvitePassword] = React.useState("");
@@ -98,6 +126,36 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
   }, [initialUsers]);
 
   const locale = isRtl ? "ar" : "en";
+
+  const portalEmailsLower = React.useMemo(
+    () => new Set(users.map((u) => u.email.trim().toLowerCase())),
+    [users]
+  );
+
+  function resetInviteDialog() {
+    setInvitePresetId("manual");
+    setInviteEmail("");
+    setInviteName("");
+    setInvitePassword("");
+  }
+
+  function handleInviteOpenChange(open: boolean) {
+    setInviteOpen(open);
+    if (!open) resetInviteDialog();
+  }
+
+  function applyPreset(clientPresetId: string) {
+    setInvitePresetId(clientPresetId);
+    if (clientPresetId === "manual") {
+      setInviteEmail("");
+      setInviteName("");
+      return;
+    }
+    const p = crmContactPresets.find((x) => x.clientId === clientPresetId);
+    if (!p) return;
+    setInviteEmail(p.contactEmail.trim());
+    setInviteName(presetDisplayName(p));
+  }
 
   async function onPortalToggle(checked: boolean) {
     setTogglePending(true);
@@ -118,6 +176,11 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
   async function onInviteSubmit() {
     if (!inviteEmail.trim() || !inviteName.trim()) {
       toast.error(t("portalInviteRequired"));
+      return;
+    }
+    const emailLower = inviteEmail.trim().toLowerCase();
+    if (portalEmailsLower.has(emailLower)) {
+      toast.error(t("portalInviteDuplicateEmail"));
       return;
     }
     setInviteSaving(true);
@@ -145,9 +208,7 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
       }
       setUsers((prev) => [...prev, res.data]);
       setInviteOpen(false);
-      setInviteEmail("");
-      setInviteName("");
-      setInvitePassword("");
+      resetInviteDialog();
       toast.success(t("portalInviteSuccess"));
       router.refresh();
     } finally {
@@ -222,7 +283,15 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
 
         <div className={`flex items-center justify-between gap-2 ${isRtl ? "flex-row-reverse" : ""}`}>
           <h3 className="text-sm font-medium">{t("portalUsersTitle")}</h3>
-          <Button type="button" size="sm" variant="outline" onClick={() => setInviteOpen(true)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              resetInviteDialog();
+              setInviteOpen(true);
+            }}
+          >
             <UserPlus className="size-4" />
             {t("portalInviteUser")}
           </Button>
@@ -291,13 +360,38 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
         )}
       </CardContent>
 
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+      <Dialog open={inviteOpen} onOpenChange={handleInviteOpenChange}>
         <DialogContent className={isRtl ? "text-right" : "text-left"} dir={isRtl ? "rtl" : "ltr"}>
           <DialogHeader className={isRtl ? "text-right" : "text-left"}>
             <DialogTitle>{t("portalInviteDialogTitle")}</DialogTitle>
             <DialogDescription>{t("portalInviteDialogDescription")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {crmContactPresets.length > 0 ? (
+              <div className="space-y-1">
+                <Label>{t("portalInviteSourceLabel")}</Label>
+                <Select value={invitePresetId} onValueChange={(v) => applyPreset(v)}>
+                  <SelectTrigger id="invite-source" className="w-full">
+                    <SelectValue placeholder={t("portalInviteSourceManual")} />
+                  </SelectTrigger>
+                  <SelectContent position="popper" className="max-h-[min(280px,50vh)]">
+                    <SelectItem value="manual">{t("portalInviteSourceManual")}</SelectItem>
+                    {crmContactPresets.map((p) => {
+                      const taken = portalEmailsLower.has(p.contactEmail.trim().toLowerCase());
+                      const label =
+                        `${p.companyName} · ${p.contactName?.trim() || p.contactEmail}` +
+                        (p.clientId === clientId ? ` (${t("portalInvitePresetThisClient")})` : "") +
+                        (taken ? ` — ${t("portalInvitePresetTaken")}` : "");
+                      return (
+                        <SelectItem key={p.clientId} value={p.clientId} disabled={taken}>
+                          {label}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="space-y-1">
               <Label htmlFor="invite-email">{t("portalInviteEmail")}</Label>
               <Input
@@ -332,7 +426,7 @@ export function ClientPortalAccess({ clientId, initialPortalEnabled, initialUser
             </div>
           </div>
           <DialogFooter className={isRtl ? "flex-row-reverse sm:justify-start" : ""}>
-            <Button type="button" variant="outline" onClick={() => setInviteOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => handleInviteOpenChange(false)}>
               {t("cancel")}
             </Button>
             <Button type="button" disabled={inviteSaving} onClick={() => void onInviteSubmit()}>

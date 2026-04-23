@@ -33,6 +33,8 @@ type NavMainProps = {
   dashboard: NavLeaf;
   settings: NavLeaf;
   groups: NavGroup[];
+  /** Extra links rendered above Settings (e.g. AI Chat for admins). */
+  footerBeforeSettings?: NavLeaf[];
   /** When false, hides CRM/PM groups (member hub). */
   showSettings?: boolean;
   /** When false, group children are shown as flat links (no section header / chevron). */
@@ -49,6 +51,7 @@ export function NavMain({
   dashboard,
   settings,
   groups,
+  footerBeforeSettings,
   showSettings = true,
   collapsibleGroups = true,
 }: NavMainProps) {
@@ -185,8 +188,22 @@ export function NavMain({
         </div>
 
         {showSettings ? (
-          <div className="mt-auto pt-2">
+          <div className="mt-auto space-y-1 pt-2">
             <SidebarMenu>
+              {footerBeforeSettings?.map((item) => (
+                <SidebarMenuItem key={item.url}>
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    asChild
+                    isActive={isActivePath(pathname, item.url)}
+                  >
+                    <Link href={item.url} onClick={() => setOpenMobile(false)}>
+                      {item.icon && <item.icon />}
+                      <span className="text-[15px]">{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip={settings.title}

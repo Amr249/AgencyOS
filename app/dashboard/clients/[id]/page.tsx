@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { getLocale, getTranslations } from "next-intl/server";
-import { getClientById, getClientRevenueStats, getClientServiceIds } from "@/actions/clients";
+import {
+  getClientById,
+  getClientsList,
+  getClientRevenueStats,
+  getClientServiceIds,
+} from "@/actions/clients";
 import { getTags, getClientTags } from "@/actions/client-tags";
 import { getProjectsByClientId, getProjectTaskCounts } from "@/actions/projects";
 import { getInvoicesByClientId, getNextInvoiceNumber } from "@/actions/invoices";
@@ -74,6 +79,7 @@ export default async function ClientDetailPage({ params }: Props) {
     clientTagsResult,
     clientTimelineResult,
     portalUsersResult,
+    clientsListResult,
   ] = await Promise.all([
     getClientById(id),
     getProjectsByClientId(id),
@@ -92,6 +98,7 @@ export default async function ClientDetailPage({ params }: Props) {
     getClientTags(id),
     getClientTimeline(id, 150),
     getClientUsers(id),
+    getClientsList(),
   ]);
 
   if (!clientResult.ok) {
@@ -152,6 +159,23 @@ export default async function ClientDetailPage({ params }: Props) {
   const timelineItems = clientTimelineResult.ok ? clientTimelineResult.data : [];
   const portalUsers = portalUsersResult.ok ? portalUsersResult.data : [];
   const portalEnabled = Boolean(client.portalEnabled);
+  const clientsListRaw = clientsListResult.ok ? clientsListResult.data : [];
+  const crmContactPresets = [...clientsListRaw]
+    .filter((c) => {
+      const em = (c.contactEmail ?? "").trim();
+      return em.length > 0 && em.includes("@");
+    })
+    .sort((a, b) => {
+      if (a.id === id) return -1;
+      if (b.id === id) return 1;
+      return (a.companyName ?? "").localeCompare(b.companyName ?? "");
+    })
+    .map((c) => ({
+      clientId: c.id,
+      companyName: c.companyName ?? "",
+      contactName: c.contactName ?? null,
+      contactEmail: (c.contactEmail ?? "").trim(),
+    }));
   const expenseDialogProjects = projects.map((p) => ({
     id: p.id,
     name: p.name,
@@ -327,6 +351,7 @@ export default async function ClientDetailPage({ params }: Props) {
         <TabsContent value="portal" className="mt-4">
           <ClientPortalAccess
             clientId={id}
+            crmContactPresets={crmContactPresets}
             initialPortalEnabled={portalEnabled}
             initialUsers={portalUsers}
             isRtl={isArabic}

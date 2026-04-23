@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { getImageKitClient, IMAGEKIT_CLIENT_LOGO_FOLDER, IMAGEKIT_AGENCY_LOGO_FOLDER, IMAGEKIT_PROJECT_COVER_FOLDER, IMAGEKIT_TEAM_AVATAR_FOLDER } from "@/lib/imagekit";
+import { getServerSession } from "next-auth";
+import { getImageKitClient, IMAGEKIT_AI_CHAT_FOLDER, IMAGEKIT_CLIENT_LOGO_FOLDER, IMAGEKIT_AGENCY_LOGO_FOLDER, IMAGEKIT_PROJECT_COVER_FOLDER, IMAGEKIT_TEAM_AVATAR_FOLDER } from "@/lib/imagekit";
+import { authOptions } from "@/lib/auth";
+import { sessionUserRole } from "@/lib/auth-helpers";
 
 export async function POST(request: Request) {
   const client = getImageKitClient();
@@ -20,6 +23,13 @@ export async function POST(request: Request) {
   const file = formData.get("file") as File | null;
   const folderParam = formData.get("folder") as string | null;
   const scope = (formData.get("scope") as string) || "client-logo";
+
+  if (scope === "ai-chat") {
+    const session = await getServerSession(authOptions);
+    if (sessionUserRole(session) !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
   const projectId = formData.get("projectId") as string | null;
   const taskId = formData.get("taskId") as string | null;
   const invoiceId = formData.get("invoiceId") as string | null;
@@ -53,6 +63,8 @@ export async function POST(request: Request) {
     folder = IMAGEKIT_TEAM_AVATAR_FOLDER;
   } else if (scope === "recurring-vendor-logo") {
     folder = "agencyos/recurring-vendors";
+  } else if (scope === "ai-chat") {
+    folder = IMAGEKIT_AI_CHAT_FOLDER;
   } else {
     folder = "agencyos/uploads";
   }
