@@ -1,17 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { clientUsers, clients } from "@/lib/db/schema";
-import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { assertAdminSession } from "@/lib/auth-helpers";
 
 function revalidateClient(clientId: string) {
   revalidatePath("/dashboard/clients");
   revalidatePath(`/dashboard/clients/${clientId}`);
+}
+
+function revalidateSettingsUsers() {
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/settings/users");
 }
 
 export type ClientInviteOptionRow = {
@@ -48,12 +53,61 @@ export async function listClientsForPortalInvite(): Promise<
   }
 }
 
+export type ClientPortalUserListRow = {
+  id: string;
+  clientId: string;
+  companyName: string;
+  email: string;
+  name: string | null;
+  isActive: boolean;
+  lastLoginAt: Date | null;
+  invitedAt: Date | null;
+  createdAt: Date;
+};
+
+/** Admin-only: all client portal users with CRM client name (Settings → Users). */
+export async function listAllClientPortalUsers(): Promise<
+  { ok: true; data: ClientPortalUserListRow[] } | { ok: false; error: string }
+> {
+  const gate = await assertAdminSession();
+  if (!gate.ok) return { ok: false, error: gate.error };
+
+  try {
+    const rows = await db
+      .select({
+        id: clientUsers.id,
+        clientId: clientUsers.clientId,
+        email: clientUsers.email,
+        name: clientUsers.name,
+        isActive: clientUsers.isActive,
+        lastLoginAt: clientUsers.lastLoginAt,
+        invitedAt: clientUsers.invitedAt,
+        createdAt: clientUsers.createdAt,
+        companyName: clients.companyName,
+      })
+      .from(clientUsers)
+      .innerJoin(clients, eq(clientUsers.clientId, clients.id))
+      .where(isNull(clients.deletedAt))
+      .orderBy(desc(clientUsers.createdAt));
+
+    return { ok: true, data: rows };
+  } catch (e) {
+    console.error("listAllClientPortalUsers", e);
+    if (isDbConnectionError(e)) return { ok: false, error: getDbErrorKey(e) };
+    return { ok: false, error: "unknown" };
+  }
+}
+
 const inviteSchema = z.object({
   clientId: z.string().uuid(),
   email: z.string().email("Invalid email"),
   name: z.string().min(1, "Name is required").max(200),
   /** Optional initial password so the invitee can sign in immediately. Min 8 chars when set. */
-  initialPassword: z.string().min(8).optional(),
+  initialPassword: z.preprocess(
+    (v) =>
+      typeof v !== "string" || v.trim().length === 0 ? undefined : v.trim(),
+    z.string().min(8).optional()
+  ),
 });
 
 const setPasswordSchema = z.object({
@@ -82,7 +136,7 @@ export async function inviteClientUser(input: z.input<typeof inviteSchema>) {
       ? await bcrypt.hash(parsed.data.initialPassword, 12)
       : null;
 
-    const [row] = await db
+    const inserted = await db
       .insert(clientUsers)
       .values({
         clientId,
@@ -102,18 +156,71 @@ export async function inviteClientUser(input: z.input<typeof inviteSchema>) {
         createdAt: clientUsers.createdAt,
       });
 
-    if (!row) return { ok: false as const, error: "Failed to invite user" };
+    let row = inserted[0];
+    if (!row) {
+      const [found] = await db
+        .select({
+          id: clientUsers.id,
+          clientId: clientUsers.clientId,
+          email: clientUsers.email,
+          name: clientUsers.name,
+          isActive: clientUsers.isActive,
+          lastLoginAt: clientUsers.lastLoginAt,
+          invitedAt: clientUsers.invitedAt,
+          createdAt: clientUsers.createdAt,
+        })
+        .from(clientUsers)
+        .where(and(eq(clientUsers.clientId, clientId), eq(clientUsers.email, email)))
+        .limit(1);
+      row = found;
+    }
+
+    if (!row) {
+      console.error("inviteClientUser: insert returned no row and no matching row found", {
+        clientId,
+        email,
+      });
+      return { ok: false as const, error: "Failed to invite user" };
+    }
     revalidateClient(clientId);
+    revalidateSettingsUsers();
     return { ok: true as const, data: row };
   } catch (e) {
+    console.error("inviteClientUser", e);
     if (isDbConnectionError(e)) {
       return { ok: false as const, error: getDbErrorKey(e) };
     }
-    const msg = e instanceof Error ? e.message : "";
-    if (msg.toLowerCase().includes("unique") || msg.includes("23505")) {
-      return { ok: false as const, error: "This email is already registered for a client portal user." };
+    const pgCode = findPostgresErrorCode(e);
+    if (pgCode === "23505") {
+      return {
+        ok: false as const,
+        error: "This email is already registered for a client portal user.",
+      };
     }
-    return { ok: false as const, error: "Failed to invite user" };
+    if (pgCode === "23503") {
+      return {
+        ok: false as const,
+        error: "This client record is no longer valid. Refresh the page and pick a client again.",
+      };
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    if (
+      msg.toLowerCase().includes("unique") ||
+      msg.includes("23505") ||
+      msg.toLowerCase().includes("duplicate key")
+    ) {
+      return {
+        ok: false as const,
+        error: "This email is already registered for a client portal user.",
+      };
+    }
+    return {
+      ok: false as const,
+      error:
+        process.env.NODE_ENV === "development"
+          ? `Invite failed: ${msg}`
+          : "Failed to invite user",
+    };
   }
 }
 
@@ -155,6 +262,7 @@ export async function deactivateClientUser(id: string) {
       .returning({ clientId: clientUsers.clientId });
     if (!row) return { ok: false as const, error: "User not found" };
     revalidateClient(row.clientId);
+    revalidateSettingsUsers();
     return { ok: true as const };
   } catch (e) {
     if (isDbConnectionError(e)) {
@@ -203,6 +311,7 @@ export async function setClientPortalUserPassword(input: z.input<typeof setPassw
       .returning({ clientId: clientUsers.clientId });
     if (!updated) return { ok: false as const, error: "User not found" };
     revalidateClient(updated.clientId);
+    revalidateSettingsUsers();
     return { ok: true as const };
   } catch (e) {
     if (isDbConnectionError(e)) {

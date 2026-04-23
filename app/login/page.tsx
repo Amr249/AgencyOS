@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -12,11 +12,20 @@ export default function LoginPage() {
   const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("auth");
+  /** Avoid hydration mismatches: extensions inject attrs (e.g. fdprocessedid); render form after mount. */
+  const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    /* Defer login form until after hydration so browser extensions cannot inject attrs
+       (e.g. fdprocessedid) that mismatch server HTML. */
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional mount gate after SSR
+    setMounted(true);
+  }, []);
 
   const isAr = locale === "ar";
   const formDir = isAr ? "rtl" : "ltr";
@@ -111,86 +120,104 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={handleSubmit}
-            noValidate
-            spellCheck={false}
-          >
-            <div>
-              <label
-                htmlFor="email"
-                className="mb-2 block text-start text-sm text-neutral-700"
-              >
-                {t("email")}
-              </label>
-              <input
-                type="email"
-                id="email"
-                autoComplete="email"
-                placeholder={t("emailPlaceholder")}
-                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-black outline-none transition-colors focus:border-[#c8f542] focus:ring-1 focus:ring-[#c8f542]"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                dir="ltr"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="password"
-                className="mb-2 block text-start text-sm text-neutral-700"
-              >
-                {t("password")}
-              </label>
-              {/* LTR wrapper so the visibility toggle stays on the correct side while the form is RTL. */}
-              <div className="relative" dir="ltr">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  id="password"
-                  autoComplete="current-password"
-                  placeholder={t("passwordPlaceholder")}
-                  className="w-full rounded-lg border border-neutral-300 bg-white py-2.5 pe-10 ps-3 text-sm text-black outline-none transition-colors focus:border-[#c8f542] focus:ring-1 focus:ring-[#c8f542]"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute end-3 top-1/2 -translate-y-1/2 text-neutral-400 transition-colors hover:text-neutral-700"
-                  aria-label={showPassword ? t("hidePassword") : t("showPassword")}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+          {!mounted ? (
+            <div
+              className="flex flex-col gap-4"
+              aria-busy="true"
+              aria-label={t("pleaseSignIn")}
+            >
+              <div className="h-10 animate-pulse rounded-lg bg-neutral-100" />
+              <div className="h-10 animate-pulse rounded-lg bg-neutral-100" />
+              <div className="h-10 animate-pulse rounded-lg bg-neutral-200" />
+              <div className="mt-8 flex items-center justify-between gap-4">
+                <div className="h-9 w-24 animate-pulse rounded-lg bg-neutral-100" />
+                <div className="h-4 w-16 animate-pulse rounded bg-neutral-100" />
               </div>
             </div>
+          ) : (
+            <>
+              <form
+                className="flex flex-col gap-4"
+                onSubmit={handleSubmit}
+                noValidate
+                spellCheck={false}
+              >
+                <div>
+                  <label
+                    htmlFor="email"
+                    className="mb-2 block text-start text-sm text-neutral-700"
+                  >
+                    {t("email")}
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    autoComplete="email"
+                    placeholder={t("emailPlaceholder")}
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-black outline-none transition-colors focus:border-[#c8f542] focus:ring-1 focus:ring-[#c8f542]"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    dir="ltr"
+                  />
+                </div>
 
-            {error && (
-              <p className="text-start text-sm text-red-600" role="alert">
-                {error}
-              </p>
-            )}
+                <div>
+                  <label
+                    htmlFor="password"
+                    className="mb-2 block text-start text-sm text-neutral-700"
+                  >
+                    {t("password")}
+                  </label>
+                  {/* LTR wrapper so the visibility toggle stays on the correct side while the form is RTL. */}
+                  <div className="relative" dir="ltr">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      id="password"
+                      autoComplete="current-password"
+                      placeholder={t("passwordPlaceholder")}
+                      className="w-full rounded-lg border border-neutral-300 bg-white py-2.5 pe-10 ps-3 text-sm text-black outline-none transition-colors focus:border-[#c8f542] focus:ring-1 focus:ring-[#c8f542]"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute end-3 top-1/2 -translate-y-1/2 text-neutral-400 transition-colors hover:text-neutral-700"
+                      aria-label={showPassword ? t("hidePassword") : t("showPassword")}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg bg-[#c8f542] px-4 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-[#b8e532] disabled:opacity-60"
-            >
-              {loading ? t("signingIn") : t("loginButton")}
-            </button>
-          </form>
+                {error && (
+                  <p className="text-start text-sm text-red-600" role="alert">
+                    {error}
+                  </p>
+                )}
 
-          <div
-            className="mt-8 flex items-center justify-between gap-4"
-            dir={formDir}
-          >
-            <LanguageToggle />
-            <p className="text-xs text-neutral-400">
-              AgencyOS © {new Date().getFullYear()}
-            </p>
-          </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-lg bg-[#c8f542] px-4 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-[#b8e532] disabled:opacity-60"
+                >
+                  {loading ? t("signingIn") : t("loginButton")}
+                </button>
+              </form>
+
+              <div
+                className="mt-8 flex items-center justify-between gap-4"
+                dir={formDir}
+              >
+                <LanguageToggle />
+                <p className="text-xs text-neutral-400">
+                  AgencyOS © {new Date().getFullYear()}
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

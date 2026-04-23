@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
+import { Building2, Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   createAgencyUser,
@@ -16,10 +16,14 @@ import {
   type TeamMemberInviteRow,
 } from "@/actions/agency-users";
 import {
+  deactivateClientUser,
   enableClientPortal,
   inviteClientUser,
+  listAllClientPortalUsers,
   listClientsForPortalInvite,
+  setClientPortalUserPassword,
   type ClientInviteOptionRow,
+  type ClientPortalUserListRow,
 } from "@/actions/client-portal";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -60,6 +64,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Badge } from "@/components/ui/badge";
 
 /** English copy for settings → users (matches former en.json `settings.users`). */
 const U = {
@@ -106,11 +111,33 @@ const U = {
   creating: "Creating…",
   createSuccess: "User created. They can sign in with the email and password you set.",
   roleUpdated: "Role updated.",
-  listTitle: "Users",
+  listTitle: "Dashboard users",
   listDescription:
-    "Change a user’s role (admin = full dashboard; member = personal hub only).",
+    "Admin and member accounts for this workspace. Client portal logins are listed in the section below.",
   loading: "Loading users…",
-  empty: "No users yet.",
+  empty: "No dashboard users yet.",
+  portalUsersTitle: "Client portal users",
+  portalUsersDescription:
+    "Clients who sign in on the portal (linked to a CRM company). Open the client record for full portal controls.",
+  portalLoading: "Loading client portal users…",
+  portalEmpty: "No client portal users yet.",
+  portalColClient: "Client",
+  portalColStatus: "Status",
+  portalColLastLogin: "Last login",
+  portalStatusActive: "Active",
+  portalStatusInactive: "Inactive",
+  portalOpenClient: "Client record",
+  portalDeactivate: "Deactivate",
+  portalSetPassword: "Set password",
+  portalDeactivateTitle: "Deactivate portal access?",
+  portalDeactivateDescription:
+    "They will no longer be able to sign in to the client portal until you invite them again.",
+  portalDeactivateSuccess: "Portal access deactivated.",
+  portalPwdTitle: "Set portal password",
+  portalPwdDescription: "Minimum 8 characters. The user signs in with their email and this password.",
+  portalPwdSave: "Save password",
+  portalPwdSuccess: "Password updated.",
+  portalPwdError: "Could not set password.",
   you: "You",
   actions: "Actions",
   edit: "Edit user",
@@ -197,6 +224,13 @@ function mapActionError(code: string): string {
   }
 }
 
+function fmtPortalTs(value: Date | string | null | undefined): string {
+  if (value == null) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" });
+}
+
 type AgencyUsersManageProps = {
   currentUserId: string;
   /** When true, show a link back to main settings (dedicated users page). */
@@ -207,6 +241,8 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
   const router = useRouter();
   const [rows, setRows] = React.useState<AgencyUserRow[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [portalRows, setPortalRows] = React.useState<ClientPortalUserListRow[]>([]);
+  const [portalLoading, setPortalLoading] = React.useState(true);
   const [creating, setCreating] = React.useState(false);
 
   const [newName, setNewName] = React.useState("");
@@ -235,10 +271,27 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
 
+  const [deactivatePortalId, setDeactivatePortalId] = React.useState<string | null>(null);
+  const [deactivatingPortal, setDeactivatingPortal] = React.useState(false);
+  const [portalPwdOpen, setPortalPwdOpen] = React.useState(false);
+  const [portalPwdUserId, setPortalPwdUserId] = React.useState<string | null>(null);
+  const [portalPwdValue, setPortalPwdValue] = React.useState("");
+  const [showPortalPwd, setShowPortalPwd] = React.useState(false);
+  const [portalPwdSaving, setPortalPwdSaving] = React.useState(false);
+
   const refreshUsers = React.useCallback(async () => {
     const res = await listAgencyUsers();
     if (res.ok) {
       setRows(res.data);
+    } else {
+      toast.error(mapActionError(res.error));
+    }
+  }, []);
+
+  const refreshPortalUsers = React.useCallback(async () => {
+    const res = await listAllClientPortalUsers();
+    if (res.ok) {
+      setPortalRows(res.data);
     } else {
       toast.error(mapActionError(res.error));
     }
@@ -296,11 +349,18 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const res = await listAgencyUsers();
+      setPortalLoading(true);
+      const [usersRes, portalRes] = await Promise.all([
+        listAgencyUsers(),
+        listAllClientPortalUsers(),
+      ]);
       if (!cancelled) {
-        if (res.ok) setRows(res.data);
-        else toast.error(mapActionError(res.error));
+        if (usersRes.ok) setRows(usersRes.data);
+        else toast.error(mapActionError(usersRes.error));
+        if (portalRes.ok) setPortalRows(portalRes.data);
+        else toast.error(mapActionError(portalRes.error));
         setLoading(false);
+        setPortalLoading(false);
       }
     })();
     return () => {
@@ -344,11 +404,12 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
           );
           return;
         }
+        const pwdTrim = newPassword.trim();
         const inv = await inviteClientUser({
           clientId: selectedClientId,
           email: newEmail.trim(),
           name: newName.trim(),
-          initialPassword: newPassword,
+          ...(pwdTrim.length >= 8 ? { initialPassword: pwdTrim } : {}),
         });
         if (inv.ok) {
           toast.success(U.createClientSuccess);
@@ -357,6 +418,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
           setNewPassword("");
           setSelectedClientId("");
           setClientAddMode("pick");
+          await refreshPortalUsers();
           router.refresh();
         } else {
           toast.error(formatClientInviteError(inv.error));
@@ -472,6 +534,62 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
   }
 
   const deleteTarget = deleteId ? rows.find((r) => r.id === deleteId) : null;
+
+  async function onConfirmDeactivatePortal() {
+    if (!deactivatePortalId) return;
+    setDeactivatingPortal(true);
+    try {
+      const res = await deactivateClientUser(deactivatePortalId);
+      if (res.ok) {
+        toast.success(U.portalDeactivateSuccess);
+        setDeactivatePortalId(null);
+        await refreshPortalUsers();
+        router.refresh();
+      } else {
+        toast.error(typeof res.error === "string" ? res.error : U.errors.unknown);
+      }
+    } finally {
+      setDeactivatingPortal(false);
+    }
+  }
+
+  function openPortalPasswordDialog(userId: string) {
+    setPortalPwdUserId(userId);
+    setPortalPwdValue("");
+    setShowPortalPwd(false);
+    setPortalPwdOpen(true);
+  }
+
+  async function onSavePortalPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!portalPwdUserId || portalPwdValue.trim().length < 8) {
+      toast.error(U.errors.validation);
+      return;
+    }
+    setPortalPwdSaving(true);
+    try {
+      const res = await setClientPortalUserPassword({
+        clientUserId: portalPwdUserId,
+        password: portalPwdValue.trim(),
+      });
+      if (res.ok) {
+        toast.success(U.portalPwdSuccess);
+        setPortalPwdOpen(false);
+        setPortalPwdUserId(null);
+        setPortalPwdValue("");
+        router.refresh();
+      } else {
+        const err = res.error;
+        toast.error(typeof err === "string" ? err : formatClientInviteError(err));
+      }
+    } finally {
+      setPortalPwdSaving(false);
+    }
+  }
+
+  const deactivatePortalTarget = deactivatePortalId
+    ? portalRows.find((r) => r.id === deactivatePortalId)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -830,6 +948,84 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{U.portalUsersTitle}</CardTitle>
+          <CardDescription>{U.portalUsersDescription}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {portalLoading ? (
+            <p className="text-muted-foreground text-sm">{U.portalLoading}</p>
+          ) : portalRows.length === 0 ? (
+            <p className="text-muted-foreground text-sm">{U.portalEmpty}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{U.name}</TableHead>
+                  <TableHead>{U.email}</TableHead>
+                  <TableHead>{U.portalColClient}</TableHead>
+                  <TableHead>{U.portalColStatus}</TableHead>
+                  <TableHead>{U.portalColLastLogin}</TableHead>
+                  <TableHead className="text-end">{U.actions}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {portalRows.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-medium">{u.name ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                    <TableCell>{u.companyName}</TableCell>
+                    <TableCell>
+                      <Badge variant={u.isActive ? "default" : "secondary"}>
+                        {u.isActive ? U.portalStatusActive : U.portalStatusInactive}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm tabular-nums">
+                      {fmtPortalTs(u.lastLoginAt)}
+                    </TableCell>
+                    <TableCell className="text-end">
+                      <div className="flex flex-wrap justify-end gap-1">
+                        <Button variant="outline" size="sm" asChild>
+                          <Link
+                            href={`/dashboard/clients/${u.clientId}`}
+                            className="inline-flex items-center gap-1.5"
+                          >
+                            <Building2 className="size-3.5 shrink-0" />
+                            {U.portalOpenClient}
+                          </Link>
+                        </Button>
+                        {u.isActive ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openPortalPasswordDialog(u.id)}
+                            >
+                              {U.portalSetPassword}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDeactivatePortalId(u.id)}
+                            >
+                              {U.portalDeactivate}
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
       <Dialog
         open={editOpen}
         onOpenChange={(open) => {
@@ -907,6 +1103,67 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={portalPwdOpen}
+        onOpenChange={(open) => {
+          setPortalPwdOpen(open);
+          if (!open) {
+            setPortalPwdUserId(null);
+            setPortalPwdValue("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" dir="ltr" lang="en">
+          <form onSubmit={onSavePortalPassword}>
+            <DialogHeader>
+              <DialogTitle>{U.portalPwdTitle}</DialogTitle>
+              <DialogDescription>{U.portalPwdDescription}</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="portal-new-password">{U.password}</Label>
+                <div className="relative">
+                  <Input
+                    id="portal-new-password"
+                    type={showPortalPwd ? "text" : "password"}
+                    value={portalPwdValue}
+                    onChange={(e) => setPortalPwdValue(e.target.value)}
+                    minLength={8}
+                    required
+                    className="pe-10"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPortalPwd((v) => !v)}
+                    className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
+                    aria-label={showPortalPwd ? U.hidePassword : U.showPassword}
+                  >
+                    {showPortalPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPortalPwdOpen(false);
+                  setPortalPwdUserId(null);
+                  setPortalPwdValue("");
+                }}
+              >
+                {U.cancel}
+              </Button>
+              <Button type="submit" disabled={portalPwdSaving}>
+                {portalPwdSaving ? U.saving : U.portalPwdSave}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent dir="ltr" lang="en">
           <AlertDialogHeader>
@@ -928,6 +1185,35 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
               }}
             >
               {deleting ? U.deleting : U.delete}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!deactivatePortalId}
+        onOpenChange={(o) => !o && setDeactivatePortalId(null)}
+      >
+        <AlertDialogContent dir="ltr" lang="en">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{U.portalDeactivateTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deactivatePortalTarget
+                ? `${deactivatePortalTarget.name ?? deactivatePortalTarget.email} (${deactivatePortalTarget.companyName}). ${U.portalDeactivateDescription}`
+                : U.portalDeactivateDescription}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deactivatingPortal}>{U.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deactivatingPortal}
+              onClick={(e) => {
+                e.preventDefault();
+                void onConfirmDeactivatePortal();
+              }}
+            >
+              {deactivatingPortal ? U.deleting : U.portalDeactivate}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

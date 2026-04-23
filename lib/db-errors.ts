@@ -69,3 +69,12 @@ export function getDbErrorKey(error: unknown): DbErrorKey {
   }
   return "connectionTimeout";
 }
+
+/** PostgreSQL `sqlstate` / driver `code` (e.g. 23505 unique, 23503 FK) from nested driver errors. */
+export function findPostgresErrorCode(e: unknown): string | null {
+  for (const x of allRelatedErrors(e)) {
+    const c = codeOf(x);
+    if (c && /^[0-9]{5}$/.test(c)) return c;
+  }
+  return null;
+}
