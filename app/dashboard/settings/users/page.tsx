@@ -21,7 +21,8 @@ export default async function SettingsUsersPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Users</h1>
         <p className="text-muted-foreground text-sm">
-          Manage who can sign in to the dashboard, their roles, and passwords.
+          Manage dashboard team logins (roles and passwords), or invite client portal users linked to CRM
+          clients—both from the Add user card below.
         </p>
       </div>
       <AgencyUsersManage currentUserId={session.user.id} showBackLink />

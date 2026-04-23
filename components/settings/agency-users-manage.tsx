@@ -15,6 +15,12 @@ import {
   type AgencyUserRow,
   type TeamMemberInviteRow,
 } from "@/actions/agency-users";
+import {
+  enableClientPortal,
+  inviteClientUser,
+  listClientsForPortalInvite,
+  type ClientInviteOptionRow,
+} from "@/actions/client-portal";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,9 +68,24 @@ const U = {
   backToSettings: "Back to settings",
   addTitle: "Add user",
   addDescription:
-    "Create a dashboard login manually, or pick an active team member who does not already have an account. Team roster data fills name, photo, and email; you only set a password.",
+    "Choose whether this is a dashboard team login or a client portal login. For team members, create manually or pick from the team roster. For clients, pick a CRM client or enter everything manually.",
+  userKindTeam: "Team member (dashboard)",
+  userKindClient: "Client portal",
+  userKindHint:
+    "Dashboard users sign in here with admin or member roles. Client portal users sign in on the client portal with access to their organization’s projects.",
   addModeManual: "Enter details manually",
-  addModeTeam: "Choose from team",
+  addModeTeam: "Choose from team members",
+  clientAddModePick: "Choose client — use CRM contact when available",
+  clientAddModeManual: "Enter details manually",
+  clientCompanyLabel: "Client",
+  clientPlaceholder: "Select a client…",
+  clientsLoading: "Loading clients…",
+  clientsEmpty: "No clients found. Add a client in CRM first.",
+  pickClientError: "Please select a client.",
+  clientPrefillHint:
+    "Name and email are prefilled from the client record when possible; you can edit them before creating the login.",
+  createClientSuccess:
+    "Client portal user created. Portal access is enabled for this client. They can sign in with the email and password you set.",
   teamMemberLabel: "Team member",
   teamMemberPlaceholder: "Select a team member…",
   teamPreviewHint: "Name, email, and photo come from the team roster.",
@@ -124,6 +145,27 @@ const U = {
   },
 } as const;
 
+function formatClientInviteError(err: unknown): string {
+  if (typeof err === "string") {
+    if (
+      err === "connectionTimeout" ||
+      err === "fetchFailed" ||
+      err === "unauthorized" ||
+      err === "forbidden"
+    ) {
+      return mapActionError(err);
+    }
+    return err;
+  }
+  if (err && typeof err === "object") {
+    const values = Object.values(err as Record<string, string[] | undefined>)
+      .flat()
+      .filter(Boolean);
+    if (values.length) return values.join(" ");
+  }
+  return U.errors.unknown;
+}
+
 function mapActionError(code: string): string {
   switch (code) {
     case "forbidden":
@@ -172,7 +214,12 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
   const [newPassword, setNewPassword] = React.useState("");
   const [showNewPassword, setShowNewPassword] = React.useState(false);
   const [newRole, setNewRole] = React.useState<"admin" | "member">("member");
+  const [userKind, setUserKind] = React.useState<"team" | "client">("team");
   const [addMode, setAddMode] = React.useState<"manual" | "team_member">("manual");
+  const [clientAddMode, setClientAddMode] = React.useState<"pick" | "manual">("pick");
+  const [clientsList, setClientsList] = React.useState<ClientInviteOptionRow[]>([]);
+  const [clientsLoading, setClientsLoading] = React.useState(false);
+  const [selectedClientId, setSelectedClientId] = React.useState("");
   const [invitees, setInvitees] = React.useState<TeamMemberInviteRow[]>([]);
   const [inviteesLoading, setInviteesLoading] = React.useState(false);
   const [selectedTeamMemberId, setSelectedTeamMemberId] = React.useState("");
@@ -211,9 +258,39 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     }
   }, []);
 
+  const loadClients = React.useCallback(async () => {
+    setClientsLoading(true);
+    try {
+      const res = await listClientsForPortalInvite();
+      if (res.ok) {
+        setClientsList(res.data);
+      } else {
+        toast.error(mapActionError(res.error));
+      }
+    } finally {
+      setClientsLoading(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     void loadInvitees();
   }, [loadInvitees]);
+
+  React.useEffect(() => {
+    if (userKind !== "client") return;
+    void loadClients();
+  }, [userKind, loadClients]);
+
+  function applyClientPrefill(clientId: string) {
+    const c = clientsList.find((x) => x.id === clientId);
+    if (!c) return;
+    const name =
+      (c.contactName?.trim() && c.contactName.trim()) ||
+      c.companyName.trim();
+    const email = (c.contactEmail?.trim() && c.contactEmail.trim()) || "";
+    setNewName(name);
+    setNewEmail(email);
+  }
 
   React.useEffect(() => {
     let cancelled = false;
@@ -233,14 +310,60 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (addMode === "team_member") {
-      if (!selectedTeamMemberId) {
-        toast.error(U.pickTeamMemberError);
+
+    if (userKind === "team") {
+      if (addMode === "team_member") {
+        if (!selectedTeamMemberId) {
+          toast.error(U.pickTeamMemberError);
+          return;
+        }
+      }
+    } else {
+      if (!selectedClientId) {
+        toast.error(U.pickClientError);
+        return;
+      }
+      if (!newName.trim() || !newEmail.trim()) {
+        toast.error(U.errors.validation);
         return;
       }
     }
+
     setCreating(true);
     try {
+      if (userKind === "client") {
+        const portalRes = await enableClientPortal(selectedClientId);
+        if (!portalRes.ok) {
+          const pe = portalRes.error;
+          toast.error(
+            typeof pe === "string"
+              ? pe === "connectionTimeout" || pe === "fetchFailed"
+                ? mapActionError(pe)
+                : pe
+              : U.errors.unknown
+          );
+          return;
+        }
+        const inv = await inviteClientUser({
+          clientId: selectedClientId,
+          email: newEmail.trim(),
+          name: newName.trim(),
+          initialPassword: newPassword,
+        });
+        if (inv.ok) {
+          toast.success(U.createClientSuccess);
+          setNewName("");
+          setNewEmail("");
+          setNewPassword("");
+          setSelectedClientId("");
+          setClientAddMode("pick");
+          router.refresh();
+        } else {
+          toast.error(formatClientInviteError(inv.error));
+        }
+        return;
+      }
+
       const res =
         addMode === "manual"
           ? await createAgencyUser({
@@ -368,93 +491,219 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
         <CardContent>
           <form onSubmit={onCreate} className="grid max-w-xl gap-4 sm:grid-cols-2">
             <div className="space-y-3 sm:col-span-2">
-              <Label className="text-foreground">How to add</Label>
+              <Label className="text-foreground">User type</Label>
               <RadioGroup
-                value={addMode}
+                value={userKind}
                 onValueChange={(v) => {
-                  setAddMode(v as "manual" | "team_member");
+                  const k = v as "team" | "client";
+                  setUserKind(k);
                   setSelectedTeamMemberId("");
+                  setSelectedClientId("");
+                  setNewName("");
+                  setNewEmail("");
+                  setNewPassword("");
+                  setAddMode("manual");
+                  setClientAddMode("pick");
                 }}
                 className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-6"
               >
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="manual" id="add-mode-manual" />
-                  <Label htmlFor="add-mode-manual" className="cursor-pointer font-normal">
-                    {U.addModeManual}
+                  <RadioGroupItem value="team" id="user-kind-team" />
+                  <Label htmlFor="user-kind-team" className="cursor-pointer font-normal">
+                    {U.userKindTeam}
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="team_member" id="add-mode-team" />
-                  <Label htmlFor="add-mode-team" className="cursor-pointer font-normal">
-                    {U.addModeTeam}
+                  <RadioGroupItem value="client" id="user-kind-client" />
+                  <Label htmlFor="user-kind-client" className="cursor-pointer font-normal">
+                    {U.userKindClient}
                   </Label>
                 </div>
               </RadioGroup>
+              <p className="text-muted-foreground text-sm">{U.userKindHint}</p>
             </div>
 
-            {addMode === "manual" ? (
+            {userKind === "team" ? (
               <>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="new-user-name">{U.name}</Label>
-                  <Input
-                    id="new-user-name"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    required={addMode === "manual"}
-                    autoComplete="name"
-                  />
+                <div className="space-y-3 sm:col-span-2">
+                  <Label className="text-foreground">How to add</Label>
+                  <RadioGroup
+                    value={addMode}
+                    onValueChange={(v) => {
+                      setAddMode(v as "manual" | "team_member");
+                      setSelectedTeamMemberId("");
+                    }}
+                    className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-6"
+                  >
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="manual" id="add-mode-manual" />
+                      <Label htmlFor="add-mode-manual" className="cursor-pointer font-normal">
+                        {U.addModeManual}
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="team_member" id="add-mode-team" />
+                      <Label htmlFor="add-mode-team" className="cursor-pointer font-normal">
+                        {U.addModeTeam}
+                      </Label>
+                    </div>
+                  </RadioGroup>
                 </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="new-user-email">{U.email}</Label>
-                  <Input
-                    id="new-user-email"
-                    type="email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    required={addMode === "manual"}
-                    autoComplete="email"
-                  />
-                </div>
+
+                {addMode === "manual" ? (
+                  <>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="new-user-name">{U.name}</Label>
+                      <Input
+                        id="new-user-name"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        required
+                        autoComplete="name"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="new-user-email">{U.email}</Label>
+                      <Input
+                        id="new-user-email"
+                        type="email"
+                        value={newEmail}
+                        onChange={(e) => setNewEmail(e.target.value)}
+                        required
+                        autoComplete="email"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3 sm:col-span-2">
+                    <div className="space-y-2">
+                      <Label>{U.teamMemberLabel}</Label>
+                      {inviteesLoading ? (
+                        <p className="text-muted-foreground text-sm">{U.inviteesLoading}</p>
+                      ) : invitees.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">{U.inviteesEmpty}</p>
+                      ) : (
+                        <Select value={selectedTeamMemberId} onValueChange={setSelectedTeamMemberId}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder={U.teamMemberPlaceholder} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {invitees.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.name} — {m.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                    {selectedInvitee ? (
+                      <div className="flex items-center gap-3 rounded-lg border p-3">
+                        <Avatar className="h-12 w-12 shrink-0">
+                          <AvatarImage src={selectedInvitee.avatarUrl ?? undefined} alt="" />
+                          <AvatarFallback>{initialsFromName(selectedInvitee.name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <p className="font-medium leading-tight">{selectedInvitee.name}</p>
+                          <p className="text-muted-foreground truncate text-sm" dir="ltr">
+                            {selectedInvitee.email}
+                          </p>
+                          <p className="text-muted-foreground mt-1 text-xs">{U.teamPreviewHint}</p>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </>
             ) : (
-              <div className="space-y-3 sm:col-span-2">
-                <div className="space-y-2">
-                  <Label>{U.teamMemberLabel}</Label>
-                  {inviteesLoading ? (
-                    <p className="text-muted-foreground text-sm">{U.inviteesLoading}</p>
-                  ) : invitees.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">{U.inviteesEmpty}</p>
+              <>
+                <div className="space-y-3 sm:col-span-2">
+                  <Label className="text-foreground">How to add</Label>
+                  <RadioGroup
+                    value={clientAddMode}
+                    onValueChange={(v) => {
+                      const m = v as "pick" | "manual";
+                      setClientAddMode(m);
+                      if (m === "manual") {
+                        setNewName("");
+                        setNewEmail("");
+                      } else if (selectedClientId) {
+                        applyClientPrefill(selectedClientId);
+                      }
+                    }}
+                    className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-6"
+                  >
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="pick" id="client-add-pick" />
+                      <Label htmlFor="client-add-pick" className="cursor-pointer font-normal">
+                        {U.clientAddModePick}
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="manual" id="client-add-manual" />
+                      <Label htmlFor="client-add-manual" className="cursor-pointer font-normal">
+                        {U.clientAddModeManual}
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>{U.clientCompanyLabel}</Label>
+                  {clientsLoading ? (
+                    <p className="text-muted-foreground text-sm">{U.clientsLoading}</p>
+                  ) : clientsList.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">{U.clientsEmpty}</p>
                   ) : (
-                    <Select value={selectedTeamMemberId} onValueChange={setSelectedTeamMemberId}>
+                    <Select
+                      value={selectedClientId}
+                      onValueChange={(id) => {
+                        setSelectedClientId(id);
+                        if (clientAddMode === "pick") {
+                          applyClientPrefill(id);
+                        }
+                      }}
+                    >
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder={U.teamMemberPlaceholder} />
+                        <SelectValue placeholder={U.clientPlaceholder} />
                       </SelectTrigger>
                       <SelectContent>
-                        {invitees.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name} — {m.email}
+                        {clientsList.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.companyName}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   )}
                 </div>
-                {selectedInvitee ? (
-                  <div className="flex items-center gap-3 rounded-lg border p-3">
-                    <Avatar className="h-12 w-12 shrink-0">
-                      <AvatarImage src={selectedInvitee.avatarUrl ?? undefined} alt="" />
-                      <AvatarFallback>{initialsFromName(selectedInvitee.name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <p className="font-medium leading-tight">{selectedInvitee.name}</p>
-                      <p className="text-muted-foreground truncate text-sm" dir="ltr">
-                        {selectedInvitee.email}
-                      </p>
-                      <p className="text-muted-foreground mt-1 text-xs">{U.teamPreviewHint}</p>
-                    </div>
-                  </div>
+
+                {clientAddMode === "pick" ? (
+                  <p className="text-muted-foreground text-sm sm:col-span-2">{U.clientPrefillHint}</p>
                 ) : null}
-              </div>
+
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="client-user-name">{U.name}</Label>
+                  <Input
+                    id="client-user-name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    required
+                    autoComplete="name"
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="client-user-email">{U.email}</Label>
+                  <Input
+                    id="client-user-email"
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                  />
+                </div>
+              </>
             )}
 
             <div className="space-y-2 sm:col-span-2">
@@ -481,18 +730,22 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 </button>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>{U.role}</Label>
-              <Select value={newRole} onValueChange={(v) => setNewRole(v as "admin" | "member")}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="member">{U.roleMember}</SelectItem>
-                  <SelectItem value="admin">{U.roleAdmin}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+
+            {userKind === "team" ? (
+              <div className="space-y-2 sm:col-span-2">
+                <Label>{U.role}</Label>
+                <Select value={newRole} onValueChange={(v) => setNewRole(v as "admin" | "member")}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member">{U.roleMember}</SelectItem>
+                    <SelectItem value="admin">{U.roleAdmin}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
             <div className="flex items-end sm:col-span-2">
               <Button type="submit" disabled={creating}>
                 {creating ? U.creating : U.createButton}

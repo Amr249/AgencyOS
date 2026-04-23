@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -12,6 +12,40 @@ import { assertAdminSession } from "@/lib/auth-helpers";
 function revalidateClient(clientId: string) {
   revalidatePath("/dashboard/clients");
   revalidatePath(`/dashboard/clients/${clientId}`);
+}
+
+export type ClientInviteOptionRow = {
+  id: string;
+  companyName: string;
+  contactName: string | null;
+  contactEmail: string | null;
+};
+
+/** Admin-only: CRM clients list for inviting client portal users from Settings → Users. */
+export async function listClientsForPortalInvite(): Promise<
+  { ok: true; data: ClientInviteOptionRow[] } | { ok: false; error: string }
+> {
+  const gate = await assertAdminSession();
+  if (!gate.ok) return { ok: false, error: gate.error };
+
+  try {
+    const rows = await db
+      .select({
+        id: clients.id,
+        companyName: clients.companyName,
+        contactName: clients.contactName,
+        contactEmail: clients.contactEmail,
+      })
+      .from(clients)
+      .where(isNull(clients.deletedAt))
+      .orderBy(asc(clients.companyName));
+
+    return { ok: true, data: rows };
+  } catch (e) {
+    console.error("listClientsForPortalInvite", e);
+    if (isDbConnectionError(e)) return { ok: false, error: getDbErrorKey(e) };
+    return { ok: false, error: "unknown" };
+  }
 }
 
 const inviteSchema = z.object({
