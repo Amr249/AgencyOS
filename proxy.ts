@@ -4,6 +4,8 @@ import { NextResponse, type NextRequest } from "next/server";
 const MEMBER_HOME = "/dashboard/me";
 const MEMBER_ACCOUNT = "/dashboard/account";
 
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+
 function isMemberAllowedPath(pathname: string): boolean {
   if (pathname === "/dashboard" || pathname === "/dashboard/") return true;
   if (pathname === MEMBER_HOME || pathname.startsWith(`${MEMBER_HOME}/`)) return true;
@@ -19,6 +21,23 @@ function isMemberAllowedPath(pathname: string): boolean {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  /** Client portal: `/portal/login` is public; everything else requires `client_portal` JWT. */
+  if (pathname === "/portal" || pathname.startsWith("/portal/")) {
+    if (pathname === "/portal/login") {
+      return NextResponse.next();
+    }
+    const portalToken = await getToken({
+      req: request,
+      secret: NEXTAUTH_SECRET,
+    });
+    if (!portalToken || portalToken.role !== "client_portal") {
+      const signIn = new URL("/portal/login", request.url);
+      signIn.searchParams.set("callbackUrl", `${pathname}${request.nextUrl.search}`);
+      return NextResponse.redirect(signIn);
+    }
+    return NextResponse.next();
+  }
+
   if (pathname === "/") {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
@@ -29,7 +48,7 @@ export async function proxy(request: NextRequest) {
 
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: NEXTAUTH_SECRET,
   });
 
   if (!token?.sub) {
@@ -53,5 +72,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*"],
+  matcher: ["/", "/dashboard/:path*", "/portal", "/portal/:path*"],
 };
