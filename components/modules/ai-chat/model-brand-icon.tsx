@@ -17,7 +17,7 @@ export function ModelBrandIcon({
       alt=""
       width={16}
       height={16}
-      className={cn("size-4 shrink-0 object-contain", className)}
+      className={cn("size-4 shrink-0 rounded-full object-cover", className)}
       draggable={false}
     />
   );
