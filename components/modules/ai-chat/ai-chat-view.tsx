@@ -95,7 +95,7 @@ export type ChatSession = {
 type ModelRow = {
   id: string;
   label: string;
-  /** Path under `/public` (e.g. `/Qwen.png`). */
+  /** Path under `/public` (shared model picker icon: `public/model-icon.png`). */
   iconSrc: string;
 };
 
@@ -103,19 +103,12 @@ export const OPENROUTER_MODELS: ModelRow[] = [
   {
     id: "inclusionai/ling-2.6-1t:free",
     label: "Ling 2.6 1T (free)",
-    iconSrc: "/Logo1.png",
+    iconSrc: "/model-icon.png",
   },
   {
     id: "tencent/hy3-preview:free",
     label: "Tencent HY3 Preview (free)",
-    iconSrc: "/Logo1.png",
-  },
-  { id: "qwen/qwen3.6-plus", label: "Qwen 3.6 Plus", iconSrc: "/Qwen.png" },
-  { id: "deepseek/deepseek-v3.2", label: "DeepSeek V3.2", iconSrc: "/deepseek.png" },
-  {
-    id: "moonshotai/kimi-k2.6",
-    label: "Moonshot AI Kimi K2.6",
-    iconSrc: "/Kimi-AI-Logo.webp",
+    iconSrc: "/model-icon.png",
   },
 ];
 

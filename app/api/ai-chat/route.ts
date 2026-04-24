@@ -8,13 +8,9 @@ import { enrichMessagesWithPdfText } from "@/lib/ai-chat/enrich-messages-with-pd
 
 export const runtime = "nodejs";
 
-const ALLOWED_MODELS = new Set([
-  "qwen/qwen3.6-plus",
-  "deepseek/deepseek-v3.2",
-  "moonshotai/kimi-k2.6",
-  "inclusionai/ling-2.6-1t:free",
-  "tencent/hy3-preview:free",
-]);
+const DEFAULT_MODEL = "inclusionai/ling-2.6-1t:free" as const;
+
+const ALLOWED_MODELS = new Set<string>(["inclusionai/ling-2.6-1t:free", "tencent/hy3-preview:free"]);
 
 export async function POST(req: NextRequest) {
   const auth = await assertAdminSession();
@@ -46,9 +42,7 @@ export async function POST(req: NextRequest) {
   }
 
   const model =
-    typeof modelRaw === "string" && modelRaw.length > 0
-      ? modelRaw
-      : "qwen/qwen3.6-plus";
+    typeof modelRaw === "string" && modelRaw.length > 0 ? modelRaw : DEFAULT_MODEL;
 
   if (!ALLOWED_MODELS.has(model)) {
     return Response.json({ error: "Model not allowed" }, { status: 400 });
