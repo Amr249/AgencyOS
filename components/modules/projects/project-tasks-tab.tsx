@@ -146,7 +146,7 @@ export function ProjectTasksTab({
           </Select>
         </div>
       ) : null}
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      <div className="flex gap-4 overflow-x-auto pb-4 [scrollbar-width:thin]">
       {KANBAN_COLUMNS.map((col) => (
         <Card key={col.id} className="min-w-[260px] flex-1 shrink-0">
           <CardHeader className="flex flex-row items-center justify-between py-3">

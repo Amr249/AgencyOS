@@ -16,7 +16,7 @@ import {
   milestoneTeamMembers,
 } from "@/lib/db";
 import { logActivityWithActor } from "@/actions/activity-log";
-import { notifyTaskAssigned } from "@/actions/notifications";
+import { notifyAdminsOfTaskStatusChange, notifyTaskAssigned } from "@/actions/notifications";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import {
@@ -654,6 +654,13 @@ export async function updateTask(input: UpdateTaskInput) {
           newStatus: row.status,
         },
       });
+      await notifyAdminsOfTaskStatusChange({
+        projectId: row.projectId,
+        taskTitle: row.title,
+        oldStatus: previousStatus,
+        newStatus: row.status,
+        actorUserId: session?.user?.id ?? null,
+      });
     }
     revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${row.projectId}`);
@@ -715,6 +722,13 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
           oldStatus: prevRow.status,
           newStatus: row.status,
         },
+      });
+      await notifyAdminsOfTaskStatusChange({
+        projectId: row.projectId,
+        taskTitle: row.title,
+        oldStatus: prevRow.status,
+        newStatus: row.status,
+        actorUserId: session?.user?.id ?? null,
       });
     }
     revalidatePath("/dashboard/workspace");
@@ -870,6 +884,26 @@ export async function toggleSubtask(id: string) {
       .where(eq(tasks.id, parsed.data))
       .returning();
     if (!row) return { ok: false as const, error: "Task not found" };
+    if (current.status !== newStatus) {
+      await logActivityWithActor({
+        entityType: "task",
+        entityId: row.id,
+        action: "status_changed",
+        metadata: {
+          title: row.title,
+          projectId: row.projectId,
+          oldStatus: current.status,
+          newStatus: row.status,
+        },
+      });
+      await notifyAdminsOfTaskStatusChange({
+        projectId: row.projectId,
+        taskTitle: row.title,
+        oldStatus: current.status,
+        newStatus: row.status,
+        actorUserId: session?.user?.id ?? null,
+      });
+    }
     revalidatePath("/dashboard/workspace");
     revalidatePath(`/dashboard/projects/${row.projectId}`);
     revalidatePath("/dashboard/projects");

@@ -9,6 +9,18 @@ import { db } from "@/lib/db";
 import { notifications, projects, tasks, users } from "@/lib/db/schema";
 import { resolveUserIdForTeamMember } from "@/lib/member-context";
 
+const TASK_STATUS_LABELS_EN: Record<string, string> = {
+  todo: "To do",
+  in_progress: "In progress",
+  in_review: "In review",
+  done: "Done",
+  blocked: "Blocked",
+};
+
+function labelStatus(status: string): string {
+  return TASK_STATUS_LABELS_EN[status] ?? status;
+}
+
 export type NotificationRow = {
   id: string;
   type: string;
@@ -95,6 +107,55 @@ export async function createNotificationsForUsers(
     );
   } catch (e) {
     console.error("createNotificationsForUsers", e);
+  }
+}
+
+/**
+ * Notifies all admin users when a task's status changes (e.g. team member moves a card on the board).
+ * Excludes the acting user when they are an admin so you do not get a self-notification.
+ */
+export async function notifyAdminsOfTaskStatusChange(input: {
+  projectId: string;
+  taskTitle: string;
+  oldStatus: string;
+  newStatus: string;
+  actorUserId: string | null;
+}): Promise<void> {
+  if (input.oldStatus === input.newStatus) return;
+  try {
+    const adminIds = await listAdminUserIds();
+    const actorId = input.actorUserId ?? undefined;
+    const recipients = adminIds.filter((id) => id !== actorId);
+    if (recipients.length === 0) return;
+
+    let actorName: string | null = null;
+    if (input.actorUserId) {
+      const [actorRow] = await db
+        .select({ name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.id, input.actorUserId))
+        .limit(1);
+      const raw = actorRow?.name?.trim() || actorRow?.email?.trim() || null;
+      actorName = raw;
+    }
+    const who = actorName || "A team member";
+    const t = input.taskTitle?.trim() || "Task";
+    const fromL = labelStatus(input.oldStatus);
+    const toL = labelStatus(input.newStatus);
+    const title = "Task status changed";
+    const body = `${who} changed “${t}” from ${fromL} to ${toL}.`;
+
+    await createNotificationsForUsers({
+      userIds: recipients,
+      type: "task.status_changed",
+      title,
+      body,
+      linkUrl: `/dashboard/projects/${input.projectId}`,
+      actorId: input.actorUserId ?? null,
+    });
+    revalidatePath("/dashboard");
+  } catch (e) {
+    console.error("notifyAdminsOfTaskStatusChange", e);
   }
 }
 

@@ -128,7 +128,7 @@ function KanbanDroppableColumn({
           </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
-          <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pt-3 pb-2">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pt-3 pb-2 [scrollbar-width:thin] [scrollbar-gutter:stable]">
             <div className="flex flex-col gap-3">{children}</div>
           </div>
           <div className="bg-card shrink-0 rounded-b-xl border-t border-border/30 px-3 py-3">
@@ -265,7 +265,7 @@ export function TasksKanban({
     >
       <div
         className={cn(
-          "scrollbar-none flex min-h-0 gap-5 overflow-x-auto overflow-y-hidden pb-2 pt-1",
+          "flex min-h-0 gap-5 overflow-x-auto overflow-y-hidden pb-1 pt-1 [scrollbar-width:thin]",
           KANBAN_BOARD_ROW_HEIGHT
         )}
       >

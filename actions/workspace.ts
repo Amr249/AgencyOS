@@ -17,6 +17,8 @@ import {
   timeLogs,
 } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { logActivityWithActor } from "@/actions/activity-log";
+import { notifyAdminsOfTaskStatusChange } from "@/actions/notifications";
 import { getAvailabilityDeductionsByMember } from "@/actions/team-availability";
 import { revalidateTimeTrackingCaches } from "@/lib/revalidate-time-tracking-caches";
 import { DEFAULT_WEEKLY_CAPACITY_HOURS } from "@/lib/workspace-constants";
@@ -777,6 +779,18 @@ export async function updateTaskSortOrder(updates: Array<{ id: string; sortOrder
       }
     }
 
+    const updateIds = parsed.data.map((i) => i.id);
+    const beforeRows = await db
+      .select({
+        id: tasks.id,
+        status: tasks.status,
+        title: tasks.title,
+        projectId: tasks.projectId,
+      })
+      .from(tasks)
+      .where(inArray(tasks.id, updateIds));
+    const beforeById = new Map(beforeRows.map((r) => [r.id, r]));
+
     await db.transaction(async (tx) => {
       for (const item of parsed.data) {
         await tx
@@ -785,6 +799,30 @@ export async function updateTaskSortOrder(updates: Array<{ id: string; sortOrder
           .where(eq(tasks.id, item.id));
       }
     });
+
+    const actorUserId = session?.user?.id ?? null;
+    for (const item of parsed.data) {
+      const before = beforeById.get(item.id);
+      if (!before || before.status === item.status) continue;
+      await logActivityWithActor({
+        entityType: "task",
+        entityId: item.id,
+        action: "status_changed",
+        metadata: {
+          title: before.title,
+          projectId: before.projectId,
+          oldStatus: before.status,
+          newStatus: item.status,
+        },
+      });
+      await notifyAdminsOfTaskStatusChange({
+        projectId: before.projectId,
+        taskTitle: before.title,
+        oldStatus: before.status,
+        newStatus: item.status,
+        actorUserId,
+      });
+    }
     revalidatePath("/dashboard/workspace");
     revalidatePath("/dashboard/me");
     return { ok: true as const };
