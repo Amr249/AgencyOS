@@ -8,9 +8,13 @@ import { enrichMessagesWithPdfText } from "@/lib/ai-chat/enrich-messages-with-pd
 
 export const runtime = "nodejs";
 
-const DEFAULT_MODEL = "inclusionai/ling-2.6-1t:free" as const;
+const DEFAULT_MODEL = "tencent/hy3-preview:free" as const;
 
-const ALLOWED_MODELS = new Set<string>(["inclusionai/ling-2.6-1t:free", "tencent/hy3-preview:free"]);
+const ALLOWED_MODELS = new Set<string>([
+  "tencent/hy3-preview:free",
+  "google/gemma-4-31b-it:free",
+  "openai/gpt-oss-120b:free",
+]);
 
 export async function POST(req: NextRequest) {
   const auth = await assertAdminSession();

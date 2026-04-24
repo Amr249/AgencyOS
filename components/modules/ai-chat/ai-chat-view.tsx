@@ -101,13 +101,18 @@ type ModelRow = {
 
 export const OPENROUTER_MODELS: ModelRow[] = [
   {
-    id: "inclusionai/ling-2.6-1t:free",
-    label: "Ling 2.6 1T (free)",
+    id: "tencent/hy3-preview:free",
+    label: "Tencent HY3 Preview (free)",
     iconSrc: "/model-icon.png",
   },
   {
-    id: "tencent/hy3-preview:free",
-    label: "Tencent HY3 Preview (free)",
+    id: "google/gemma-4-31b-it:free",
+    label: "Google Gemma 4 31B IT (free)",
+    iconSrc: "/model-icon.png",
+  },
+  {
+    id: "openai/gpt-oss-120b:free",
+    label: "OpenAI gpt-oss-120B (free)",
     iconSrc: "/model-icon.png",
   },
 ];
