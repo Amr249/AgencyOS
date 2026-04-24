@@ -8,13 +8,17 @@ import {
   Globe,
   Loader2,
   Mic,
+  MicOff,
   Paperclip,
+  PhoneCall,
   Search,
+  Volume2,
   X,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 
+import { AssistantMarkdown } from "@/components/modules/ai-chat/assistant-markdown";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +45,15 @@ import {
   type StoredChatMessage,
   toOpenRouterMessages,
 } from "@/lib/ai-chat/openrouter-messages";
+import {
+  speakText,
+  speakTextAsync,
+  speechRecognitionSupported,
+  stopSpeaking,
+  synthesisLangFromLocale,
+} from "@/lib/ai-chat/browser-voice";
+import { waitForUtterance } from "@/lib/ai-chat/wait-for-utterance";
+import { useAiChatVoiceInput } from "@/hooks/use-ai-chat-voice-input";
 
 export type { ChatAttachment } from "@/lib/ai-chat/openrouter-messages";
 
@@ -87,6 +100,16 @@ type ModelRow = {
 };
 
 export const OPENROUTER_MODELS: ModelRow[] = [
+  {
+    id: "inclusionai/ling-2.6-1t:free",
+    label: "Ling 2.6 1T (free)",
+    iconSrc: "/Logo1.png",
+  },
+  {
+    id: "tencent/hy3-preview:free",
+    label: "Tencent HY3 Preview (free)",
+    iconSrc: "/Logo1.png",
+  },
   { id: "qwen/qwen3.6-plus", label: "Qwen 3.6 Plus", iconSrc: "/Qwen.png" },
   { id: "deepseek/deepseek-v3.2", label: "DeepSeek V3.2", iconSrc: "/deepseek.png" },
   {
@@ -165,6 +188,7 @@ async function consumeOpenAIStream(
 
 export function AiChatView() {
   const t = useTranslations("aiChat");
+  const locale = useLocale();
 
   const [sessions, setSessions] = React.useState<ChatSession[]>([]);
   const [hydrated, setHydrated] = React.useState(false);
@@ -179,6 +203,45 @@ export function AiChatView() {
   const [uploading, setUploading] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = React.useRef(input);
+  inputRef.current = input;
+
+  const {
+    listening: voiceListening,
+    supported: voiceSupported,
+    toggle: toggleVoice,
+    stop: stopVoiceInput,
+  } = useAiChatVoiceInput({
+      locale,
+      getPrefix: () => inputRef.current,
+      setComposerText: setInput,
+      onRecognitionError: (msg) => {
+        const lower = msg.toLowerCase();
+        if (lower.includes("permission") || lower.includes("not-allowed")) {
+          toast.error(t("voiceMicDenied"));
+        } else {
+          toast.error(msg);
+        }
+      },
+    });
+
+  const [ttsMessageIndex, setTtsMessageIndex] = React.useState<number | null>(null);
+  const ttsLang = React.useMemo(() => synthesisLangFromLocale(locale), [locale]);
+
+  const [callMode, setCallMode] = React.useState(false);
+  const [callListening, setCallListening] = React.useState(false);
+  const [callTranscript, setCallTranscript] = React.useState("");
+  const callModeRef = React.useRef(false);
+  const streamingRef = React.useRef(false);
+  const callAbortRef = React.useRef<AbortController | null>(null);
+  const callLoopRunningRef = React.useRef(false);
+  const sendMessageRef = React.useRef<
+    ((text?: string, opts?: { fromVoiceCall?: boolean }) => Promise<string | null>) | null
+  >(null);
+
+  React.useEffect(() => {
+    streamingRef.current = streaming;
+  }, [streaming]);
 
   const allowedModelIds = React.useMemo(
     () => new Set(OPENROUTER_MODELS.map((m) => m.id)),
@@ -219,7 +282,20 @@ export function AiChatView() {
     scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [active?.messages]);
 
+  function stopCallModeInternal() {
+    callModeRef.current = false;
+    setCallMode(false);
+    callAbortRef.current?.abort();
+    callLoopRunningRef.current = false;
+    setCallListening(false);
+    setCallTranscript("");
+  }
+
   function newChat() {
+    stopCallModeInternal();
+    stopVoiceInput();
+    stopSpeaking();
+    setTtsMessageIndex(null);
     const id = crypto.randomUUID();
     const session: ChatSession = {
       id,
@@ -235,6 +311,10 @@ export function AiChatView() {
   }
 
   function selectSession(id: string) {
+    stopCallModeInternal();
+    stopVoiceInput();
+    stopSpeaking();
+    setTtsMessageIndex(null);
     setActiveId(id);
     const s = sessions.find((x) => x.id === id);
     if (s) setModel(allowedModelIds.has(s.model) ? s.model : OPENROUTER_MODELS[0].id);
@@ -306,10 +386,14 @@ export function AiChatView() {
     return buckets;
   }, [filtered]);
 
-  async function sendMessage(override?: string) {
+  async function sendMessage(
+    override?: string,
+    opts?: { fromVoiceCall?: boolean }
+  ): Promise<string | null> {
+    const fromVoice = opts?.fromVoiceCall === true;
     const text = (override ?? input).trim();
-    const attachments = [...pendingAttachments];
-    if ((!text && !attachments.length) || streaming) return;
+    const attachments = fromVoice ? [] : [...pendingAttachments];
+    if ((!text && !attachments.length) || streaming) return null;
 
     const sessionId = activeId ?? crypto.randomUUID();
     const prevSession = sessions.find((s) => s.id === sessionId);
@@ -328,7 +412,6 @@ export function AiChatView() {
       content: text,
       ...(attachments.length ? { attachments } : {}),
     };
-    setPendingAttachments([]);
     const apiMessages = toOpenRouterMessages([...baseMessages, userMsg]);
 
     const nextSession: ChatSession = {
@@ -344,7 +427,12 @@ export function AiChatView() {
       return [nextSession, ...rest];
     });
     setActiveId(sessionId);
-    setInput("");
+    if (!fromVoice) {
+      setInput("");
+      setPendingAttachments([]);
+    }
+    stopSpeaking();
+    setTtsMessageIndex(null);
     setStreaming(true);
 
     try {
@@ -380,6 +468,7 @@ export function AiChatView() {
           })
         );
       });
+      return acc;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("sendError"));
       setSessions((list) =>
@@ -393,9 +482,76 @@ export function AiChatView() {
           return { ...s, messages: msgs };
         })
       );
+      return null;
     } finally {
       setStreaming(false);
     }
+  }
+
+  sendMessageRef.current = sendMessage;
+
+  async function runVoiceCallLoop() {
+    if (callLoopRunningRef.current) return;
+    callLoopRunningRef.current = true;
+    callAbortRef.current?.abort();
+    const ac = new AbortController();
+    callAbortRef.current = ac;
+
+    try {
+      while (callModeRef.current) {
+        while (streamingRef.current && callModeRef.current) {
+          await new Promise((r) => setTimeout(r, 220));
+        }
+        if (!callModeRef.current) break;
+
+        const utterance = await waitForUtterance({
+          locale,
+          signal: ac.signal,
+          silenceMs: 1600,
+          onPartial: (p) => setCallTranscript(p),
+          onListeningChange: setCallListening,
+        });
+
+        if (!callModeRef.current) break;
+        if (!utterance.trim()) {
+          await new Promise((r) => setTimeout(r, 120));
+          continue;
+        }
+
+        setCallTranscript("");
+        const reply = await sendMessageRef.current?.(utterance, { fromVoiceCall: true });
+        if (!callModeRef.current) break;
+        if (reply?.trim()) {
+          await speakTextAsync(reply, ttsLang);
+          await new Promise((r) => setTimeout(r, 450));
+        }
+      }
+    } catch (e) {
+      if (callModeRef.current) {
+        toast.error(e instanceof Error ? e.message : t("sendError"));
+      }
+    } finally {
+      callLoopRunningRef.current = false;
+      setCallListening(false);
+      setCallTranscript("");
+    }
+  }
+
+  function toggleCallMode() {
+    if (callModeRef.current) {
+      stopCallModeInternal();
+      return;
+    }
+    if (!speechRecognitionSupported()) {
+      toast.error(t("voiceUnsupported"));
+      return;
+    }
+    stopVoiceInput();
+    stopSpeaking();
+    setTtsMessageIndex(null);
+    callModeRef.current = true;
+    setCallMode(true);
+    void runVoiceCallLoop();
   }
 
   function applyQuick(kind: "summary" | "research") {
@@ -412,9 +568,16 @@ export function AiChatView() {
     OPENROUTER_MODELS.find((m) => m.id === model) ?? OPENROUTER_MODELS[0];
 
   return (
-    <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-0 overflow-hidden rounded-xl border border-border bg-background md:min-h-[calc(100dvh-8rem)] md:flex-row md:items-stretch">
+    <div
+      className={cn(
+        "flex flex-col gap-0 overflow-hidden rounded-xl border border-border bg-background",
+        /* Fixed viewport height so only inner regions scroll — not the dashboard page */
+        "h-[calc(100dvh-10rem)] max-h-[calc(100dvh-10rem)] min-h-0",
+        "md:h-[calc(100dvh-8rem)] md:max-h-[calc(100dvh-8rem)] md:flex-row md:items-stretch"
+      )}
+    >
       {/* Inner chat sidebar: New chat, search, history */}
-      <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-border bg-muted/30 md:w-[280px] md:border-e md:border-b-0">
+      <aside className="flex min-h-0 w-full max-h-[min(280px,42vh)] shrink-0 flex-col border-b border-border bg-muted/30 md:max-h-none md:w-[280px] md:border-e md:border-b-0">
         <div className="p-3 pb-2">
           <div className="relative">
             <Input
@@ -481,10 +644,10 @@ export function AiChatView() {
       </aside>
 
       {/* Main */}
-      <main className="relative flex min-h-0 flex-1 flex-col bg-background">
-        <div className="flex flex-1 flex-col overflow-hidden">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {showHero ? (
-            <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10">
               <div className="relative flex flex-col items-center px-2">
                 <div className="origin-center scale-[0.92] sm:scale-100">
                   <SiriOrb size="208px" animationDuration={22} className="drop-shadow-2xl" />
@@ -495,7 +658,7 @@ export function AiChatView() {
               </div>
             </div>
           ) : (
-            <ScrollArea className="flex-1 px-4 pt-6">
+            <ScrollArea className="min-h-0 flex-1 px-4 pt-6">
               <div className="mx-auto max-w-3xl space-y-6 pb-4">
                 {active?.messages.map((m, i) => (
                   <div
@@ -513,6 +676,33 @@ export function AiChatView() {
                           : "border border-border bg-muted/40"
                       )}
                     >
+                      {m.role === "assistant" && m.content.trim() ? (
+                        <div className="mb-2 flex justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                            aria-label={
+                              ttsMessageIndex === i ? t("stopSpeaking") : t("readAloud")
+                            }
+                            onClick={() => {
+                              const text = m.content.trim();
+                              if (!text) return;
+                              if (ttsMessageIndex === i) {
+                                stopSpeaking();
+                                setTtsMessageIndex(null);
+                                return;
+                              }
+                              stopSpeaking();
+                              speakText(text, ttsLang, () => setTtsMessageIndex(null));
+                              setTtsMessageIndex(i);
+                            }}
+                          >
+                            <Volume2 className="size-4" />
+                          </Button>
+                        </div>
+                      ) : null}
                       {m.role === "user" && m.attachments && m.attachments.length > 0 ? (
                         <div className="mb-3 flex flex-wrap gap-2">
                           {m.attachments.map((a, j) =>
@@ -544,12 +734,15 @@ export function AiChatView() {
                           )}
                         </div>
                       ) : null}
-                      <div className="whitespace-pre-wrap">
-                        {m.role === "assistant"
-                          ? m.content ||
-                            (streaming && i === active.messages.length - 1 ? "…" : "")
-                          : m.content}
-                      </div>
+                      {m.role === "assistant" ? (
+                        m.content.trim() ? (
+                          <AssistantMarkdown content={m.content} />
+                        ) : streaming && i === active.messages.length - 1 ? (
+                          <p className="text-muted-foreground text-sm">…</p>
+                        ) : null
+                      ) : (
+                        <div className="whitespace-pre-wrap">{m.content}</div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -559,9 +752,9 @@ export function AiChatView() {
           )}
         </div>
 
-        <div className="border-t border-border bg-background p-3 md:p-4">
+        <div className="shrink-0 border-t border-border bg-background p-3 md:p-4">
           <div className="mx-auto max-w-3xl space-y-4">
-            <div className="bg-muted/40 rounded-2xl border border-border p-1 shadow-sm">
+            <div className="bg-muted/40 rounded-2xl border border-border p-0.5 shadow-sm">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -617,21 +810,33 @@ export function AiChatView() {
                   ))}
                 </div>
               ) : null}
-              <div className="p-2">
+              <div className="px-2 py-1">
+                {callMode ? (
+                  <div className="text-muted-foreground mb-2 space-y-1 px-1 text-xs">
+                    <p className="text-foreground">{t("voiceCallHint")}</p>
+                    <p className="min-h-[1.25rem] whitespace-pre-wrap">
+                      {streaming
+                        ? t("voiceCallThinking")
+                        : callListening
+                          ? t("voiceCallListening")
+                          : callTranscript || "\u00a0"}
+                    </p>
+                  </div>
+                ) : null}
                 <Textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={t("inputPlaceholder")}
-                  className="max-h-[200px] min-h-[72px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 md:min-h-[80px]"
+                  className="max-h-[100px] min-h-[36px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 md:min-h-[40px]"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       void sendMessage();
                     }
                   }}
-                  disabled={streaming || uploading}
+                  disabled={streaming || uploading || voiceListening || callMode || callListening}
                 />
-                <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1 pt-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1 pt-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
@@ -639,7 +844,7 @@ export function AiChatView() {
                       size="icon"
                       className="rounded-full"
                       aria-label={t("attachFiles")}
-                      disabled={streaming || uploading}
+                      disabled={streaming || uploading || voiceListening || callMode}
                       onClick={() => fileInputRef.current?.click()}
                     >
                       {uploading ? (
@@ -648,7 +853,11 @@ export function AiChatView() {
                         <Paperclip className="size-4" />
                       )}
                     </Button>
-                    <Select value={model} onValueChange={setModel} disabled={streaming}>
+                    <Select
+                      value={model}
+                      onValueChange={setModel}
+                      disabled={streaming || voiceListening || callMode}
+                    >
                       <SelectTrigger className="h-9 w-fit max-w-[260px] rounded-full border-border bg-background text-xs md:text-sm">
                         <SelectValue placeholder={selectedModelRow.label} />
                       </SelectTrigger>
@@ -667,13 +876,41 @@ export function AiChatView() {
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant={voiceListening ? "secondary" : "ghost"}
                       size="icon"
-                      className="rounded-full"
-                      aria-label="Voice"
-                      disabled
+                      className={cn(
+                        "rounded-full",
+                        voiceListening && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                      )}
+                      title={voiceListening ? t("voiceStop") : t("voiceStart")}
+                      aria-label={voiceListening ? t("voiceStop") : t("voiceStart")}
+                      aria-pressed={voiceListening}
+                      disabled={!voiceSupported || streaming || uploading || callMode}
+                      onClick={() => toggleVoice()}
                     >
-                      <Mic className="size-4" />
+                      {voiceListening ? (
+                        <MicOff className="size-4 text-destructive" />
+                      ) : (
+                        <Mic className="size-4" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={callMode ? "secondary" : "ghost"}
+                      size="icon"
+                      className={cn(
+                        "rounded-full",
+                        callMode && "ring-2 ring-emerald-500/80 ring-offset-2 ring-offset-background"
+                      )}
+                      title={callMode ? t("voiceCallStop") : t("voiceCallStart")}
+                      aria-label={callMode ? t("voiceCallStop") : t("voiceCallStart")}
+                      aria-pressed={callMode}
+                      disabled={
+                        !speechRecognitionSupported() || streaming || uploading || voiceListening
+                      }
+                      onClick={() => toggleCallMode()}
+                    >
+                      <PhoneCall className={cn("size-4", callMode && "text-emerald-600")} />
                     </Button>
                     <Button
                       type="button"
@@ -682,6 +919,9 @@ export function AiChatView() {
                       disabled={
                         streaming ||
                         uploading ||
+                        voiceListening ||
+                        callMode ||
+                        callListening ||
                         (!input.trim() && pendingAttachments.length === 0)
                       }
                       onClick={() => void sendMessage()}

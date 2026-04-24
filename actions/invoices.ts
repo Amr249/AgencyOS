@@ -218,6 +218,7 @@ export async function getInvoices(filters?: {
         clientName: clients.companyName,
         clientLogoUrl: clients.logoUrl,
         projectName: projects.name,
+        projectCoverImageUrl: projects.coverImageUrl,
       })
       .from(invoices)
       .innerJoin(clients, eq(invoices.clientId, clients.id))

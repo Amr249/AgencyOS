@@ -21,7 +21,7 @@ const nextConfig = {
       "@tailwindcss/postcss": path.join(nodeModules, "@tailwindcss/postcss"),
     },
   },
-  serverExternalPackages: ["@react-pdf/renderer"],
+  serverExternalPackages: ["@react-pdf/renderer", "pdf-parse"],
   images: {
     remotePatterns: [
       {

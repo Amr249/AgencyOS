@@ -10,11 +10,11 @@ import {
   getClientServiceIds,
 } from "@/actions/clients";
 import { getTags, getClientTags } from "@/actions/client-tags";
-import { getProjectsByClientId, getProjectTaskCounts } from "@/actions/projects";
+import { getProjectsByClientId } from "@/actions/projects";
 import { getInvoicesByClientId, getNextInvoiceNumber } from "@/actions/invoices";
 import { getSettings } from "@/actions/settings";
 import { getFiles } from "@/actions/files";
-import { getTeamMembers } from "@/actions/team-members";
+import { getProjectMemberIdsByProjectIds, getTeamMembers } from "@/actions/team-members";
 import { getExpensesByClientId, getClientCostSummary } from "@/actions/expenses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,8 +126,11 @@ export default async function ClientDetailPage({ params }: Props) {
     client.status;
   const projects = projectsResult.ok ? projectsResult.data : [];
   const projectIds = projects.map((p) => p.id);
-  const taskCountsResult = projectIds.length > 0 ? await getProjectTaskCounts(projectIds) : { ok: true as const, data: {} as Record<string, { total: number; done: number }> };
-  const taskCounts = taskCountsResult.ok ? taskCountsResult.data : {};
+  const projectMembersByProjectResult =
+    projectIds.length > 0
+      ? await getProjectMemberIdsByProjectIds(projectIds)
+      : { ok: true as const, data: {} as Record<string, { id: string; name: string; avatarUrl: string | null }[]> };
+  const projectMembersByProject = projectMembersByProjectResult.ok ? projectMembersByProjectResult.data : {};
   const invoices = invoicesResult.ok ? invoicesResult.data : [];
   const settings = settingsResult.ok ? settingsResult.data : null;
   const nextInvoiceNumber = nextNumResult.ok
@@ -282,10 +285,11 @@ export default async function ClientDetailPage({ params }: Props) {
               id: p.id,
               name: p.name,
               status: p.status,
-              endDate: p.endDate,
-              budget: p.budget,
+              clientName: p.clientName,
+              coverImageUrl: p.coverImageUrl,
+              clientLogoUrl: p.clientLogoUrl,
             }))}
-            taskCounts={taskCounts}
+            projectMembersByProject={projectMembersByProject}
             clients={clientsForDialog}
             teamMembers={teamMembers}
             defaultCurrency={defaultCurrency}

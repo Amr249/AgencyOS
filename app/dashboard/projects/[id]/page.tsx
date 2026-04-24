@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import { getServerSession } from "next-auth";
+import { getLocale, getTranslations } from "next-intl/server";
 import { getProjectById, getProjectBudgetSummary } from "@/actions/projects";
 import { getClientsList } from "@/actions/clients";
 import { getSettings } from "@/actions/settings";
@@ -25,7 +27,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { PROJECT_STATUS_LABELS_EN, PROJECT_STATUS_PILL_CLASS } from "@/types";
+import { PROJECT_STATUS_LABELS, PROJECT_STATUS_LABELS_EN, PROJECT_STATUS_PILL_CLASS } from "@/types";
 import { ProjectCoverBanner } from "@/components/modules/projects/project-cover-banner";
 import { ProjectOverviewTab } from "@/components/modules/projects/project-overview-tab";
 import { ProjectTasksTab } from "@/components/modules/projects/project-tasks-tab";
@@ -78,10 +80,11 @@ function toActivityFeedEntries(
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const result = await getProjectById(id);
-  if (!result.ok) return { title: "Project | AgencyOS" };
+  const t = await getTranslations("projects");
+  if (!result.ok) return { title: `${t("detailMetaFallback")} | AgencyOS` };
   return {
-    title: `${result.data.name} | AgencyOS`,
-    description: `Project: ${result.data.name}`,
+    title: `${result.data.name} | ${t("title")}`,
+    description: `${t("title")}: ${result.data.name}`,
   };
 }
 
@@ -89,6 +92,9 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const { id } = await params;
   const { tab: tabParam } = await searchParams;
   const defaultTab = tabParam === "activity" ? "activity" : "overview";
+  const locale = await getLocale();
+  const isArabic = locale === "ar";
+  const t = await getTranslations("projects");
 
   const session = await getServerSession(authOptions);
   if (sessionUserRole(session) === "member") {
@@ -169,21 +175,27 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const budgetSummary =
     budgetSummaryResult.ok && budgetSummaryResult.data ? budgetSummaryResult.data : null;
 
-  const statusLabel = PROJECT_STATUS_LABELS_EN[project.status] ?? project.status;
+  const statusLabel =
+    (isArabic ? PROJECT_STATUS_LABELS[project.status] : PROJECT_STATUS_LABELS_EN[project.status]) ??
+    project.status;
   const budgetAlertState = projectHealth ? budgetAlertStateFromHealth(projectHealth) : null;
 
   return (
-    <div className="flex flex-col gap-4" dir="ltr" lang="en">
+    <div className="flex flex-col gap-4" dir={isArabic ? "rtl" : "ltr"} lang={isArabic ? "ar" : "en"}>
       <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/dashboard/projects">Projects</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
+        <BreadcrumbList
+          className={cn("flex justify-end", isArabic ? "flex-row-reverse" : "flex-row")}
+        >
           <BreadcrumbItem>
             <BreadcrumbPage>{project.name}</BreadcrumbPage>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator>
+            <ChevronLeft className="text-muted-foreground size-3.5" />
+          </BreadcrumbSeparator>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/dashboard/projects">{t("detailBreadcrumbProjects")}</Link>
+            </BreadcrumbLink>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -193,15 +205,25 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         coverImageUrl={project.coverImageUrl ?? null}
       />
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
+      <div
+        className={cn(
+          "flex flex-col gap-4 sm:items-center sm:justify-between",
+          isArabic ? "sm:flex-row-reverse" : "sm:flex-row"
+        )}
+      >
+        <div
+          className={cn(
+            "flex flex-col gap-4 sm:items-center sm:gap-4",
+            isArabic ? "sm:flex-row-reverse" : "sm:flex-row"
+          )}
+        >
           <Avatar className="size-12 shrink-0 ring-2 ring-border">
             <AvatarImage src={project.clientLogoUrl ?? undefined} alt={project.clientName ?? undefined} />
             <AvatarFallback className="bg-muted text-muted-foreground font-medium">
               {(project.clientName ?? "?").slice(0, 1)}
             </AvatarFallback>
           </Avatar>
-          <div className="text-left">
+          <div className={isArabic ? "text-right" : "text-left"}>
             <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
             <div className="flex flex-wrap items-center gap-2">
               <span
@@ -222,30 +244,30 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 justify-end">
+        <div className={cn("flex flex-wrap items-center gap-2", isArabic ? "justify-start" : "justify-end")}>
           <Button variant="outline" asChild>
-            <Link href="/dashboard/projects">Back to list</Link>
+            <Link href="/dashboard/projects">{t("detailBackToList")}</Link>
           </Button>
         </div>
       </div>
 
       <BudgetAlert projectId={id} state={budgetAlertState} currency={defaultCurrency} />
 
-      <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full" dir="ltr">
-        <TabsList className="flex w-full overflow-x-auto p-1 gap-1 flex-nowrap whitespace-nowrap">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="tasks">Tasks</TabsTrigger>
-          <TabsTrigger value="team">Team</TabsTrigger>
-          <TabsTrigger value="milestones">Milestones</TabsTrigger>
-          <TabsTrigger value="expenses">Expenses</TabsTrigger>
-          <TabsTrigger value="invoices">Invoices</TabsTrigger>
-          <TabsTrigger value="files">Files</TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
+      <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full" dir={isArabic ? "rtl" : "ltr"}>
+        <TabsList className="flex w-full flex-nowrap gap-1 overflow-x-auto whitespace-nowrap p-1">
+          <TabsTrigger value="overview">{t("detailTabOverview")}</TabsTrigger>
+          <TabsTrigger value="tasks">{t("detailTabTasks")}</TabsTrigger>
+          <TabsTrigger value="team">{t("detailTabTeam")}</TabsTrigger>
+          <TabsTrigger value="milestones">{t("detailTabMilestones")}</TabsTrigger>
+          <TabsTrigger value="expenses">{t("detailTabExpenses")}</TabsTrigger>
+          <TabsTrigger value="invoices">{t("detailTabInvoices")}</TabsTrigger>
+          <TabsTrigger value="files">{t("detailTabFiles")}</TabsTrigger>
+          <TabsTrigger value="notes">{t("detailTabNotes")}</TabsTrigger>
+          <TabsTrigger value="activity">{t("detailTabActivity")}</TabsTrigger>
         </TabsList>
         <div className="mt-2">
           <Button variant="outline" size="sm" asChild>
-            <Link href={`/dashboard/projects/${id}/gantt`}>Gantt</Link>
+            <Link href={`/dashboard/projects/${id}/gantt`}>{t("detailGantt")}</Link>
           </Button>
         </div>
         <TabsContent value="overview" className="mt-4">

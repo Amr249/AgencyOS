@@ -21,17 +21,35 @@ function isMemberAllowedPath(pathname: string): boolean {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  /** Client portal: `/portal/login` is public; everything else requires `client_portal` JWT. */
+  /** Client portal: unified sign-in at `/login`; `/portal/login` redirects there. */
   if (pathname === "/portal" || pathname.startsWith("/portal/")) {
     if (pathname === "/portal/login") {
-      return NextResponse.next();
+      const portalToken = await getToken({
+        req: request,
+        secret: NEXTAUTH_SECRET,
+      });
+      if (portalToken?.role === "client_portal") {
+        return NextResponse.redirect(new URL("/portal", request.url));
+      }
+      const login = new URL("/login", request.url);
+      const qsCallback = request.nextUrl.searchParams.get("callbackUrl");
+      const safe =
+        qsCallback &&
+        qsCallback.startsWith("/") &&
+        !qsCallback.startsWith("//") &&
+        qsCallback.startsWith("/portal")
+          ? qsCallback
+          : "/portal";
+      login.searchParams.set("callbackUrl", safe);
+      return NextResponse.redirect(login);
     }
+
     const portalToken = await getToken({
       req: request,
       secret: NEXTAUTH_SECRET,
     });
     if (!portalToken || portalToken.role !== "client_portal") {
-      const signIn = new URL("/portal/login", request.url);
+      const signIn = new URL("/login", request.url);
       signIn.searchParams.set("callbackUrl", `${pathname}${request.nextUrl.search}`);
       return NextResponse.redirect(signIn);
     }

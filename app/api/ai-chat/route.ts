@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
 import { assertAdminSession } from "@/lib/auth-helpers";
+import { AI_CHAT_SYSTEM_PROMPT } from "@/lib/ai-chat/ai-system-prompt";
+import { buildBusinessContext } from "@/lib/ai-chat/business-retrieval";
+import { getLastUserText, type OpenRouterChatMessage } from "@/lib/ai-chat/extract-user-text";
+import { extendMessagesWithOpenRouterToolRound } from "@/lib/ai-chat/openrouter-agent-loop";
+import { enrichMessagesWithPdfText } from "@/lib/ai-chat/enrich-messages-with-pdf-text";
 
 export const runtime = "nodejs";
 
@@ -7,6 +12,8 @@ const ALLOWED_MODELS = new Set([
   "qwen/qwen3.6-plus",
   "deepseek/deepseek-v3.2",
   "moonshotai/kimi-k2.6",
+  "inclusionai/ling-2.6-1t:free",
+  "tencent/hy3-preview:free",
 ]);
 
 export async function POST(req: NextRequest) {
@@ -54,6 +61,53 @@ export async function POST(req: NextRequest) {
     process.env.NEXT_PUBLIC_APP_URL ??
     "";
 
+  const rawMessages = messages as OpenRouterChatMessage[];
+  let messagesWithPdfText = rawMessages;
+  try {
+    messagesWithPdfText = await enrichMessagesWithPdfText(rawMessages);
+  } catch (e) {
+    console.error("ai-chat pdf enrichment", e);
+  }
+
+  const lastUser = getLastUserText(messagesWithPdfText);
+  let businessContext = "";
+  try {
+    businessContext = await buildBusinessContext(lastUser);
+  } catch (e) {
+    console.error("ai-chat business retrieval", e);
+  }
+
+  const systemAndContext: OpenRouterChatMessage[] = [
+    { role: "system", content: AI_CHAT_SYSTEM_PROMPT },
+    ...(businessContext
+      ? [
+          {
+            role: "user" as const,
+            content:
+              "## Business context (database snapshot for this turn)\n\n" +
+              businessContext +
+              "\n\n---\n\nWhen answering questions about the agency's data, rely on this section. If something is not listed here, say you do not have it.",
+          },
+        ]
+      : []),
+  ];
+
+  let messagesForModel: unknown[] = [...systemAndContext, ...messagesWithPdfText];
+
+  if (process.env.AI_CHAT_OPENROUTER_TOOLS === "true") {
+    try {
+      const extended = await extendMessagesWithOpenRouterToolRound({
+        apiKey: key,
+        referer,
+        model,
+        messages: messagesForModel as OpenRouterChatMessage[],
+      });
+      if (extended?.length) messagesForModel = extended;
+    } catch (e) {
+      console.warn("ai-chat openrouter tool round", e);
+    }
+  }
+
   const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -64,7 +118,7 @@ export async function POST(req: NextRequest) {
     },
     body: JSON.stringify({
       model,
-      messages,
+      messages: messagesForModel,
       stream: true,
     }),
   });

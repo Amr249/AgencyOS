@@ -17,6 +17,14 @@ export default getRequestConfig(async () => {
     };
   }
 
+  const portalRole = (session?.user as { role?: string } | undefined)?.role;
+  if (portalRole === "client_portal") {
+    return {
+      locale: "ar" satisfies Locale,
+      messages: (await import("./messages/ar.json")).default,
+    };
+  }
+
   const cookieStore = await cookies();
   const raw = cookieStore.get("locale")?.value;
   const locale: Locale = raw === "en" ? "en" : "ar";

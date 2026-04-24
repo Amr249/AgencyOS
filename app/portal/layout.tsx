@@ -3,19 +3,33 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { clients } from "@/lib/db/schema";
 import { getPortalSession } from "@/lib/portal-session";
-import { PortalShell } from "@/components/portal/portal-shell";
+import { MemberDashboardLocaleShell } from "@/components/member-dashboard/member-dashboard-locale-shell";
+import { PortalAppShell } from "@/components/portal/portal-app-shell";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getPortalSession();
-  let clientName: string | null = null;
+  let clientCompanyName: string | null = null;
+  let clientLogoUrl: string | null = null;
   if (ctx) {
     const [row] = await db
-      .select({ companyName: clients.companyName })
+      .select({
+        companyName: clients.companyName,
+        logoUrl: clients.logoUrl,
+      })
       .from(clients)
       .where(eq(clients.id, ctx.clientId))
       .limit(1);
-    clientName = row?.companyName ?? null;
+    clientCompanyName = row?.companyName ?? null;
+    clientLogoUrl = row?.logoUrl ?? null;
   }
 
-  return <PortalShell clientName={clientName}>{children}</PortalShell>;
+  return (
+    <MemberDashboardLocaleShell>
+      <div dir="rtl" lang="ar" className="min-h-svh">
+        <PortalAppShell clientCompanyName={clientCompanyName} clientLogoUrl={clientLogoUrl}>
+          {children}
+        </PortalAppShell>
+      </div>
+    </MemberDashboardLocaleShell>
+  );
 }
