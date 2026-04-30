@@ -15,10 +15,14 @@
     "seed:admin": "npx tsx scripts/seed-admin.ts",
     "fix:migrations": "npx tsx scripts/fix-migrations.ts",
     "db:backfill-legacy-payments": "npx tsx scripts/backfill-legacy-payments.ts",
-    "db:migrate-paid-invoices": "npx tsx scripts/migrate-paid-invoices.ts"
+    "db:migrate-paid-invoices": "npx tsx scripts/migrate-paid-invoices.ts",
+    "migrate:imagekit-to-r2": "npx tsx scripts/migrate-imagekit-to-r2.ts",
+    "migrate:cleanup-imagekit-columns": "npx tsx scripts/cleanup-imagekit-columns.ts"
   },
   "dependencies": {
     "@abdulrysr/saudi-riyal-new-symbol-font": "^1.0.8",
+    "@aws-sdk/client-s3": "^3.1039.0",
+    "@aws-sdk/s3-request-presigner": "^3.1039.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/modifiers": "^9.0.0",
     "@dnd-kit/sortable": "^10.0.0",
@@ -26,7 +30,6 @@
     "@faker-js/faker": "^8.4.1",
     "@fontsource/cairo": "^5.2.7",
     "@hookform/resolvers": "^3.10.0",
-    "@imagekit/nodejs": "^7.3.0",
     "@mdxeditor/editor": "^3.52.1",
     "@neondatabase/serverless": "^1.0.2",
     "@radix-ui/react-icons": "^1.3.2",
@@ -45,6 +48,7 @@
     "eslint-plugin-better-tailwindcss": "^3.8.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.379.0",
+    "nanoid": "^5.1.9",
     "next": "16.1.0",
     "next-auth": "^4.24.13",
     "next-intl": "^4.8.3",

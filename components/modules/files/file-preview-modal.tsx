@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -10,10 +9,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, Copy, Trash2, File } from "lucide-react";
+import { Download, Copy, Trash2, File, ZoomIn, ZoomOut, ExternalLink, Share2 } from "lucide-react";
 import type { FileRow } from "@/lib/file-types";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
+import { getFileVisualKind } from "@/components/modules/files/file-type-icon";
 
 function formatDateSafe(value: Date | string | null | undefined): string {
   if (value == null) return "—";
@@ -33,16 +33,6 @@ function formatSize(bytes: number | null | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function isImage(mime: string | null | undefined): boolean {
-  if (!mime) return false;
-  return mime.startsWith("image/");
-}
-
-function isPdf(mime: string | null | undefined): boolean {
-  if (!mime) return false;
-  return mime === "application/pdf" || mime.toLowerCase().endsWith("pdf");
-}
-
 type FilePreviewModalProps = {
   file: FileRow | null;
   open: boolean;
@@ -50,6 +40,7 @@ type FilePreviewModalProps = {
   onDeleteRequest: (file: FileRow) => void;
   onDownload: (url: string, name: string) => void;
   onCopyLink: (url: string) => void;
+  onShare?: (file: FileRow) => void;
 };
 
 export function FilePreviewModal({
@@ -59,20 +50,33 @@ export function FilePreviewModal({
   onDeleteRequest,
   onDownload,
   onCopyLink,
+  onShare,
 }: FilePreviewModalProps) {
   const [pdfLoadFailed, setPdfLoadFailed] = React.useState(false);
-  const isImg = file ? isImage(file.mimeType) : false;
-  const isPdfType = file ? isPdf(file.mimeType) : false;
-  const hasPreview = isImg || isPdfType;
-  const contentMaxWidth = hasPreview ? "sm:max-w-3xl" : "sm:max-w-md";
+  const [imgScale, setImgScale] = React.useState(1);
+  const imgWrapRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
-    if (!open) setPdfLoadFailed(false);
+    if (!open) {
+      setPdfLoadFailed(false);
+      setImgScale(1);
+    }
   }, [open]);
+
+  React.useEffect(() => {
+    setImgScale(1);
+  }, [file?.id]);
 
   if (!file) return null;
 
-  const imageUrl = isImg ? `${file.imagekitUrl}?tr=w-800` : null;
+  const kind = getFileVisualKind(file.name, file.mimeType);
+  const isImg = kind === "image";
+  const isPdfType = kind === "pdf";
+  const isVideo = kind === "video";
+  const hasRichPreview = isImg || isPdfType || isVideo;
+  const contentMaxWidth = hasRichPreview ? "sm:max-w-3xl" : "sm:max-w-md";
+
+  const imageUrl = isImg ? file.imagekitUrl : null;
 
   const handleDownload = () => {
     onDownload(file.imagekitUrl, file.name);
@@ -80,7 +84,6 @@ export function FilePreviewModal({
 
   const handleCopy = () => {
     onCopyLink(file.imagekitUrl);
-    toast.success("Link copied.");
   };
 
   const handleDelete = () => {
@@ -88,26 +91,35 @@ export function FilePreviewModal({
     onDeleteRequest(file);
   };
 
+  const handleShare = () => {
+    onShare?.(file);
+  };
+
+  const onWheelImage: React.WheelEventHandler<HTMLDivElement> = (e) => {
+    if (!isImg) return;
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setImgScale((s) => Math.min(4, Math.max(0.25, Math.round((s + delta) * 100) / 100)));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        dir="ltr"
-        className={`w-[95vw] max-w-[95vw] ${contentMaxWidth} flex max-h-[90vh] flex-col overflow-hidden p-0`}
+        className={`flex max-h-[90vh] w-[95vw] max-w-[95vw] flex-col overflow-hidden p-0 ${contentMaxWidth} sm:max-h-[90vh]`}
         showCloseButton={false}
       >
-        {/* Header: Close left, name + meta right */}
-        <DialogHeader className="flex flex-row items-start justify-between gap-4 border-b px-6 py-4">
+        <DialogHeader className="flex flex-row items-start justify-between gap-4 border-b px-4 py-3 sm:px-6 sm:py-4">
           <DialogTitle className="sr-only">{file.name}</DialogTitle>
           <Button
             variant="ghost"
             size="icon"
-            className="absolute left-4 top-4 h-8 w-8 shrink-0"
+            className="absolute start-4 top-4 h-8 w-8 shrink-0"
             onClick={() => onOpenChange(false)}
-            aria-label="Close"
+            aria-label="إغلاق"
           >
             <span className="text-lg leading-none">×</span>
           </Button>
-          <div className="min-w-0 flex-1 text-left">
+          <div className="min-w-0 flex-1 ps-10 text-start">
             <p className="truncate text-base font-bold" title={file.name}>
               {file.name}
             </p>
@@ -120,24 +132,65 @@ export function FilePreviewModal({
           </div>
         </DialogHeader>
 
-        {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {isImg && imageUrl && (
-            <div className="flex justify-center bg-muted/30 p-4">
-              <img
-                src={imageUrl}
-                alt={file.name}
-                className="max-h-[70vh] w-auto object-contain"
+            <div className="flex flex-col gap-2 bg-muted/30 p-2 sm:p-4">
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => setImgScale((s) => s + 0.25)}>
+                  <ZoomIn className="me-1 size-3.5" />
+                  تكبير
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setImgScale((s) => Math.max(0.25, s - 0.25))}>
+                  <ZoomOut className="me-1 size-3.5" />
+                  تصغير
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setImgScale(1)}>
+                  إعادة ضبط
+                </Button>
+              </div>
+              <div
+                ref={imgWrapRef}
+                className="max-h-[65vh] overflow-auto overscroll-contain"
+                onWheel={onWheelImage}
+              >
+                <div className="flex min-h-[200px] justify-center p-2">
+                  <img
+                    src={imageUrl}
+                    alt={file.name}
+                    className="max-w-full object-contain transition-transform duration-150"
+                    style={{ transform: `scale(${imgScale})`, transformOrigin: "center center" }}
+                  />
+                </div>
+              </div>
+              <p className="text-muted-foreground text-center text-xs">استخدم عجلة الماوس للتكبير داخل منطقة الصورة</p>
+            </div>
+          )}
+
+          {isVideo && (
+            <div className="bg-muted/30 p-4">
+              <video
+                src={file.imagekitUrl}
+                controls
+                className="mx-auto max-h-[70vh] w-full max-w-full rounded border bg-black"
+                playsInline
               />
             </div>
           )}
 
           {isPdfType && !pdfLoadFailed && (
-            <div className="p-4">
+            <div className="flex flex-col gap-2 p-4">
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" asChild className="gap-1">
+                  <a href={file.imagekitUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="size-3.5" />
+                    فتح في تبويب جديد
+                  </a>
+                </Button>
+              </div>
               <iframe
                 src={file.imagekitUrl}
                 title={file.name}
-                className="h-[70vh] w-full rounded border bg-muted"
+                className="h-[min(70vh,600px)] w-full rounded border bg-muted"
                 onError={() => setPdfLoadFailed(true)}
               />
             </div>
@@ -145,46 +198,51 @@ export function FilePreviewModal({
 
           {isPdfType && pdfLoadFailed && (
             <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
-              <p className="text-muted-foreground">Unable to preview this file directly</p>
+              <p className="text-muted-foreground">تعذر عرض الملف مباشرة</p>
               <Button variant="outline" onClick={handleDownload} className="gap-2">
                 <Download className="h-4 w-4" />
-                Download
+                تنزيل
+              </Button>
+              <Button variant="outline" asChild>
+                <a href={file.imagekitUrl} target="_blank" rel="noopener noreferrer">
+                  فتح في تبويب جديد
+                </a>
               </Button>
             </div>
           )}
 
-          {!hasPreview && (
+          {!hasRichPreview && (
             <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
               <File className="text-muted-foreground h-16 w-16" />
               <p className="font-medium">{file.name}</p>
-              <p className="text-muted-foreground text-sm">
-                {formatSize(file.sizeBytes)}
-              </p>
-              <p className="text-muted-foreground text-sm">
-                Preview is not available for this file type
-              </p>
+              <p className="text-muted-foreground text-sm">{formatSize(file.sizeBytes)}</p>
+              <p className="text-muted-foreground text-sm">{formatDateSafe(file.createdAt)}</p>
+              {file.uploadedByName ? (
+                <p className="text-muted-foreground text-sm">رفع بواسطة: {file.uploadedByName}</p>
+              ) : null}
+              <p className="text-muted-foreground text-sm">لا يتوفر معاينة لهذا النوع — يمكنك التنزيل.</p>
             </div>
           )}
         </div>
 
-        {/* Footer: actions right-aligned */}
-        <DialogFooter className="flex flex-row gap-2 border-t px-6 py-4 sm:justify-start">
+        <DialogFooter className="flex flex-row flex-wrap gap-2 border-t px-4 py-3 sm:px-6 sm:py-4 sm:justify-start">
+          {onShare ? (
+            <Button variant="outline" size="sm" onClick={handleShare} className="gap-1">
+              <Share2 className="h-3.5 w-3.5" />
+              مشاركة
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={handleDownload} className="gap-1">
             <Download className="h-3.5 w-3.5" />
-            Download
+            تنزيل
           </Button>
           <Button variant="outline" size="sm" onClick={handleCopy} className="gap-1">
             <Copy className="h-3.5 w-3.5" />
-            Copy Link
+            نسخ الرابط
           </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDelete}
-            className="gap-1"
-          >
+          <Button variant="destructive" size="sm" onClick={handleDelete} className="gap-1">
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            حذف
           </Button>
         </DialogFooter>
       </DialogContent>

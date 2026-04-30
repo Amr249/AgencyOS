@@ -77,8 +77,6 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
   const pdfFiles = React.useMemo(() => files.filter(isPdfFile), [files]);
   const otherFiles = React.useMemo(() => files.filter((f) => !isPdfFile(f)), [files]);
 
-  const folder = `agencyos/invoices/${invoiceId}`;
-
   React.useEffect(() => {
     setFiles(initialFiles);
   }, [initialFiles]);
@@ -91,16 +89,14 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
     formData.set("file", file);
     formData.set("scope", "invoice-attachment");
     formData.set("invoiceId", invoiceId);
-    formData.set("folder", folder);
 
     try {
       const res = await new Promise<{
         url?: string;
-        fileId?: string;
+        key?: string;
         name?: string;
         size?: number;
         mimeType?: string | null;
-        filePath?: string;
         error?: string;
       }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -126,16 +122,16 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
       setUploading(false);
       setUploadProgress(0);
 
-      if (res.error || !res.url || !res.fileId) {
+      if (res.error || !res.url || !res.key) {
         toast.error(res.error ?? "Upload failed. Please try again.");
         return;
       }
 
       const createResult = await createFile({
         name: res.name ?? file.name,
-        imagekitFileId: res.fileId,
+        imagekitFileId: res.key,
         imagekitUrl: res.url,
-        filePath: res.filePath ?? `${folder}/${file.name}`,
+        filePath: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? file.size ?? null,
         invoiceId,

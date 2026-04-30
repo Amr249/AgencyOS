@@ -2,17 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { eq, isNull, isNotNull, and, desc } from "drizzle-orm";
+import { eq, isNull, isNotNull, and, desc, or, inArray, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { getServerSession } from "next-auth";
 import { db } from "@/lib/db";
-import { files, projects, invoices, teamMembers } from "@/lib/db";
+import { files, folders, projects, invoices, teamMembers } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { logActivityWithActor } from "@/actions/activity-log";
-import { getImageKitClient } from "@/lib/imagekit";
-import { FILE_DOCUMENT_TYPES, type FileRow } from "@/lib/file-types";
+import { deleteFromR2 } from "@/lib/r2";
+import { FILE_DOCUMENT_TYPES, type FileRow, type FileDocumentType } from "@/lib/file-types";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { memberIsAssignedToTask } from "@/lib/member-context";
+
+function fileStorageKey(row: { r2Key: string | null; filePath: string }): string {
+  const k = row.r2Key?.trim();
+  return k && k.length > 0 ? k : row.filePath;
+}
 
 const createFileSchema = z.object({
   name: z.string().min(1),
@@ -28,6 +34,8 @@ const createFileSchema = z.object({
   expenseId: z.string().uuid().nullable().optional(),
   documentType: z.enum(FILE_DOCUMENT_TYPES).nullable().optional(),
   description: z.string().max(5000).nullable().optional(),
+  folderId: z.string().uuid().optional(),
+  r2Key: z.string().min(1).optional(),
 });
 
 const getFilesSchema = z
@@ -37,22 +45,31 @@ const getFilesSchema = z
     taskId: z.string().uuid().optional(),
     invoiceId: z.string().uuid().optional(),
     expenseId: z.string().uuid().optional(),
+    folderId: z.string().uuid().optional(),
+    /** Personal drive on `/dashboard/drive` (scoped by session user via folder paths). */
+    standaloneDrive: z.boolean().optional(),
     /** When `clientId` is set: `general` = Files tab (no document type); `documents` = Documents tab. */
     clientFileScope: z.enum(["general", "documents"]).optional(),
   })
   .refine(
     (d) =>
+      d.standaloneDrive === true ||
       d.clientId != null ||
       d.projectId != null ||
       d.taskId != null ||
       d.invoiceId != null ||
-      d.expenseId != null,
+      d.expenseId != null ||
+      d.folderId != null,
     {
-      message: "Provide clientId, projectId, taskId, invoiceId, or expenseId",
+      message:
+        "Provide standaloneDrive, clientId, projectId, taskId, invoiceId, expenseId, or folderId",
     }
   )
   .refine((d) => d.clientFileScope == null || d.clientId != null, {
     message: "clientFileScope is only valid with clientId",
+  })
+  .refine((d) => !(d.standaloneDrive && d.clientFileScope != null), {
+    message: "clientFileScope is not valid with standaloneDrive",
   });
 
 export async function getFiles(params: {
@@ -61,32 +78,96 @@ export async function getFiles(params: {
   taskId?: string;
   invoiceId?: string;
   expenseId?: string;
+  folderId?: string;
   clientFileScope?: "general" | "documents";
+  standaloneDrive?: boolean;
 }) {
   const parsed = getFilesSchema.safeParse(params);
   if (!parsed.success) {
     return {
       ok: false as const,
-      error: "Invalid params: provide clientId, projectId, taskId, invoiceId, or expenseId",
+      error:
+        "Invalid params: provide standaloneDrive, clientId, projectId, taskId, invoiceId, expenseId, or folderId",
       data: [] as FileRow[],
     };
   }
-  const { clientId, projectId, taskId, invoiceId, expenseId, clientFileScope } = parsed.data;
+  const {
+    clientId,
+    projectId,
+    taskId,
+    invoiceId,
+    expenseId,
+    folderId,
+    clientFileScope,
+    standaloneDrive,
+  } = parsed.data;
   try {
     const conditions = [isNull(files.deletedAt)];
-    if (clientId != null) {
-      conditions.push(eq(files.clientId, clientId));
-      const scope = clientFileScope ?? "general";
-      if (scope === "documents") {
-        conditions.push(isNotNull(files.documentType));
-      } else {
-        conditions.push(isNull(files.documentType));
+
+    if (standaloneDrive) {
+      const session = await getServerSession(authOptions);
+      const uid = session?.user?.id ?? null;
+      if (!uid) {
+        return { ok: false as const, error: "Not authorized", data: [] as FileRow[] };
       }
+      const userPrefix = `/drive/user/${uid}`;
+      conditions.push(isNull(files.clientId));
+      conditions.push(isNull(files.projectId));
+      conditions.push(isNull(files.taskId));
+      conditions.push(isNull(files.invoiceId));
+      conditions.push(isNull(files.expenseId));
+      conditions.push(isNull(files.documentType));
+
+      if (folderId != null) {
+        const [fol] = await db.select().from(folders).where(eq(folders.id, folderId)).limit(1);
+        if (
+          !fol ||
+          fol.clientId != null ||
+          fol.projectId != null ||
+          !fol.path.startsWith(`${userPrefix}/`)
+        ) {
+          return { ok: false as const, error: "Invalid folder", data: [] as FileRow[] };
+        }
+        conditions.push(eq(files.folderId, folderId));
+      } else {
+        const folderRows = await db
+          .select({ id: folders.id })
+          .from(folders)
+          .where(
+            and(
+              isNull(folders.clientId),
+              isNull(folders.projectId),
+              sql`${folders.path} like ${userPrefix + "/%"}`
+            )
+          );
+        const ids = folderRows.map((r) => r.id);
+        const scopeCond =
+          ids.length > 0
+            ? or(
+                and(isNull(files.folderId), eq(files.uploadedBy, uid)),
+                inArray(files.folderId, ids)
+              )
+            : and(isNull(files.folderId), eq(files.uploadedBy, uid));
+        if (scopeCond) conditions.push(scopeCond);
+      }
+    } else {
+      if (folderId != null) {
+        conditions.push(eq(files.folderId, folderId));
+      }
+      if (clientId != null) {
+        conditions.push(eq(files.clientId, clientId));
+        const scope = clientFileScope ?? "general";
+        if (scope === "documents") {
+          conditions.push(isNotNull(files.documentType));
+        } else {
+          conditions.push(isNull(files.documentType));
+        }
+      }
+      if (projectId != null) conditions.push(eq(files.projectId, projectId));
+      if (taskId != null) conditions.push(eq(files.taskId, taskId));
+      if (invoiceId != null) conditions.push(eq(files.invoiceId, invoiceId));
+      if (expenseId != null) conditions.push(eq(files.expenseId, expenseId));
     }
-    if (projectId != null) conditions.push(eq(files.projectId, projectId));
-    if (taskId != null) conditions.push(eq(files.taskId, taskId));
-    if (invoiceId != null) conditions.push(eq(files.invoiceId, invoiceId));
-    if (expenseId != null) conditions.push(eq(files.expenseId, expenseId));
 
     const rows = await db
       .select({
@@ -105,6 +186,11 @@ export async function getFiles(params: {
         documentType: files.documentType,
         description: files.description,
         uploadedBy: files.uploadedBy,
+        folderId: files.folderId,
+        r2Key: files.r2Key,
+        isPublic: files.isPublic,
+        shareToken: files.shareToken,
+        shareExpiresAt: files.shareExpiresAt,
         uploadedByName: teamMembers.name,
         uploadedByAvatarUrl: teamMembers.avatarUrl,
         createdAt: files.createdAt,
@@ -133,6 +219,11 @@ export async function getFiles(params: {
       uploadedByName: r.uploadedByName ?? null,
       uploadedByAvatarUrl: r.uploadedByAvatarUrl ?? null,
       createdAt: r.createdAt,
+      folderId: r.folderId ?? null,
+      r2Key: r.r2Key ?? null,
+      isPublic: r.isPublic ?? false,
+      shareToken: r.shareToken ?? null,
+      shareExpiresAt: r.shareExpiresAt ?? null,
     }));
 
     return { ok: true as const, data };
@@ -166,6 +257,24 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       }
     }
 
+    const isPersonalDriveFile =
+      d.clientId == null &&
+      d.projectId == null &&
+      d.taskId == null &&
+      d.invoiceId == null &&
+      d.expenseId == null;
+    if (isPersonalDriveFile && d.folderId != null && userId) {
+      const [fol] = await db.select().from(folders).where(eq(folders.id, d.folderId)).limit(1);
+      if (
+        !fol ||
+        fol.clientId != null ||
+        fol.projectId != null ||
+        !fol.path.startsWith(`/drive/user/${userId}/`)
+      ) {
+        return { ok: false as const, error: { _form: ["Invalid folder"] } };
+      }
+    }
+
     const [row] = await db
       .insert(files)
       .values({
@@ -180,8 +289,11 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
         taskId: d.taskId ?? null,
         invoiceId: d.invoiceId ?? null,
         expenseId: d.expenseId ?? null,
+        documentType: d.documentType ?? null,
         description: d.description ?? null,
         uploadedBy: userId,
+        folderId: d.folderId ?? null,
+        r2Key: d.r2Key ?? null,
       })
       .returning();
 
@@ -248,7 +360,22 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       uploadedByName,
       uploadedByAvatarUrl,
       createdAt: row.createdAt,
+      folderId: row.folderId ?? null,
+      r2Key: row.r2Key ?? null,
+      isPublic: row.isPublic ?? false,
+      shareToken: row.shareToken ?? null,
+      shareExpiresAt: row.shareExpiresAt ?? null,
     };
+
+    const isStandaloneScope =
+      !row.clientId &&
+      !row.projectId &&
+      !row.taskId &&
+      !row.invoiceId &&
+      !row.expenseId;
+    if (isStandaloneScope) {
+      revalidatePath("/dashboard/drive");
+    }
 
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/projects");
@@ -282,7 +409,8 @@ export async function deleteFile(id: string) {
   const [row] = await db
     .select({
       id: files.id,
-      imagekitFileId: files.imagekitFileId,
+      filePath: files.filePath,
+      r2Key: files.r2Key,
       clientId: files.clientId,
       projectId: files.projectId,
       taskId: files.taskId,
@@ -310,12 +438,12 @@ export async function deleteFile(id: string) {
     }
   }
 
-  const client = getImageKitClient();
-  if (client && row.imagekitFileId) {
+  const storageKey = fileStorageKey(row);
+  if (storageKey) {
     try {
-      await client.files.delete(row.imagekitFileId);
+      await deleteFromR2(storageKey);
     } catch (e) {
-      console.error("ImageKit delete error", e);
+      console.error("R2 delete error", e);
       return {
         ok: false as const,
         error: e instanceof Error ? e.message : "Failed to delete file from storage",
@@ -324,6 +452,16 @@ export async function deleteFile(id: string) {
   }
 
   await db.delete(files).where(eq(files.id, parsed.data));
+
+  const isStandaloneScope =
+    !row.clientId &&
+    !row.projectId &&
+    !row.taskId &&
+    !row.invoiceId &&
+    !row.expenseId;
+  if (isStandaloneScope) {
+    revalidatePath("/dashboard/drive");
+  }
 
   revalidatePath("/dashboard/clients");
   revalidatePath("/dashboard/projects");
@@ -339,4 +477,439 @@ export async function deleteFile(id: string) {
   }
 
   return { ok: true as const };
+}
+
+const moveFileSchema = z.object({
+  fileId: z.string().uuid(),
+  folderId: z.string().uuid().nullable(),
+});
+
+export async function moveFile(fileId: string, folderId: string | null) {
+  const parsed = moveFileSchema.safeParse({ fileId, folderId });
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.flatten().fieldErrors };
+  }
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+
+  try {
+    const [row] = await db
+      .update(files)
+      .set({ folderId: parsed.data.folderId })
+      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .returning();
+    if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
+    revalidatePath("/dashboard/clients");
+    revalidatePath("/dashboard/projects");
+    if (row.clientId) revalidatePath(`/dashboard/clients/${row.clientId}`);
+    if (row.projectId) revalidatePath(`/dashboard/projects/${row.projectId}`);
+    return { ok: true as const, data: row };
+  } catch (e) {
+    console.error("moveFile", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+const renameFileSchema = z.object({
+  fileId: z.string().uuid(),
+  newName: z.string().min(1).max(500),
+});
+
+export async function renameFile(fileId: string, newName: string) {
+  const parsed = renameFileSchema.safeParse({ fileId, newName });
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.flatten().fieldErrors };
+  }
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+
+  try {
+    const [row] = await db
+      .update(files)
+      .set({ name: parsed.data.newName.trim() })
+      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .returning();
+    if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
+    revalidatePath("/dashboard/clients");
+    revalidatePath("/dashboard/projects");
+    if (row.clientId) revalidatePath(`/dashboard/clients/${row.clientId}`);
+    if (row.projectId) revalidatePath(`/dashboard/projects/${row.projectId}`);
+    return { ok: true as const, data: row };
+  } catch (e) {
+    console.error("renameFile", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+export async function toggleFilePublic(fileId: string) {
+  const parsed = z.string().uuid().safeParse(fileId);
+  if (!parsed.success) return { ok: false as const, error: { _form: ["Invalid file id"] } };
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+
+  try {
+    const [existing] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, parsed.data), isNull(files.deletedAt)))
+      .limit(1);
+    if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
+
+    const nextPublic = !existing.isPublic;
+    let shareToken: string | null = existing.shareToken;
+    let shareExpiresAt: Date | null = existing.shareExpiresAt;
+    if (nextPublic) {
+      if (!shareToken) shareToken = nanoid(16);
+    } else {
+      shareToken = null;
+      shareExpiresAt = null;
+    }
+
+    const [row] = await db
+      .update(files)
+      .set({ isPublic: nextPublic, shareToken, shareExpiresAt })
+      .where(eq(files.id, parsed.data))
+      .returning();
+
+    if (!row) return { ok: false as const, error: { _form: ["Update failed"] } };
+    revalidatePath("/dashboard/clients");
+    revalidatePath("/dashboard/projects");
+    revalidatePath("/dashboard/drive");
+    return { ok: true as const, data: row };
+  } catch (e) {
+    console.error("toggleFilePublic", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+const createShareLinkSchema = z.object({
+  fileId: z.string().uuid(),
+  expiresInDays: z.number().int().min(1).max(365).optional(),
+});
+
+export async function createShareLink(fileId: string, expiresInDays?: number) {
+  const parsed = createShareLinkSchema.safeParse({ fileId, expiresInDays });
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.flatten().fieldErrors };
+  }
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+
+  let shareExpiresAt: Date | null = null;
+  if (parsed.data.expiresInDays != null) {
+    const d = new Date();
+    d.setDate(d.getDate() + parsed.data.expiresInDays);
+    shareExpiresAt = d;
+  }
+
+  try {
+    const [existing] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .limit(1);
+    if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
+
+    const token =
+      existing.isPublic && existing.shareToken?.trim()
+        ? existing.shareToken.trim()
+        : nanoid(16);
+
+    const [row] = await db
+      .update(files)
+      .set({ shareToken: token, shareExpiresAt, isPublic: true })
+      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .returning();
+    if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
+    revalidatePath("/dashboard/clients");
+    revalidatePath("/dashboard/projects");
+    revalidatePath("/dashboard/drive");
+    return { ok: true as const, data: { shareToken: token, shareExpiresAt, file: row } };
+  } catch (e) {
+    console.error("createShareLink", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+const setShareExpirySchema = z.object({
+  fileId: z.string().uuid(),
+  expiresInDays: z.number().int().min(1).max(365).nullable(),
+});
+
+/** `expiresInDays: null` removes expiry (link stays valid until revoked). */
+export async function setShareLinkExpiryDays(fileId: string, expiresInDays: number | null) {
+  const parsed = setShareExpirySchema.safeParse({ fileId, expiresInDays });
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.flatten().fieldErrors };
+  }
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+
+  let shareExpiresAt: Date | null = null;
+  if (parsed.data.expiresInDays != null) {
+    const d = new Date();
+    d.setDate(d.getDate() + parsed.data.expiresInDays);
+    shareExpiresAt = d;
+  }
+
+  try {
+    const [row] = await db
+      .update(files)
+      .set({ shareExpiresAt })
+      .where(
+        and(
+          eq(files.id, parsed.data.fileId),
+          isNull(files.deletedAt),
+          eq(files.isPublic, true),
+          isNotNull(files.shareToken)
+        )
+      )
+      .returning();
+    if (!row) return { ok: false as const, error: { _form: ["File not found or not shared"] } };
+    revalidatePath("/dashboard/clients");
+    revalidatePath("/dashboard/projects");
+    revalidatePath("/dashboard/drive");
+    return { ok: true as const, data: row };
+  } catch (e) {
+    console.error("setShareLinkExpiryDays", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+export async function revokeShareLink(fileId: string) {
+  const parsed = z.string().uuid().safeParse(fileId);
+  if (!parsed.success) return { ok: false as const, error: { _form: ["Invalid file id"] } };
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+
+  try {
+    const [row] = await db
+      .update(files)
+      .set({ shareToken: null, shareExpiresAt: null, isPublic: false })
+      .where(and(eq(files.id, parsed.data), isNull(files.deletedAt)))
+      .returning();
+    if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
+    revalidatePath("/dashboard/clients");
+    revalidatePath("/dashboard/projects");
+    revalidatePath("/dashboard/drive");
+    return { ok: true as const, data: row };
+  } catch (e) {
+    console.error("revokeShareLink", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    }
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+export type SharedFileGuestPayload = {
+  id: string;
+  name: string;
+  imagekitUrl: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  shareExpiresAt: Date | null;
+};
+
+export type ShareTokenFailureReason = "invalid" | "not_found" | "expired" | "forbidden";
+
+export async function getFileByShareToken(
+  token: string
+): Promise<
+  | { ok: true; data: SharedFileGuestPayload }
+  | { ok: false; reason: ShareTokenFailureReason }
+> {
+  const parsed = z.string().min(8).max(64).safeParse(token);
+  if (!parsed.success) {
+    return { ok: false as const, reason: "invalid" as const };
+  }
+
+  try {
+    const [row] = await db
+      .select({
+        id: files.id,
+        name: files.name,
+        imagekitUrl: files.imagekitUrl,
+        mimeType: files.mimeType,
+        sizeBytes: files.sizeBytes,
+        isPublic: files.isPublic,
+        shareToken: files.shareToken,
+        shareExpiresAt: files.shareExpiresAt,
+      })
+      .from(files)
+      .where(
+        and(
+          eq(files.shareToken, parsed.data),
+          isNotNull(files.shareToken),
+          isNull(files.deletedAt)
+        )
+      )
+      .limit(1);
+
+    if (!row) {
+      return { ok: false as const, reason: "not_found" as const };
+    }
+    if (!row.isPublic) {
+      return { ok: false as const, reason: "forbidden" as const };
+    }
+    if (row.shareExpiresAt != null && row.shareExpiresAt < new Date()) {
+      return { ok: false as const, reason: "expired" as const };
+    }
+
+    return {
+      ok: true as const,
+      data: {
+        id: row.id,
+        name: row.name,
+        imagekitUrl: row.imagekitUrl,
+        mimeType: row.mimeType,
+        sizeBytes: row.sizeBytes,
+        shareExpiresAt: row.shareExpiresAt,
+      },
+    };
+  } catch (e) {
+    console.error("getFileByShareToken", e);
+    return { ok: false as const, reason: "not_found" as const };
+  }
+}
+
+function mapFileRowFromJoin(r: {
+  id: string;
+  name: string;
+  imagekitFileId: string;
+  imagekitUrl: string;
+  filePath: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  clientId: string | null;
+  projectId: string | null;
+  taskId: string | null;
+  invoiceId: string | null;
+  expenseId: string | null;
+  documentType: FileDocumentType | null;
+  description: string | null;
+  uploadedBy: string | null;
+  folderId: string | null;
+  r2Key: string | null;
+  isPublic: boolean;
+  shareToken: string | null;
+  shareExpiresAt: Date | null;
+  uploadedByName: string | null;
+  uploadedByAvatarUrl: string | null;
+  createdAt: Date;
+}): FileRow {
+  return {
+    id: r.id,
+    name: r.name,
+    imagekitFileId: r.imagekitFileId,
+    imagekitUrl: r.imagekitUrl,
+    filePath: r.filePath,
+    mimeType: r.mimeType,
+    sizeBytes: r.sizeBytes,
+    clientId: r.clientId,
+    projectId: r.projectId,
+    taskId: r.taskId,
+    invoiceId: r.invoiceId,
+    expenseId: r.expenseId,
+    documentType: r.documentType ?? null,
+    description: r.description ?? null,
+    uploadedBy: r.uploadedBy ?? null,
+    uploadedByName: r.uploadedByName ?? null,
+    uploadedByAvatarUrl: r.uploadedByAvatarUrl ?? null,
+    createdAt: r.createdAt,
+    folderId: r.folderId ?? null,
+    r2Key: r.r2Key ?? null,
+    isPublic: r.isPublic ?? false,
+    shareToken: r.shareToken ?? null,
+    shareExpiresAt: r.shareExpiresAt ?? null,
+  };
+}
+
+/** Recent uploads across the agency (for Drive quick-upload strip). */
+export async function getRecentUploadsForDashboard(limit = 10) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return { ok: false as const, error: "Not authorized", data: [] as FileRow[] };
+  }
+  const lim = Math.min(Math.max(1, limit), 50);
+  try {
+    const rows = await db
+      .select({
+        id: files.id,
+        name: files.name,
+        imagekitFileId: files.imagekitFileId,
+        imagekitUrl: files.imagekitUrl,
+        filePath: files.filePath,
+        mimeType: files.mimeType,
+        sizeBytes: files.sizeBytes,
+        clientId: files.clientId,
+        projectId: files.projectId,
+        taskId: files.taskId,
+        invoiceId: files.invoiceId,
+        expenseId: files.expenseId,
+        documentType: files.documentType,
+        description: files.description,
+        uploadedBy: files.uploadedBy,
+        folderId: files.folderId,
+        r2Key: files.r2Key,
+        isPublic: files.isPublic,
+        shareToken: files.shareToken,
+        shareExpiresAt: files.shareExpiresAt,
+        uploadedByName: teamMembers.name,
+        uploadedByAvatarUrl: teamMembers.avatarUrl,
+        createdAt: files.createdAt,
+      })
+      .from(files)
+      .leftJoin(teamMembers, eq(teamMembers.userId, files.uploadedBy))
+      .where(isNull(files.deletedAt))
+      .orderBy(desc(files.createdAt))
+      .limit(lim);
+
+    const data: FileRow[] = rows.map((r) => mapFileRowFromJoin(r));
+    return { ok: true as const, data };
+  } catch (e) {
+    console.error("getRecentUploadsForDashboard", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e), data: [] as FileRow[] };
+    }
+    return { ok: false as const, error: "Failed to load files", data: [] as FileRow[] };
+  }
+}
+
+/** Total storage used by non-deleted file rows (informational). */
+export async function getTotalFilesStorageBytes() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return { ok: false as const, error: "Not authorized", total: 0 };
+  }
+  try {
+    const [row] = await db
+      .select({
+        total: sql<number>`coalesce(sum(${files.sizeBytes}), 0)::double precision`,
+      })
+      .from(files)
+      .where(isNull(files.deletedAt));
+    return { ok: true as const, total: Number(row?.total ?? 0) };
+  } catch (e) {
+    console.error("getTotalFilesStorageBytes", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e), total: 0 };
+    }
+    return { ok: false as const, error: "Failed", total: 0 };
+  }
 }

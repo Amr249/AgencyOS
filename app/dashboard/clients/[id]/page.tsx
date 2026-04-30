@@ -14,6 +14,7 @@ import { getProjectsByClientId } from "@/actions/projects";
 import { getInvoicesByClientId, getNextInvoiceNumber } from "@/actions/invoices";
 import { getSettings } from "@/actions/settings";
 import { getFiles } from "@/actions/files";
+import { getAllFoldersForScope } from "@/actions/folders";
 import { getProjectMemberIdsByProjectIds, getTeamMembers } from "@/actions/team-members";
 import { getExpensesByClientId, getClientCostSummary } from "@/actions/expenses";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,13 @@ import { getClientUsers } from "@/actions/client-portal";
 import { ClientActivityTimeline } from "@/components/modules/clients/client-activity-timeline";
 import { ClientPortalAccess } from "@/components/modules/clients/client-portal-access";
 
-type Props = { params: Promise<{ id: string }> };
+const FOLDER_ID_PARAM_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ folder?: string }>;
+};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -56,8 +63,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function ClientDetailPage({ params }: Props) {
+export default async function ClientDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const sp = await searchParams;
   const locale = await getLocale();
   const t = await getTranslations("clients");
   const isArabic = locale === "ar";
@@ -68,6 +76,7 @@ export default async function ClientDetailPage({ params }: Props) {
     settingsResult,
     nextNumResult,
     filesGeneralResult,
+    foldersScopeResult,
     filesDocumentsResult,
     teamMembersResult,
     servicesResult,
@@ -87,6 +96,7 @@ export default async function ClientDetailPage({ params }: Props) {
     getSettings(),
     getNextInvoiceNumber(),
     getFiles({ clientId: id, clientFileScope: "general" }),
+    getAllFoldersForScope({ clientId: id }),
     getFiles({ clientId: id, clientFileScope: "documents" }),
     getTeamMembers(),
     getServices(),
@@ -147,6 +157,9 @@ export default async function ClientDetailPage({ params }: Props) {
   const clientsForDialog = [{ id: client.id, companyName: client.companyName, logoUrl: client.logoUrl }];
   const defaultCurrency = settings?.defaultCurrency ?? "SAR";
   const initialFiles = filesGeneralResult.ok ? filesGeneralResult.data : [];
+  const initialFolders = foldersScopeResult.ok ? foldersScopeResult.data : [];
+  const initialFileManagerFolderId =
+    typeof sp.folder === "string" && FOLDER_ID_PARAM_RE.test(sp.folder) ? sp.folder : undefined;
   const initialDocuments = filesDocumentsResult.ok ? filesDocumentsResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
   const serviceOptions = servicesResult.ok ? servicesResult.data : [];
@@ -334,7 +347,12 @@ export default async function ClientDetailPage({ params }: Props) {
         <TabsContent value="files" className="mt-4">
           <Card>
             <CardContent className="pt-6">
-              <FileManager clientId={client.id} initialFiles={initialFiles} />
+              <FileManager
+                clientId={client.id}
+                initialFiles={initialFiles}
+                initialFolders={initialFolders}
+                currentFolderId={initialFileManagerFolderId}
+              />
             </CardContent>
           </Card>
         </TabsContent>

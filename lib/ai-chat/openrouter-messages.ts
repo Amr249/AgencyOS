@@ -1,5 +1,5 @@
 /**
- * Maps stored chat messages (with optional ImageKit attachments) to OpenRouter / OpenAI-format messages.
+ * Maps stored chat messages (with optional file attachments) to OpenRouter / OpenAI-format messages.
  */
 
 export type ChatAttachment = {

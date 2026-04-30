@@ -139,6 +139,7 @@ export function EditProjectDialog({
       const fd = new FormData();
       fd.set("file", file);
       fd.set("scope", "project-cover");
+      fd.set("entityId", project.id);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (res.ok && data.url) {

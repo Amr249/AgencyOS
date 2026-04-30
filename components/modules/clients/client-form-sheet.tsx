@@ -226,6 +226,7 @@ export function ClientFormSheet({
       const formData = new FormData();
       formData.set("file", file);
       formData.set("scope", "client-logo");
+      formData.set("entityId", client?.id ?? crypto.randomUUID());
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");

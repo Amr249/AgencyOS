@@ -34,4 +34,9 @@ export type FileRow = {
   /** Avatar URL of the uploader (`team_members.avatar_url`), null if unknown. */
   uploadedByAvatarUrl: string | null;
   createdAt: Date;
+  folderId?: string | null;
+  r2Key?: string | null;
+  isPublic?: boolean;
+  shareToken?: string | null;
+  shareExpiresAt?: Date | null;
 };

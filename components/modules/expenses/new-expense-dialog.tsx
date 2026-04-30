@@ -183,7 +183,8 @@ export function NewExpenseDialog({
     try {
       const formData = new FormData();
       formData.set("file", file);
-      formData.set("folder", "agencyos/expenses/receipts");
+      formData.set("scope", "expense-receipt");
+      if (expense?.id) formData.set("entityId", expense.id);
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Upload failed");

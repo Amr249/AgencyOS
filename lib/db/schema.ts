@@ -402,6 +402,27 @@ export const payments = pgTable("payments", {
   index("payments_date_idx").on(table.paymentDate),
 ]);
 
+/** Drive / file-manager folder tree; materialized `path` for fast lookups. */
+export const folders = pgTable(
+  "folders",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    parentId: uuid("parent_id").references((): any => folders.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("folders_parent_id_idx").on(table.parentId),
+    index("folders_client_id_idx").on(table.clientId),
+    index("folders_project_id_idx").on(table.projectId),
+    index("folders_path_idx").on(table.path),
+  ]
+);
+
 // files
 export const files = pgTable("files", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -411,6 +432,11 @@ export const files = pgTable("files", {
   filePath: text("file_path").notNull(),
   mimeType: text("mime_type"),
   sizeBytes: bigint("size_bytes", { mode: "number" }),
+  folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
+  r2Key: text("r2_key"),
+  isPublic: boolean("is_public").notNull().default(false),
+  shareToken: text("share_token"),
+  shareExpiresAt: timestamp("share_expires_at", { withTimezone: true }),
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
   taskId: uuid("task_id").references(() => tasks.id, { onDelete: "cascade" }),
@@ -425,6 +451,12 @@ export const files = pgTable("files", {
   index("files_invoice_id_idx").on(table.invoiceId),
   index("files_expense_id_idx").on(table.expenseId),
   index("files_task_id_idx").on(table.taskId),
+  index("files_folder_id_idx").on(table.folderId),
+  index("files_share_token_idx").on(table.shareToken),
+  index("files_r2_key_idx").on(table.r2Key),
+  uniqueIndex("files_share_token_unique")
+    .on(table.shareToken)
+    .where(sql`${table.shareToken} IS NOT NULL`),
 ]);
 
 // team_members
@@ -844,6 +876,7 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   projects: many(projects),
   invoices: many(invoices),
   files: many(files),
+  folders: many(folders),
   proposals: many(proposals),
   clientServices: many(clientServices),
   expenses: many(expenses),
@@ -895,6 +928,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   invoices: many(invoices),
   invoiceProjects: many(invoiceProjects),
   files: many(files),
+  folders: many(folders),
   projectMembers: many(projectMembers),
   projectServices: many(projectServices),
   projectUserMembers: many(projectUserMembers),
@@ -1001,12 +1035,27 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
   }),
 }));
 
+export const foldersRelations = relations(folders, ({ one, many }) => ({
+  parent: one(folders, {
+    fields: [folders.parentId],
+    references: [folders.id],
+    relationName: "folderParent",
+  }),
+  children: many(folders, { relationName: "folderParent" }),
+  client: one(clients, { fields: [folders.clientId], references: [clients.id] }),
+  project: one(projects, { fields: [folders.projectId], references: [projects.id] }),
+  files: many(files),
+  createdByUser: one(users, { fields: [folders.createdBy], references: [users.id] }),
+}));
+
 export const filesRelations = relations(files, ({ one }) => ({
   client: one(clients, { fields: [files.clientId], references: [clients.id] }),
   project: one(projects, { fields: [files.projectId], references: [projects.id] }),
   task: one(tasks, { fields: [files.taskId], references: [tasks.id] }),
   invoice: one(invoices, { fields: [files.invoiceId], references: [invoices.id] }),
   expense: one(expenses, { fields: [files.expenseId], references: [expenses.id] }),
+  folder: one(folders, { fields: [files.folderId], references: [folders.id] }),
+  uploadedByUser: one(users, { fields: [files.uploadedBy], references: [users.id] }),
 }));
 
 export const proposalsRelations = relations(proposals, ({ one, many }) => ({

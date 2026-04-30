@@ -109,8 +109,6 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
   const [isDeleting, setIsDeleting] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const folder = `agencyos/clients/${clientId}/documents/`;
-
   React.useEffect(() => {
     setDocuments(initialDocuments);
   }, [initialDocuments]);
@@ -169,16 +167,17 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
 
     const formData = new FormData();
     formData.set("file", pickedFile);
-    formData.set("folder", folder);
+    formData.set("scope", "client-files");
+    formData.set("entityId", clientId);
+    formData.set("fileId", crypto.randomUUID());
 
     try {
       const res = await new Promise<{
         url?: string;
-        fileId?: string;
+        key?: string;
         name?: string;
         size?: number;
         mimeType?: string | null;
-        filePath?: string;
         error?: string;
       }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -201,7 +200,7 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
         xhr.send(formData);
       });
 
-      if (res.error || !res.url || !res.fileId) {
+      if (res.error || !res.url || !res.key) {
         toast.error(res.error ?? "Upload failed.");
         setUploading(false);
         return;
@@ -209,9 +208,9 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
 
       const createResult = await createFile({
         name: res.name ?? pickedFile.name,
-        imagekitFileId: res.fileId,
+        imagekitFileId: res.key,
         imagekitUrl: res.url,
-        filePath: res.filePath ?? `${folder}${pickedFile.name}`,
+        filePath: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? pickedFile.size ?? null,
         clientId,

@@ -164,6 +164,7 @@ export function AccountSettingsForm({ initialAccount, isMember: _isMember }: Pro
       const fd = new FormData();
       fd.set("file", file);
       fd.set("scope", "team-avatar");
+      fd.set("entityId", initialAccount.id);
       const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
       const uploaded = (await uploadRes.json()) as { url?: string; error?: string };
       if (!uploadRes.ok || !uploaded.url) {

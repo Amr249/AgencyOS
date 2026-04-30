@@ -92,6 +92,7 @@ export function AppSidebar({
       children: [
         { title: t("invoices"), url: "/dashboard/invoices", icon: IconReceipt },
         { title: t("expenses"), url: "/dashboard/expenses", icon: IconWallet },
+        { title: t("drive"), url: "/dashboard/drive", icon: IconFolder },
         { title: t("reports"), url: "/dashboard/reports", icon: IconReport },
       ],
     },

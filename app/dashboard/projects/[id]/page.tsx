@@ -10,6 +10,7 @@ import { getSettings } from "@/actions/settings";
 import { getTasksByProjectId } from "@/actions/tasks";
 import { getInvoicesByProjectId } from "@/actions/invoices";
 import { getFiles } from "@/actions/files";
+import { getAllFoldersForScope } from "@/actions/folders";
 import { getProjectMembers, getTeamMembers } from "@/actions/team-members";
 import { getExpensesByProjectId, getProjectCostSummary } from "@/actions/expenses";
 import { getProjectTimeSummary } from "@/actions/time-tracking";
@@ -48,9 +49,12 @@ import { cn } from "@/lib/utils";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 
+const FOLDER_ID_PARAM_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; folder?: string }>;
 };
 
 function toActivityFeedEntries(
@@ -90,7 +94,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ProjectDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const { tab: tabParam } = await searchParams;
+  const { tab: tabParam, folder: folderParam } = await searchParams;
   const defaultTab = tabParam === "activity" ? "activity" : "overview";
   const locale = await getLocale();
   const isArabic = locale === "ar";
@@ -133,6 +137,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
     tasksResult,
     invoicesResult,
     filesResult,
+    foldersScopeResult,
     projectMembersResult,
     teamMembersResult,
     expensesResult,
@@ -146,6 +151,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
     getTasksByProjectId(id),
     getInvoicesByProjectId(id),
     getFiles({ projectId: id }),
+    getAllFoldersForScope({ projectId: id }),
     getProjectMembers(id),
     getTeamMembers(),
     getExpensesByProjectId(id),
@@ -159,6 +165,9 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const tasks = tasksResult.ok ? tasksResult.data : [];
   const invoices = invoicesResult.ok ? invoicesResult.data : [];
   const initialFiles = filesResult.ok ? filesResult.data : [];
+  const initialFolders = foldersScopeResult.ok ? foldersScopeResult.data : [];
+  const initialFileManagerFolderId =
+    typeof folderParam === "string" && FOLDER_ID_PARAM_RE.test(folderParam) ? folderParam : undefined;
   const projectMembers = projectMembersResult.ok ? projectMembersResult.data : [];
   const teamMembers = teamMembersResult.ok ? teamMembersResult.data : [];
   const projectExpenses = expensesResult.ok ? expensesResult.data : [];
@@ -366,7 +375,12 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
           </TabsContent>
         <TabsContent value="files" className="mt-4">
           <div className="rounded-lg border bg-card p-6">
-            <FileManager projectId={id} initialFiles={initialFiles} />
+            <FileManager
+              projectId={id}
+              initialFiles={initialFiles}
+              initialFolders={initialFolders}
+              currentFolderId={initialFileManagerFolderId}
+            />
           </div>
         </TabsContent>
         <TabsContent value="notes" className="mt-4">

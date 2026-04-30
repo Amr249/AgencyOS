@@ -1,7 +1,7 @@
 /**
  * OpenRouter chat messages from the client encode non-image attachments as plain text:
  * `[Attached file: name.pdf]\n<url>`. Models cannot fetch arbitrary URLs, so we download
- * allowed PDFs (ImageKit only) and append extracted text before calling the model.
+ * allowed PDFs from our storage (ImageKit or R2 public URLs) and append extracted text before calling the model.
  */
 
 import pdfParse from "pdf-parse";
@@ -17,6 +17,15 @@ function isAllowedPdfFetchUrl(url: string): boolean {
     if (u.protocol !== "https:" && u.protocol !== "http:") return false;
     const host = u.hostname.toLowerCase();
     if (host === "ik.imagekit.io" || host.endsWith(".imagekit.io")) return true;
+    const r2Public = process.env.CLOUDFLARE_R2_PUBLIC_URL?.trim();
+    if (r2Public) {
+      try {
+        const r2Host = new URL(r2Public).hostname.toLowerCase();
+        if (host === r2Host) return true;
+      } catch {
+        /* ignore */
+      }
+    }
     const ep = process.env.IMAGEKIT_URL_ENDPOINT?.trim();
     if (ep) {
       try {

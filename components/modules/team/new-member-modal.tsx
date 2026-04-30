@@ -119,6 +119,7 @@ export function NewMemberModal({
       const formData = new FormData();
       formData.set("file", file);
       formData.set("scope", "team-avatar");
+      formData.set("entityId", member?.id ?? crypto.randomUUID());
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (data.url) form.setValue("avatarUrl", data.url);

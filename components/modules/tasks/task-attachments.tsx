@@ -180,21 +180,18 @@ export function TaskAttachments({
   const uploadOne = async (item: PendingUpload): Promise<boolean> => {
     setActiveFileName(item.file.name);
     setUploadProgress(0);
-    const folder = `agencyos/tasks/${taskId}`;
     const formData = new FormData();
     formData.set("file", item.file);
     formData.set("scope", "task-attachment");
     formData.set("taskId", taskId);
-    formData.set("folder", folder);
 
     try {
       const res = await new Promise<{
         url?: string;
-        fileId?: string;
+        key?: string;
         name?: string;
         size?: number;
         mimeType?: string | null;
-        filePath?: string;
         error?: string;
       }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -217,16 +214,16 @@ export function TaskAttachments({
         xhr.send(formData);
       });
 
-      if (res.error || !res.url || !res.fileId) {
+      if (res.error || !res.url || !res.key) {
         toast.error(res.error ?? L.uploadFailed);
         return false;
       }
 
       const createResult = await createFile({
         name: res.name ?? item.file.name,
-        imagekitFileId: res.fileId,
+        imagekitFileId: res.key,
         imagekitUrl: res.url,
-        filePath: res.filePath ?? `${folder}/${item.file.name}`,
+        filePath: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? item.file.size ?? null,
         taskId,
