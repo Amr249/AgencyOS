@@ -76,16 +76,16 @@ export function FilePreviewModal({
   const hasRichPreview = isImg || isPdfType || isVideo || isOffice;
   const contentMaxWidth = hasRichPreview ? "sm:max-w-3xl" : "sm:max-w-md";
 
-  const imageUrl = isImg ? file.imagekitUrl : null;
+  const imageUrl = isImg ? file.publicFileUrl : null;
   const pdfPreviewSrc =
-    isPdfType && file.imagekitUrl?.trim() ? driveInlinePreviewUrl(file.imagekitUrl) : null;
+    isPdfType && file.publicFileUrl?.trim() ? driveInlinePreviewUrl(file.publicFileUrl) : null;
 
   const handleDownload = () => {
-    onDownload(file.imagekitUrl, file.name);
+    onDownload(file.publicFileUrl, file.name);
   };
 
   const handleCopy = () => {
-    onCopyLink(file.imagekitUrl);
+    onCopyLink(file.publicFileUrl);
   };
 
   const handleDelete = () => {
@@ -171,7 +171,7 @@ export function FilePreviewModal({
           {isVideo && (
             <div className="bg-muted/30 p-4">
               <video
-                src={file.imagekitUrl}
+                src={file.publicFileUrl}
                 controls
                 className="mx-auto max-h-[70vh] w-full max-w-full rounded border bg-black"
                 playsInline
@@ -209,14 +209,14 @@ export function FilePreviewModal({
             <div className="flex flex-col gap-2 p-4">
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" asChild className="gap-1">
-                  <a href={file.imagekitUrl} target="_blank" rel="noopener noreferrer">
+                  <a href={file.publicFileUrl} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="size-3.5" />
                     فتح في تبويب جديد
                   </a>
                 </Button>
               </div>
               <iframe
-                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(file.imagekitUrl)}`}
+                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(file.publicFileUrl)}`}
                 title={file.name}
                 className="h-[min(70vh,600px)] w-full rounded border bg-muted"
               />

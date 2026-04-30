@@ -74,7 +74,7 @@ export default async function PortalFilesPage() {
                       </TableCell>
                       <TableCell className="text-end">
                         <Button variant="outline" size="sm" asChild>
-                          <a href={f.imagekitUrl} target="_blank" rel="noopener noreferrer">
+                          <a href={f.publicFileUrl} target="_blank" rel="noopener noreferrer">
                             {t("openFile")}
                           </a>
                         </Button>

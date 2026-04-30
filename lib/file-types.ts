@@ -15,9 +15,10 @@ export type FileDocumentType = (typeof FILE_DOCUMENT_TYPES)[number];
 export type FileRow = {
   id: string;
   name: string;
-  imagekitFileId: string;
-  imagekitUrl: string;
-  filePath: string;
+  /** Object key in R2 (same as DB `r2_key`). */
+  r2Key: string;
+  /** Public HTTPS URL: `CLOUDFLARE_R2_PUBLIC_URL` + `/` + `r2Key`. */
+  publicFileUrl: string;
   mimeType: string | null;
   sizeBytes: number | null;
   clientId: string | null;
@@ -35,7 +36,6 @@ export type FileRow = {
   uploadedByAvatarUrl: string | null;
   createdAt: Date;
   folderId?: string | null;
-  r2Key?: string | null;
   isPublic?: boolean;
   shareToken?: string | null;
   shareExpiresAt?: Date | null;

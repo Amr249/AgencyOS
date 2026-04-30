@@ -697,9 +697,6 @@ export function FileManager({
 
         const createResult = await createFile({
           name: res.name ?? file.name,
-          imagekitFileId: res.key,
-          imagekitUrl: res.url,
-          filePath: res.key,
           r2Key: res.key,
           mimeType: res.mimeType ?? null,
           sizeBytes: res.size ?? file.size ?? null,

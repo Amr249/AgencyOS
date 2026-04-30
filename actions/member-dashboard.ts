@@ -19,6 +19,7 @@ import {
   teamMembers,
 } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { publicUrlFromR2Key } from "@/lib/r2-public-url";
 import { getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 
 export type MemberProjectMember = {
@@ -289,17 +290,25 @@ export async function getMemberExpenseFiles(expenseId: string): Promise<
   if (!parsed.success) return { ok: false, error: "invalid_id" };
 
   try {
-    const rows = await db
+    const rowsRaw = await db
       .select({
         id: files.id,
         name: files.name,
-        url: files.imagekitUrl,
+        r2Key: files.r2Key,
         mimeType: files.mimeType,
         sizeBytes: files.sizeBytes,
       })
       .from(files)
       .where(and(eq(files.expenseId, parsed.data), isNull(files.deletedAt)))
       .orderBy(desc(files.createdAt));
+
+    const rows: MemberExpenseFileRow[] = rowsRaw.map((r) => ({
+      id: r.id,
+      name: r.name,
+      url: publicUrlFromR2Key(r.r2Key),
+      mimeType: r.mimeType,
+      sizeBytes: r.sizeBytes,
+    }));
 
     return { ok: true, data: rows };
   } catch (e) {

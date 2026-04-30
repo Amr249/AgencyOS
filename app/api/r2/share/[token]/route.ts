@@ -24,5 +24,5 @@ export async function GET(_request: Request, context: Ctx) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  return NextResponse.redirect(res.data.imagekitUrl, 302);
+  return NextResponse.redirect(res.data.publicFileUrl, 302);
 }

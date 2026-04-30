@@ -107,14 +107,14 @@ export default async function GuestSharePage({ params }: Props) {
           {img ? (
             <div className="flex max-h-[70vh] justify-center bg-black p-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={f.imagekitUrl} alt={f.name} className="max-h-[70vh] w-auto max-w-full object-contain" />
+              <img src={f.publicFileUrl} alt={f.name} className="max-h-[70vh] w-auto max-w-full object-contain" />
             </div>
           ) : vid ? (
             <div className="bg-black p-2">
-              <video src={f.imagekitUrl} controls className="mx-auto max-h-[70vh] w-full" playsInline />
+              <video src={f.publicFileUrl} controls className="mx-auto max-h-[70vh] w-full" playsInline />
             </div>
           ) : pdf ? (
-            <iframe title={f.name} src={f.imagekitUrl} className="h-[min(75vh,720px)] w-full bg-zinc-950" />
+            <iframe title={f.name} src={f.publicFileUrl} className="h-[min(75vh,720px)] w-full bg-zinc-950" />
           ) : (
             <div className="text-muted-foreground flex flex-col items-center gap-2 px-6 py-16 text-center text-sm">
               <p>لا تتوفر معاينة لهذا النوع من الملفات.</p>
@@ -124,7 +124,7 @@ export default async function GuestSharePage({ params }: Props) {
 
         <div className="flex flex-wrap gap-3">
           <Button asChild size="lg" className="gap-2">
-            <a href={f.imagekitUrl} download={f.name} target="_blank" rel="noopener noreferrer">
+            <a href={f.publicFileUrl} download={f.name} target="_blank" rel="noopener noreferrer">
               تحميل
             </a>
           </Button>

@@ -102,7 +102,7 @@ export type SharedFolderBrowseData = {
   files: {
     id: string;
     name: string;
-    imagekitUrl: string;
+    publicFileUrl: string;
     mimeType: string | null;
     sizeBytes: number | null;
     createdAt: Date;
@@ -163,8 +163,7 @@ async function loadSharedFolderBrowseTree(
     const filesForGuest = fileRows.map((r) => ({
       id: r.id,
       name: r.name,
-      /** Legacy field name: public R2 URL for guests (ImageKit columns were dropped in migration 0028). */
-      imagekitUrl: publicUrlFromR2Key(r.r2Key),
+      publicFileUrl: publicUrlFromR2Key(r.r2Key),
       mimeType: r.mimeType,
       sizeBytes: r.sizeBytes,
       createdAt: r.createdAt,
@@ -214,7 +213,7 @@ export async function getSharedFolderBrowse(
 export async function assertFileReadableViaSharedFolder(token: string, fileId: string): Promise<
   | {
       ok: true;
-      file: { id: string; name: string; imagekitUrl: string; mimeType: string | null };
+      file: { id: string; name: string; publicFileUrl: string; mimeType: string | null };
     }
   | { ok: false; status: 400 | 403 | 404 }
 > {
@@ -257,7 +256,7 @@ export async function assertFileReadableViaSharedFolder(token: string, fileId: s
     file: {
       id: file.id,
       name: file.name,
-      imagekitUrl: publicUrl,
+      publicFileUrl: publicUrl,
       mimeType: file.mimeType,
     },
   };

@@ -85,7 +85,7 @@ export default async function SharedFolderPage({ params, searchParams }: Props) 
       files={d.files.map((f) => ({
         id: f.id,
         name: f.name,
-        imagekitUrl: f.imagekitUrl,
+        publicFileUrl: f.publicFileUrl,
         mimeType: f.mimeType,
         sizeBytes: f.sizeBytes,
       }))}

@@ -221,9 +221,7 @@ export function TaskAttachments({
 
       const createResult = await createFile({
         name: res.name ?? item.file.name,
-        imagekitFileId: res.key,
-        imagekitUrl: res.url,
-        filePath: res.key,
+        r2Key: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? item.file.size ?? null,
         taskId,
@@ -408,7 +406,7 @@ export function TaskAttachments({
                       aria-label={L.preview}
                     >
                       <Image
-                        src={f.imagekitUrl}
+                        src={f.publicFileUrl}
                         alt={f.name}
                         width={64}
                         height={64}
@@ -433,7 +431,7 @@ export function TaskAttachments({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        onClick={() => handleDownload(f.imagekitUrl, f.name)}
+                        onClick={() => handleDownload(f.publicFileUrl, f.name)}
                         title={L.download}
                         aria-label={L.download}
                       >
@@ -543,7 +541,7 @@ export function TaskAttachments({
               </Button>
             </div>
             <Image
-              src={previewImage.imagekitUrl}
+              src={previewImage.publicFileUrl}
               alt={previewImage.name}
               width={1200}
               height={900}

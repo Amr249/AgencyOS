@@ -16,6 +16,7 @@ import { getPortalSession } from "@/lib/portal-session";
 import { getInvoicesWithPayments } from "@/actions/invoices";
 import { getProjectTaskCounts } from "@/actions/projects";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { publicUrlFromR2Key } from "@/lib/r2-public-url";
 
 export async function getPortalDashboardSummary() {
   const ctx = await getPortalSession();
@@ -407,7 +408,7 @@ export async function getPortalSharedFiles() {
       .select({
         id: files.id,
         name: files.name,
-        imagekitUrl: files.imagekitUrl,
+        r2Key: files.r2Key,
         mimeType: files.mimeType,
         sizeBytes: files.sizeBytes,
         description: files.description,
@@ -432,6 +433,7 @@ export async function getPortalSharedFiles() {
 
     const data = rows.map((f) => ({
       ...f,
+      publicFileUrl: publicUrlFromR2Key(f.r2Key),
       projectName: f.projectId ? projectNames[f.projectId] ?? null : null,
     }));
 

@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 export type SharedFolderFileItem = {
   id: string;
   name: string;
-  imagekitUrl: string;
+  publicFileUrl: string;
   mimeType: string | null;
   sizeBytes: number | null;
 };
@@ -177,7 +177,7 @@ export function SharedFolderBrowser({
                       <div className="bg-zinc-950/80 flex aspect-4/3 w-full items-center justify-center overflow-hidden">
                         {img ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={f.imagekitUrl} alt="" className="h-full w-full object-cover" />
+                          <img src={f.publicFileUrl} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <FileTypeIcon name={f.name} mimeType={f.mimeType} className="scale-125 text-zinc-500" />
                         )}
@@ -218,14 +218,14 @@ export function SharedFolderBrowser({
                   <div className="flex justify-center bg-black/40 p-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={preview.imagekitUrl}
+                      src={preview.publicFileUrl}
                       alt={preview.name}
                       className="max-h-[min(70vh,640px)] w-auto max-w-full object-contain"
                     />
                   </div>
                 ) : isVideo(preview.name, preview.mimeType) ? (
                   <video
-                    src={preview.imagekitUrl}
+                    src={preview.publicFileUrl}
                     controls
                     className="mx-auto max-h-[min(70vh,640px)] w-full rounded-md bg-black"
                     playsInline
@@ -239,7 +239,7 @@ export function SharedFolderBrowser({
                 ) : isOffice(preview.name, preview.mimeType) ? (
                   <iframe
                     title={preview.name}
-                    src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.imagekitUrl)}`}
+                    src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.publicFileUrl)}`}
                     className="h-[min(70vh,640px)] w-full rounded-md border border-zinc-800 bg-zinc-900"
                   />
                 ) : (
@@ -251,7 +251,7 @@ export function SharedFolderBrowser({
               </div>
               <div className="flex flex-wrap gap-2 border-t border-zinc-800 px-4 py-3 sm:px-6">
                 <Button asChild size="sm" variant="secondary" className="gap-2">
-                  <a href={preview.imagekitUrl} download={preview.name} target="_blank" rel="noopener noreferrer">
+                  <a href={preview.publicFileUrl} download={preview.name} target="_blank" rel="noopener noreferrer">
                     <Download className="size-4" />
                     تحميل
                   </a>

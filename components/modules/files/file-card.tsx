@@ -37,9 +37,9 @@ export function FileCard({
   const kind = getFileVisualKind(file.name, file.mimeType);
   /** Do not load PDF (or proxy) in grid thumbnails — each iframe hit was showing up as a browser download ("drive-inline-file"). Preview opens in the modal. */
   const thumb =
-    kind === "image" && file.imagekitUrl ? (
+    kind === "image" && file.publicFileUrl ? (
       <img
-        src={file.imagekitUrl}
+        src={file.publicFileUrl}
         alt=""
         className="h-[150px] w-full object-cover"
       />
@@ -96,7 +96,7 @@ export function FileCard({
               aria-label={isArabic ? "تنزيل" : "Download"}
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload(file.imagekitUrl, file.name);
+                onDownload(file.publicFileUrl, file.name);
               }}
             >
               <Download className="size-3.5" />
@@ -109,7 +109,7 @@ export function FileCard({
               aria-label={isArabic ? "نسخ الرابط" : "Copy link"}
               onClick={(e) => {
                 e.stopPropagation();
-                onCopyLink(file.imagekitUrl);
+                onCopyLink(file.publicFileUrl);
               }}
             >
               <LinkIcon className="size-3.5" />

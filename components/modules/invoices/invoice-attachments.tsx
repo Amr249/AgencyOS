@@ -129,9 +129,7 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
 
       const createResult = await createFile({
         name: res.name ?? file.name,
-        imagekitFileId: res.key,
-        imagekitUrl: res.url,
-        filePath: res.key,
+        r2Key: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? file.size ?? null,
         invoiceId,
@@ -266,7 +264,7 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
                               variant="secondary"
                               size="sm"
                               className="h-8"
-                              onClick={() => handleDownload(f.imagekitUrl, f.name)}
+                              onClick={() => handleDownload(f.publicFileUrl, f.name)}
                               title="Download"
                             >
                               <Download className="h-3.5 w-3.5" />
@@ -319,7 +317,7 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
-                                onClick={() => handleDownload(f.imagekitUrl, f.name)}
+                                onClick={() => handleDownload(f.publicFileUrl, f.name)}
                                 title="Download"
                               >
                                 <Download className="h-4 w-4" />
@@ -360,7 +358,7 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
           <div className="bg-muted/20 min-h-0 flex-1">
             {pdfPreview ? (
               <iframe
-                src={pdfPreview.imagekitUrl}
+                src={pdfPreview.publicFileUrl}
                 title={pdfPreview.name}
                 className="h-[min(70dvh,780px)] w-full border-0 bg-white"
               />
@@ -370,7 +368,7 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
             <div className="text-muted-foreground flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-4 py-2 text-xs">
               <span>Preview loads in the browser; use Download on the card if you need a local copy.</span>
               <a
-                href={pdfPreview.imagekitUrl}
+                href={pdfPreview.publicFileUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary shrink-0 font-medium underline-offset-4 hover:underline"

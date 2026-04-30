@@ -364,7 +364,7 @@ export function FileListView({
                     aria-label="تنزيل"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDownload(file.imagekitUrl, file.name);
+                      onDownload(file.publicFileUrl, file.name);
                     }}
                   >
                     <Download className="size-3.5" />
@@ -378,7 +378,7 @@ export function FileListView({
                     aria-label="نسخ الرابط"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onCopyLink(file.imagekitUrl);
+                      onCopyLink(file.publicFileUrl);
                     }}
                   >
                     <LinkIcon className="size-3.5" />

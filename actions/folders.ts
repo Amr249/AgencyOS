@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { customAlphabet } from "nanoid";
 import { db, folders, files, projects, folderAccess, teamMembers } from "@/lib/db";
 import { deleteFromR2 } from "@/lib/r2";
+import { publicUrlFromR2Key } from "@/lib/r2-public-url";
 import { authOptions } from "@/lib/auth";
 import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { sessionUserRole } from "@/lib/auth-helpers";
@@ -602,11 +603,11 @@ export async function getFolderByShareToken(token: string) {
       .from(folders)
       .where(sql`${folders.path} like ${prefix + "%"}`)
       .orderBy(asc(folders.path));
-    const childFiles = await db
+    const childFilesRaw = await db
       .select({
         id: files.id,
         name: files.name,
-        imagekitUrl: files.imagekitUrl,
+        r2Key: files.r2Key,
         mimeType: files.mimeType,
         sizeBytes: files.sizeBytes,
         folderId: files.folderId,
@@ -615,6 +616,10 @@ export async function getFolderByShareToken(token: string) {
       .from(files)
       .where(and(isNull(files.deletedAt), sql`${files.folderId} in (select id from folders where path like ${prefix + "%"})`))
       .orderBy(asc(files.name));
+    const childFiles = childFilesRaw.map((f) => ({
+      ...f,
+      publicFileUrl: publicUrlFromR2Key(f.r2Key),
+    }));
     return { ok: true as const, data: { folder, childFolders, childFiles } };
   } catch (e) {
     console.error("getFolderByShareToken", e);

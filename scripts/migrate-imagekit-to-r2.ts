@@ -8,13 +8,10 @@
  *
  * Env: DATABASE_URL, CLOUDFLARE_R2_* (same as app — see .env.example)
  *
- * Default DB update (files table): sets `r2_key` only; `imagekit_url` stays as ImageKit
- * until you opt in to URL sync (UI still reads `imagekit_url` today).
+ * Default DB update (files table): sets `r2_key` only.
  *
- * Recommended after verifying uploads:
- *   npx tsx scripts/migrate-imagekit-to-r2.ts --sync-url-fields
- *   → also sets `imagekit_url` + `file_path` on `files` to the new R2 URL/key, and writes
- *     `migration-imagekit-legacy-urls.json` with previous ImageKit URLs for rollback/reference.
+ * Optional `--sync-url-fields`: writes the same audit JSON as before; DB URL columns were
+ * removed in migration 0028, so only `r2_key` is updated on `files` (no `imagekit_url` / `file_path`).
  *
  * Entity URLs (client logo, agency logo, avatars, project covers, expense receipts) are
  * always updated to the new public R2 URL when migrated (column holds the public URL).
@@ -134,10 +131,8 @@ type UrlMigrateSpec = {
 async function main() {
   const { isR2Configured, uploadToR2, sanitizeFilename } = await import("@/lib/r2");
   const { db } = await import("@/lib/db");
-  const { files, clients, settings, teamMembers, projects, expenses } = await import(
-    "@/lib/db/schema"
-  );
-  const { eq, isNull, isNotNull, and } = await import("drizzle-orm");
+  const { clients, settings, teamMembers, projects, expenses } = await import("@/lib/db/schema");
+  const { eq, isNull, isNotNull, and, sql } = await import("drizzle-orm");
 
   if (!process.env.DATABASE_URL?.trim()) {
     console.error("DATABASE_URL is required.");
@@ -157,30 +152,43 @@ async function main() {
     DRY_RUN
       ? "DRY RUN — no uploads or DB writes."
       : SYNC_URL_FIELDS
-        ? "LIVE — files: r2_key + imagekit_url + file_path; legacy URLs → migration-imagekit-legacy-urls.json"
-        : "LIVE — files: r2_key only (add --sync-url-fields to point imagekit_url at R2 for the UI)."
+        ? "LIVE — files: r2_key + audit JSON (legacy URL columns dropped in 0028)"
+        : "LIVE — files: r2_key only (add --sync-url-fields for full audit JSON)."
   );
 
   let migrated = 0;
   let failed = 0;
 
-  const fileRows = await db
-    .select({
-      id: files.id,
-      name: files.name,
-      imagekitUrl: files.imagekitUrl,
-      mimeType: files.mimeType,
-      clientId: files.clientId,
-      projectId: files.projectId,
-      taskId: files.taskId,
-      expenseId: files.expenseId,
-      invoiceId: files.invoiceId,
-      r2Key: files.r2Key,
-    })
-    .from(files)
-    .where(and(isNull(files.deletedAt), isNotNull(files.imagekitUrl)));
+  /** Reads legacy `imagekit_url` via raw SQL (column absent from Drizzle schema after 0028). */
+  const fileQuery = await db.execute(sql`
+    SELECT
+      id,
+      name,
+      imagekit_url AS "legacyImageUrl",
+      mime_type AS "mimeType",
+      client_id AS "clientId",
+      project_id AS "projectId",
+      task_id AS "taskId",
+      expense_id AS "expenseId",
+      invoice_id AS "invoiceId",
+      r2_key AS "r2Key"
+    FROM files
+    WHERE deleted_at IS NULL AND imagekit_url IS NOT NULL
+  `);
+  const fileRows = (fileQuery.rows as Record<string, unknown>[]).map((raw) => ({
+    id: String(raw.id),
+    name: String(raw.name),
+    legacyImageUrl: String(raw.legacyImageUrl),
+    mimeType: raw.mimeType != null ? String(raw.mimeType) : null,
+    clientId: raw.clientId != null ? String(raw.clientId) : null,
+    projectId: raw.projectId != null ? String(raw.projectId) : null,
+    taskId: raw.taskId != null ? String(raw.taskId) : null,
+    expenseId: raw.expenseId != null ? String(raw.expenseId) : null,
+    invoiceId: raw.invoiceId != null ? String(raw.invoiceId) : null,
+    r2Key: raw.r2Key != null ? String(raw.r2Key) : null,
+  }));
 
-  const ikFiles = fileRows.filter((r) => isImageKitUrl(r.imagekitUrl));
+  const ikFiles = fileRows.filter((r) => isImageKitUrl(r.legacyImageUrl));
   const total = ikFiles.length;
 
   for (let i = 0; i < ikFiles.length; i++) {
@@ -197,7 +205,7 @@ async function main() {
     let buffer: Buffer;
     let contentType: string;
     try {
-      const d = await downloadBinary(row.imagekitUrl);
+      const d = await downloadBinary(row.legacyImageUrl);
       buffer = d.buffer;
       contentType = row.mimeType?.trim() || d.contentType;
     } catch (e) {
@@ -208,7 +216,7 @@ async function main() {
         phase: "download",
         kind: "file",
         id: row.id,
-        url: row.imagekitUrl,
+        url: row.legacyImageUrl,
         message,
       });
       continue;
@@ -231,7 +239,7 @@ async function main() {
           phase: "upload",
           kind: "file",
           id: row.id,
-          url: row.imagekitUrl,
+          url: row.legacyImageUrl,
           message,
         });
         continue;
@@ -243,20 +251,13 @@ async function main() {
         legacyBuffer.push({
           kind: "file",
           id: row.id,
-          oldUrl: row.imagekitUrl,
+          oldUrl: row.legacyImageUrl,
           newUrl: publicUrl,
           r2Key: key,
         });
-        await db
-          .update(files)
-          .set({
-            r2Key: key,
-            imagekitUrl: publicUrl,
-            filePath: key,
-          })
-          .where(eq(files.id, row.id));
+        await db.execute(sql`UPDATE files SET r2_key = ${key} WHERE id = ${row.id}::uuid`);
       } else {
-        await db.update(files).set({ r2Key: key }).where(eq(files.id, row.id));
+        await db.execute(sql`UPDATE files SET r2_key = ${key} WHERE id = ${row.id}::uuid`);
       }
       migrated++;
       console.log(`  ✓ OK`);

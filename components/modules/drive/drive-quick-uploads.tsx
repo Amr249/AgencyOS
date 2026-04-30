@@ -28,9 +28,9 @@ export function DriveQuickUploads({ files }: DriveQuickUploadsProps) {
         {files.map((f) => {
           const kind = getFileVisualKind(f.name, f.mimeType);
           const thumb =
-            kind === "image" && f.imagekitUrl ? (
+            kind === "image" && f.publicFileUrl ? (
               <img
-                src={f.imagekitUrl}
+                src={f.publicFileUrl}
                 alt=""
                 className="size-full object-cover"
               />

@@ -9,7 +9,8 @@ import { db } from "@/lib/db";
 import { files, folders, projects, invoices, teamMembers } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { logActivityWithActor } from "@/actions/activity-log";
-import { deleteFromR2, getPublicUrl } from "@/lib/r2";
+import { deleteFromR2 } from "@/lib/r2";
+import { publicUrlFromR2Key } from "@/lib/r2-public-url";
 import { FILE_DOCUMENT_TYPES, type FileRow, type FileDocumentType } from "@/lib/file-types";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
@@ -86,21 +87,9 @@ export async function getDriveFolderDirectFileStats(): Promise<
   }
 }
 
-function fileStorageKey(row: { r2Key: string | null; filePath?: string | null }): string | null {
+function fileStorageKey(row: { r2Key: string | null }): string | null {
   const k = row.r2Key?.trim();
-  if (k && k.length > 0) return k;
-  const fp = row.filePath?.trim();
-  return fp && fp.length > 0 ? fp : null;
-}
-
-function filePublicUrlFromKey(r2Key: string | null): string {
-  const key = r2Key?.trim();
-  if (!key) return "";
-  try {
-    return getPublicUrl(key);
-  } catch {
-    return "";
-  }
+  return k && k.length > 0 ? k : null;
 }
 
 async function withDbReadRetry<T>(label: string, run: () => Promise<T>, retries = 1): Promise<T> {
@@ -121,9 +110,7 @@ async function withDbReadRetry<T>(label: string, run: () => Promise<T>, retries 
 
 const createFileSchema = z.object({
   name: z.string().min(1),
-  imagekitFileId: z.string().min(1),
-  imagekitUrl: z.string().url(),
-  filePath: z.string().min(1),
+  r2Key: z.string().min(1),
   mimeType: z.string().nullable().optional(),
   sizeBytes: z.number().int().min(0).nullable().optional(),
   clientId: z.string().uuid().nullable().optional(),
@@ -134,7 +121,6 @@ const createFileSchema = z.object({
   documentType: z.enum(FILE_DOCUMENT_TYPES).nullable().optional(),
   description: z.string().max(5000).nullable().optional(),
   folderId: z.string().uuid().optional(),
-  r2Key: z.string().min(1).optional(),
 });
 
 const getFilesSchema = z
@@ -350,31 +336,32 @@ export async function getFiles(params: {
       return takeLimit != null ? base.limit(takeLimit) : base;
     });
 
-    const data: FileRow[] = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      imagekitFileId: r.r2Key ?? r.id,
-      imagekitUrl: filePublicUrlFromKey(r.r2Key),
-      filePath: r.r2Key ?? "",
-      mimeType: r.mimeType,
-      sizeBytes: r.sizeBytes,
-      clientId: r.clientId,
-      projectId: r.projectId,
-      taskId: r.taskId,
-      invoiceId: r.invoiceId,
-      expenseId: r.expenseId,
-      documentType: r.documentType ?? null,
-      description: r.description ?? null,
-      uploadedBy: r.uploadedBy ?? null,
-      uploadedByName: r.uploadedByName ?? null,
-      uploadedByAvatarUrl: r.uploadedByAvatarUrl ?? null,
-      createdAt: r.createdAt,
-      folderId: r.folderId ?? null,
-      r2Key: r.r2Key ?? null,
-      isPublic: r.isPublic ?? false,
-      shareToken: r.shareToken ?? null,
-      shareExpiresAt: r.shareExpiresAt ?? null,
-    }));
+    const data: FileRow[] = rows.map((r) => {
+      const key = r.r2Key?.trim() ?? "";
+      return {
+        id: r.id,
+        name: r.name,
+        r2Key: key,
+        publicFileUrl: publicUrlFromR2Key(r.r2Key),
+        mimeType: r.mimeType,
+        sizeBytes: r.sizeBytes,
+        clientId: r.clientId,
+        projectId: r.projectId,
+        taskId: r.taskId,
+        invoiceId: r.invoiceId,
+        expenseId: r.expenseId,
+        documentType: r.documentType ?? null,
+        description: r.description ?? null,
+        uploadedBy: r.uploadedBy ?? null,
+        uploadedByName: r.uploadedByName ?? null,
+        uploadedByAvatarUrl: r.uploadedByAvatarUrl ?? null,
+        createdAt: r.createdAt,
+        folderId: r.folderId ?? null,
+        isPublic: r.isPublic ?? false,
+        shareToken: r.shareToken ?? null,
+        shareExpiresAt: r.shareExpiresAt ?? null,
+      };
+    });
 
     return { ok: true as const, data };
   } catch (e) {
@@ -499,7 +486,7 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
         ${d.description ?? null},
         ${userId},
         ${d.folderId ?? null},
-        ${d.r2Key ?? null}
+        ${d.r2Key}
       )
       returning
         id,
@@ -586,12 +573,12 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       uploadedByAvatarUrl = tm?.avatarUrl ?? null;
     }
 
+    const key = (row.r2_key ?? d.r2Key).trim();
     const data: FileRow = {
       id: row.id,
       name: row.name,
-      imagekitFileId: d.imagekitFileId || row.r2_key || row.id,
-      imagekitUrl: d.imagekitUrl || "",
-      filePath: d.filePath || row.r2_key || "",
+      r2Key: key,
+      publicFileUrl: publicUrlFromR2Key(key),
       mimeType: row.mime_type,
       sizeBytes: row.size_bytes,
       clientId: row.client_id,
@@ -606,7 +593,6 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       uploadedByAvatarUrl,
       createdAt: row.created_at,
       folderId: row.folder_id ?? null,
-      r2Key: row.r2_key ?? null,
       isPublic: row.is_public ?? false,
       shareToken: row.share_token ?? null,
       shareExpiresAt: row.share_expires_at ?? null,
@@ -1107,7 +1093,7 @@ export async function revokeShareLink(fileId: string) {
 export type SharedFileGuestPayload = {
   id: string;
   name: string;
-  imagekitUrl: string;
+  publicFileUrl: string;
   mimeType: string | null;
   sizeBytes: number | null;
   shareExpiresAt: Date | null;
@@ -1163,7 +1149,7 @@ export async function getFileByShareToken(
       data: {
         id: row.id,
         name: row.name,
-        imagekitUrl: filePublicUrlFromKey(row.r2Key),
+        publicFileUrl: publicUrlFromR2Key(row.r2Key),
         mimeType: row.mimeType,
         sizeBytes: row.sizeBytes,
         shareExpiresAt: row.shareExpiresAt,
@@ -1197,12 +1183,12 @@ function mapFileRowFromJoin(r: {
   uploadedByAvatarUrl: string | null;
   createdAt: Date;
 }): FileRow {
+  const key = r.r2Key?.trim() ?? "";
   return {
     id: r.id,
     name: r.name,
-    imagekitFileId: r.r2Key ?? r.id,
-    imagekitUrl: filePublicUrlFromKey(r.r2Key),
-    filePath: r.r2Key ?? "",
+    r2Key: key,
+    publicFileUrl: publicUrlFromR2Key(r.r2Key),
     mimeType: r.mimeType,
     sizeBytes: r.sizeBytes,
     clientId: r.clientId,
@@ -1217,7 +1203,6 @@ function mapFileRowFromJoin(r: {
     uploadedByAvatarUrl: r.uploadedByAvatarUrl ?? null,
     createdAt: r.createdAt,
     folderId: r.folderId ?? null,
-    r2Key: r.r2Key ?? null,
     isPublic: r.isPublic ?? false,
     shareToken: r.shareToken ?? null,
     shareExpiresAt: r.shareExpiresAt ?? null,

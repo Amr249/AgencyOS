@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Not found", { status: access.status === 403 ? 403 : 404 });
   }
 
-  const raw = access.file.imagekitUrl.trim();
+  const raw = access.file.publicFileUrl.trim();
   let target: URL;
   try {
     target = new URL(raw);

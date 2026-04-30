@@ -208,9 +208,7 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
 
       const createResult = await createFile({
         name: res.name ?? pickedFile.name,
-        imagekitFileId: res.key,
-        imagekitUrl: res.url,
-        filePath: res.key,
+        r2Key: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? pickedFile.size ?? null,
         clientId,
@@ -296,7 +294,7 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
               variant="ghost"
               size="sm"
               className="h-8 gap-1 px-2"
-              onClick={() => handleDownload(d.imagekitUrl, d.name)}
+              onClick={() => handleDownload(d.publicFileUrl, d.name)}
             >
               <Download className="h-3.5 w-3.5" />
               Download
