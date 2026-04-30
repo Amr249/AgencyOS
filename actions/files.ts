@@ -15,6 +15,76 @@ import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, memberIsAssignedToTask } from "@/lib/member-context";
 import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
+import { getDriveFolders } from "@/actions/folders";
+
+export type DriveFolderDirectFileStat = {
+  folderId: string;
+  fileCount: number;
+  totalBytes: number;
+  newestAt: string | null;
+};
+
+/** Folder ids that may appear in agency drive (/drive, /member-drive) for the current user. */
+async function driveViewScopedFolderIdsForUser(): Promise<
+  { ok: true; ids: string[] } | { ok: false; error: string }
+> {
+  const session = await getServerSession(authOptions);
+  const uid = session?.user?.id;
+  if (!uid) return { ok: false, error: "Not authorized" };
+  const role = sessionUserRole(session);
+  if (role === "member") {
+    const accessible = await getMemberAccessibleProjectFolderIds(uid);
+    return { ok: true, ids: Array.from(accessible) };
+  }
+  const tree = await getDriveFolders();
+  if (!tree.ok) {
+    return { ok: false, error: typeof tree.error === "string" ? tree.error : "Failed to load drive folders" };
+  }
+  return { ok: true, ids: tree.data.map((f) => f.id) };
+}
+
+/**
+ * Per-folder file aggregates for drive UI (sidebar counts, folder cards) without loading every file row.
+ */
+export async function getDriveFolderDirectFileStats(): Promise<
+  { ok: true; data: DriveFolderDirectFileStat[] } | { ok: false; error: string; data: [] }
+> {
+  const scope = await driveViewScopedFolderIdsForUser();
+  if (!scope.ok) return { ok: false, error: scope.error, data: [] };
+  if (scope.ids.length === 0) return { ok: true, data: [] };
+  try {
+    const rows = await withDbReadRetry("getDriveFolderDirectFileStats", () =>
+      db
+        .select({
+          folderId: files.folderId,
+          cnt: sql<number>`count(*)::int`,
+          bytes: sql<number>`coalesce(sum(${files.sizeBytes}), 0)::double precision`,
+          newest: sql<Date | null>`max(${files.createdAt})`,
+        })
+        .from(files)
+        .where(
+          and(isNull(files.deletedAt), isNotNull(files.folderId), inArray(files.folderId, scope.ids))
+        )
+        .groupBy(files.folderId)
+    );
+
+    const data: DriveFolderDirectFileStat[] = rows
+      .filter((r) => r.folderId != null)
+      .map((r) => ({
+        folderId: r.folderId!,
+        fileCount: Number(r.cnt ?? 0),
+        totalBytes: Number(r.bytes ?? 0),
+        newestAt: r.newest ? r.newest.toISOString() : null,
+      }));
+    return { ok: true, data };
+  } catch (e) {
+    console.error("getDriveFolderDirectFileStats", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: getDbErrorKey(e), data: [] };
+    }
+    return { ok: false, error: "Failed to load folder file stats", data: [] };
+  }
+}
 
 function fileStorageKey(row: { r2Key: string | null; filePath?: string | null }): string | null {
   const k = row.r2Key?.trim();
@@ -81,6 +151,8 @@ const getFilesSchema = z
     allForUser: z.boolean().optional(),
     /** Drive page full view (admin: all files, member: permitted project files). */
     driveView: z.boolean().optional(),
+    /** Max rows returned (drive queries with huge folders). */
+    takeLimit: z.number().int().min(1).max(10000).optional(),
     /** When `clientId` is set: `general` = Files tab (no document type); `documents` = Documents tab. */
     clientFileScope: z.enum(["general", "documents"]).optional(),
   })
@@ -117,6 +189,9 @@ const getFilesSchema = z
   })
   .refine((d) => !((d.standaloneDrive || d.allForUser) && d.driveView), {
     message: "driveView cannot be combined with standaloneDrive/allForUser",
+  })
+  .refine((d) => d.takeLimit == null || d.driveView === true, {
+    message: "takeLimit is only valid with driveView",
   });
 
 export async function getFiles(params: {
@@ -130,6 +205,7 @@ export async function getFiles(params: {
   standaloneDrive?: boolean;
   allForUser?: boolean;
   driveView?: boolean;
+  takeLimit?: number;
 }) {
   const parsed = getFilesSchema.safeParse(params);
   if (!parsed.success) {
@@ -151,22 +227,20 @@ export async function getFiles(params: {
     standaloneDrive,
     allForUser,
     driveView,
+    takeLimit,
   } = parsed.data;
   try {
     const conditions = [isNull(files.deletedAt)];
 
     if (driveView) {
-      const session = await getServerSession(authOptions);
-      const uid = session?.user?.id ?? null;
-      if (!uid) return { ok: false as const, error: "Not authorized", data: [] as FileRow[] };
-      const role = sessionUserRole(session);
-      if (role === "member") {
-        const accessible = await getMemberAccessibleProjectFolderIds(uid);
-        if (accessible.size === 0) {
-          return { ok: true as const, data: [] as FileRow[] };
-        }
-        conditions.push(inArray(files.folderId, Array.from(accessible)));
+      const scope = await driveViewScopedFolderIdsForUser();
+      if (!scope.ok) {
+        return { ok: false as const, error: scope.error, data: [] as FileRow[] };
       }
+      if (scope.ids.length === 0) {
+        return { ok: true as const, data: [] as FileRow[] };
+      }
+      conditions.push(inArray(files.folderId, scope.ids));
       if (folderId != null) conditions.push(eq(files.folderId, folderId));
     } else if (allForUser) {
       const session = await getServerSession(authOptions);
@@ -245,8 +319,8 @@ export async function getFiles(params: {
       if (expenseId != null) conditions.push(eq(files.expenseId, expenseId));
     }
 
-    const rows = await withDbReadRetry("getFiles.rows", () =>
-      db
+    const rows = await withDbReadRetry("getFiles.rows", () => {
+      const base = db
         .select({
           id: files.id,
           name: files.name,
@@ -272,8 +346,9 @@ export async function getFiles(params: {
         .from(files)
         .leftJoin(teamMembers, eq(teamMembers.userId, files.uploadedBy))
         .where(and(...conditions))
-        .orderBy(desc(files.createdAt))
-    );
+        .orderBy(desc(files.createdAt));
+      return takeLimit != null ? base.limit(takeLimit) : base;
+    });
 
     const data: FileRow[] = rows.map((r) => ({
       id: r.id,
@@ -1206,13 +1281,14 @@ export async function getTotalFilesStorageBytes(input?: { standaloneDrive?: bool
   try {
     const conditions = [isNull(files.deletedAt)];
     if (input?.driveView) {
-      if (sessionUserRole(session) === "member") {
-        const accessible = await getMemberAccessibleProjectFolderIds(session.user.id);
-        if (accessible.size === 0) {
-          return { ok: true as const, total: 0 };
-        }
-        conditions.push(inArray(files.folderId, Array.from(accessible)));
+      const scope = await driveViewScopedFolderIdsForUser();
+      if (!scope.ok) {
+        return { ok: false as const, error: scope.error, total: 0 };
       }
+      if (scope.ids.length === 0) {
+        return { ok: true as const, total: 0 };
+      }
+      conditions.push(inArray(files.folderId, scope.ids));
     } else if (input?.standaloneDrive || input?.allForUser) {
       conditions.push(eq(files.uploadedBy, session.user.id));
     }

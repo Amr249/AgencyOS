@@ -34,10 +34,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { getFiles, createFile, deleteFile, moveFile } from "@/actions/files";
+import {
+  getFiles,
+  createFile,
+  deleteFile,
+  moveFile,
+  getDriveFolderDirectFileStats,
+  type DriveFolderDirectFileStat,
+} from "@/actions/files";
 import {
   getAllFoldersForScope,
   getAllStandaloneFolders,
+  getDriveFolders,
   createFolder,
   renameFolder,
   deleteFolder,
@@ -141,6 +149,77 @@ function collectSubtreeFolderIds(rootId: string, allFolders: FolderRow[]): Set<s
 const FOLDER_ID_PARAM_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Max file rows loaded per open folder on agency drive (avoids huge payloads). */
+const AGENCY_DRIVE_FILES_PAGE_LIMIT = 8000;
+
+type FolderAggregateMaps = {
+  fileCountByFolderId: Map<string, number>;
+  folderSizeBytesByFolderId: Map<string, number>;
+  folderDisplayDateMsByFolderId: Map<string, number>;
+};
+
+/** Sidebar + folder cards: roll up direct per-folder file stats to ancestors (matches all-file scan behavior). */
+function rollUpFolderMetricsFromDirectStats(
+  folderRows: FolderRow[],
+  direct: Map<string, { fileCount: number; totalBytes: number; newestMs: number }>
+): FolderAggregateMaps {
+  const folderById = new Map(folderRows.map((f) => [f.id, f]));
+  const countMap = new Map<string, number>();
+  const sizeMap = new Map<string, number>();
+  const touchMap = new Map<string, number>();
+
+  for (const fo of folderRows) {
+    sizeMap.set(fo.id, 0);
+    const t = new Date(fo.createdAt).getTime();
+    touchMap.set(fo.id, Number.isNaN(t) ? 0 : t);
+  }
+
+  for (const folder of folderRows) {
+    let parentId = folder.parentId ?? null;
+    while (parentId) {
+      countMap.set(parentId, (countMap.get(parentId) ?? 0) + 1);
+      parentId = folderById.get(parentId)?.parentId ?? null;
+    }
+  }
+
+  for (const folder of folderRows) {
+    const d = direct.get(folder.id);
+    if (!d) continue;
+    let cur: string | null = folder.id;
+    while (cur) {
+      countMap.set(cur, (countMap.get(cur) ?? 0) + d.fileCount);
+      sizeMap.set(cur, (sizeMap.get(cur) ?? 0) + d.totalBytes);
+      touchMap.set(cur, Math.max(touchMap.get(cur) ?? 0, d.newestMs));
+      cur = folderById.get(cur)?.parentId ?? null;
+    }
+  }
+
+  const depth = new Map<string, number>();
+  for (const fo of folderRows) {
+    let d = 0;
+    let w: FolderRow | undefined = fo;
+    const guard = new Set<string>();
+    while (w?.parentId && !guard.has(w.id)) {
+      guard.add(w.id);
+      d++;
+      w = folderById.get(w.parentId);
+    }
+    depth.set(fo.id, d);
+  }
+  const sortedByDepth = [...folderRows].sort((a, b) => (depth.get(b.id) ?? 0) - (depth.get(a.id) ?? 0));
+  for (const fo of sortedByDepth) {
+    const p = fo.parentId;
+    if (!p) continue;
+    touchMap.set(p, Math.max(touchMap.get(p) ?? 0, touchMap.get(fo.id) ?? 0));
+  }
+
+  return {
+    fileCountByFolderId: countMap,
+    folderSizeBytesByFolderId: sizeMap,
+    folderDisplayDateMsByFolderId: touchMap,
+  };
+}
+
 export type FileManagerProps = {
   clientId?: string;
   projectId?: string;
@@ -156,6 +235,8 @@ export type FileManagerProps = {
   availableProjects?: { id: string; name: string; iconUrl?: string | null }[];
   availableTeamMembers?: { id: string; name: string; avatarUrl?: string | null }[];
   allowStandaloneRoot?: boolean;
+  /** Agency drive only: lightweight per-folder counts from DB (see getDriveFolderDirectFileStats). */
+  initialDriveFolderDirectStats?: DriveFolderDirectFileStat[];
 };
 
 export function FileManager({
@@ -171,6 +252,7 @@ export function FileManager({
   availableProjects = [],
   availableTeamMembers = [],
   allowStandaloneRoot = true,
+  initialDriveFolderDirectStats,
 }: FileManagerProps) {
   const locale = useLocale();
   const isArabic = locale === "ar";
@@ -213,6 +295,22 @@ export function FileManager({
   const dropZoneRef = React.useRef<HTMLDivElement>(null);
 
   const canUpload = Boolean(clientId || projectId || standalone);
+  const isAgencyStandaloneDrive = standalone && !clientId && !projectId;
+
+  const [driveDirectStats, setDriveDirectStats] = React.useState<DriveFolderDirectFileStat[]>(
+    () => initialDriveFolderDirectStats ?? []
+  );
+  const [agencyDriveListLoading, setAgencyDriveListLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    setDriveDirectStats(initialDriveFolderDirectStats ?? []);
+  }, [initialDriveFolderDirectStats]);
+
+  const refreshDriveFolderStats = React.useCallback(async () => {
+    if (!isAgencyStandaloneDrive) return;
+    const res = await getDriveFolderDirectFileStats();
+    if (res.ok) setDriveDirectStats(res.data);
+  }, [isAgencyStandaloneDrive]);
 
   const navigateToFolder = React.useCallback(
     (id: string | null) => {
@@ -241,8 +339,34 @@ export function FileManager({
   }, [standalone, folderRouteBase, searchParams, initialCurrentFolderId]);
 
   React.useEffect(() => {
+    if (isAgencyStandaloneDrive) return;
     setFiles(initialFiles);
-  }, [initialFiles]);
+  }, [initialFiles, isAgencyStandaloneDrive]);
+
+  React.useEffect(() => {
+    if (!isAgencyStandaloneDrive) return;
+    if (currentFolderId == null) {
+      setFiles([]);
+      setAgencyDriveListLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAgencyDriveListLoading(true);
+    startTransition(async () => {
+      const res = await getFiles({
+        driveView: true,
+        folderId: currentFolderId,
+        takeLimit: AGENCY_DRIVE_FILES_PAGE_LIMIT,
+      });
+      if (!cancelled) {
+        if (res.ok) setFiles(res.data);
+        setAgencyDriveListLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAgencyStandaloneDrive, currentFolderId]);
 
   React.useEffect(() => {
     setFolders(initialFolders);
@@ -250,6 +374,11 @@ export function FileManager({
 
   const refreshFolders = React.useCallback(() => {
     startTransition(async () => {
+      if (standalone && isAgencyStandaloneDrive) {
+        const res = await getDriveFolders();
+        if (res.ok) setFolders(res.data);
+        return;
+      }
       if (standalone) {
         const res = await getAllStandaloneFolders();
         if (res.ok) setFolders(res.data);
@@ -261,7 +390,7 @@ export function FileManager({
       );
       if (res.ok) setFolders(res.data);
     });
-  }, [clientId, projectId, standalone]);
+  }, [clientId, projectId, standalone, isAgencyStandaloneDrive]);
 
   const currentFolder = React.useMemo(
     () => (currentFolderId ? folders.find((f) => f.id === currentFolderId) ?? null : null),
@@ -273,11 +402,23 @@ export function FileManager({
     return folders.filter((f) => (pid == null ? f.parentId == null : f.parentId === pid));
   }, [folders, currentFolderId]);
 
-  const fileCountByFolderId = React.useMemo(() => {
+  const aggregatesFromDriveStats = React.useMemo((): FolderAggregateMaps | null => {
+    if (!isAgencyStandaloneDrive) return null;
+    const direct = new Map<string, { fileCount: number; totalBytes: number; newestMs: number }>();
+    for (const s of driveDirectStats) {
+      direct.set(s.folderId, {
+        fileCount: s.fileCount,
+        totalBytes: s.totalBytes,
+        newestMs: s.newestAt ? Date.parse(s.newestAt) : 0,
+      });
+    }
+    return rollUpFolderMetricsFromDirectStats(folders, direct);
+  }, [isAgencyStandaloneDrive, driveDirectStats, folders]);
+
+  const aggregatesFromFiles = React.useMemo((): FolderAggregateMaps => {
     const m = new Map<string, number>();
     const folderById = new Map(folders.map((f) => [f.id, f]));
 
-    // Count descendant folders as items for every ancestor.
     for (const folder of folders) {
       let parentId = folder.parentId ?? null;
       while (parentId) {
@@ -286,7 +427,6 @@ export function FileManager({
       }
     }
 
-    // Count files for folder and all ancestor folders.
     for (const f of files) {
       if (!f.folderId) continue;
       let cur: string | null = f.folderId;
@@ -295,11 +435,7 @@ export function FileManager({
         cur = folderById.get(cur)?.parentId ?? null;
       }
     }
-    return m;
-  }, [files, folders]);
 
-  const { folderSizeBytesByFolderId, folderDisplayDateMsByFolderId } = React.useMemo(() => {
-    const folderById = new Map(folders.map((f) => [f.id, f]));
     const sizeMap = new Map<string, number>();
     const touchMap = new Map<string, number>();
     for (const fo of folders) {
@@ -338,14 +474,37 @@ export function FileManager({
       if (!p) continue;
       touchMap.set(p, Math.max(touchMap.get(p) ?? 0, touchMap.get(fo.id) ?? 0));
     }
-    return { folderSizeBytesByFolderId: sizeMap, folderDisplayDateMsByFolderId: touchMap };
+    return {
+      fileCountByFolderId: m,
+      folderSizeBytesByFolderId: sizeMap,
+      folderDisplayDateMsByFolderId: touchMap,
+    };
   }, [files, folders]);
+
+  const fileCountByFolderId =
+    aggregatesFromDriveStats?.fileCountByFolderId ?? aggregatesFromFiles.fileCountByFolderId;
+  const folderSizeBytesByFolderId =
+    aggregatesFromDriveStats?.folderSizeBytesByFolderId ?? aggregatesFromFiles.folderSizeBytesByFolderId;
+  const folderDisplayDateMsByFolderId =
+    aggregatesFromDriveStats?.folderDisplayDateMsByFolderId ??
+    aggregatesFromFiles.folderDisplayDateMsByFolderId;
+
+  const directFileCountByFolderIdForTree = React.useMemo((): ReadonlyMap<string, number> | null => {
+    if (!isAgencyStandaloneDrive) return null;
+    const m = new Map<string, number>();
+    for (const s of driveDirectStats) {
+      m.set(s.folderId, s.fileCount);
+    }
+    return m;
+  }, [isAgencyStandaloneDrive, driveDirectStats]);
 
   const filesInScope = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     let list =
       currentFolderId === null
-        ? [...files]
+        ? isAgencyStandaloneDrive
+          ? []
+          : [...files]
         : files.filter((f) => f.folderId === currentFolderId);
 
     if (q.length) {
@@ -368,7 +527,7 @@ export function FileManager({
     });
 
     return list;
-  }, [files, currentFolderId, search, sortKey]);
+  }, [files, currentFolderId, search, sortKey, isAgencyStandaloneDrive]);
 
   const childFoldersFiltered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -751,6 +910,7 @@ export function FileManager({
         if (added.length > 0) {
           setFiles((prev) => [...added, ...prev]);
           router.refresh();
+          if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
           if (isBatch) {
             toast.success(
               isArabic
@@ -774,7 +934,7 @@ export function FileManager({
         }
       }
     },
-    [canUpload, folders, createFolderInScope, uploadOne, router, isArabic]
+    [canUpload, folders, createFolderInScope, uploadOne, router, isArabic, isAgencyStandaloneDrive, refreshDriveFolderStats]
   );
 
   const uploadFiles = React.useCallback(
@@ -857,6 +1017,7 @@ export function FileManager({
       setFiles((prev) => prev.filter((f) => f.id !== id));
       toast.success(isArabic ? "تم حذف الملف." : "File deleted.");
       router.refresh();
+      if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
     } else {
       toast.error(result.error ?? (isArabic ? "فشل الحذف." : "Delete failed."));
     }
@@ -879,6 +1040,7 @@ export function FileManager({
       toast.success(isArabic ? "تم حذف المجلد." : "Folder deleted.");
       refreshFolders();
       router.refresh();
+      if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
     } else {
       toast.error(result.error ?? (isArabic ? "فشل حذف المجلد." : "Delete folder failed."));
     }
@@ -1041,8 +1203,9 @@ export function FileManager({
       setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, folderId: targetFolderId } : f)));
       toast.success(isArabic ? "تم نقل الملف." : "File moved.");
       router.refresh();
+      if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
     },
-    [files, isArabic, router]
+    [files, isArabic, router, isAgencyStandaloneDrive, refreshDriveFolderStats]
   );
 
   const handleMoveFolderToFolder = React.useCallback(
@@ -1072,8 +1235,9 @@ export function FileManager({
       toast.success(isArabic ? "تم نقل المجلد." : "Folder moved.");
       refreshFolders();
       router.refresh();
+      if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
     },
-    [folders, isArabic, router, refreshFolders]
+    [folders, isArabic, router, refreshFolders, isAgencyStandaloneDrive, refreshDriveFolderStats]
   );
 
   const handleCreateFolder = async (input: { name: string; scope: "standalone" | "project"; projectId?: string; accessTeamMemberIds?: string[] }) => {
@@ -1150,6 +1314,7 @@ export function FileManager({
         <FolderTree
           folders={folders}
           files={files}
+          directFileCountByFolderId={directFileCountByFolderIdForTree}
           currentFolderId={currentFolderId}
           onSelectAllFiles={() => navigateToFolder(null)}
           onSelectFolder={(id) => navigateToFolder(id)}
@@ -1353,6 +1518,13 @@ export function FileManager({
                 <div className="rounded-md border bg-card px-4 py-3 text-sm font-medium shadow">
                   {extractingLabel}
                 </div>
+              </div>
+            ) : null}
+            {agencyDriveListLoading && currentFolderId ? (
+              <div className="bg-background/50 absolute inset-0 z-18 flex items-center justify-center rounded-lg">
+                <p className="text-muted-foreground text-sm font-medium">
+                  {isArabic ? "جاري تحميل الملفات…" : "Loading files…"}
+                </p>
               </div>
             ) : null}
 

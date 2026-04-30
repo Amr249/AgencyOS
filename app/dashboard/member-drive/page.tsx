@@ -3,12 +3,15 @@ import { getTranslations } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { getFiles, getTotalFilesStorageBytes } from "@/actions/files";
+import { getDriveFolderDirectFileStats, getTotalFilesStorageBytes } from "@/actions/files";
 import { getDriveFolders } from "@/actions/folders";
 import { getProjects } from "@/actions/projects";
 import { getTeamMembers } from "@/actions/team-members";
 import { FileManager } from "@/components/modules/files/file-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const FOLDER_ID_PARAM_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function formatUsedMb(bytes: number): string {
   if (bytes <= 0) return "0 MB";
@@ -17,14 +20,22 @@ function formatUsedMb(bytes: number): string {
   return `${mb.toFixed(2)} MB`;
 }
 
-export default async function MemberDrivePage() {
+type PageProps = {
+  searchParams: Promise<{ folder?: string }>;
+};
+
+export default async function MemberDrivePage({ searchParams }: PageProps) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect("/login?callbackUrl=/dashboard/member-drive");
   if (sessionUserRole(session) !== "member") redirect("/dashboard/drive");
 
-  const [filesRes, foldersRes, totalRes, projectsRes, teamRes] = await Promise.all([
-    getFiles({ driveView: true }),
+  const sp = await searchParams;
+  const currentFolderId =
+    typeof sp.folder === "string" && FOLDER_ID_PARAM_RE.test(sp.folder) ? sp.folder : undefined;
+
+  const [foldersRes, statsRes, totalRes, projectsRes, teamRes] = await Promise.all([
     getDriveFolders(),
+    getDriveFolderDirectFileStats(),
     getTotalFilesStorageBytes({ driveView: true }),
     getProjects(),
     getTeamMembers(),
@@ -46,8 +57,10 @@ export default async function MemberDrivePage() {
         <FileManager
           standalone
           folderRouteBase="/dashboard/member-drive"
-          initialFiles={filesRes.ok ? filesRes.data : []}
+          initialFiles={[]}
           initialFolders={foldersRes.ok ? foldersRes.data : []}
+          currentFolderId={currentFolderId}
+          initialDriveFolderDirectStats={statsRes.ok ? statsRes.data : []}
           availableProjects={availableProjects}
           availableTeamMembers={teamRes.ok ? teamRes.data : []}
           allowStandaloneRoot={false}

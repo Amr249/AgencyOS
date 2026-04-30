@@ -57,6 +57,8 @@ type TreeBranchProps = {
   depth: number;
   childrenMap: Map<string | null, FolderRow[]>;
   files: FileRow[];
+  /** When set (agency drive), badge counts use DB aggregates instead of scanning `files`. */
+  directFileCountByFolderId?: ReadonlyMap<string, number> | null;
   expanded: Set<string>;
   toggle: (id: string) => void;
   currentFolderId: string | null;
@@ -80,6 +82,7 @@ function TreeBranch({
   depth,
   childrenMap,
   files,
+  directFileCountByFolderId,
   expanded,
   toggle,
   currentFolderId,
@@ -100,7 +103,8 @@ function TreeBranch({
   const children = childrenMap.get(folder.id) ?? [];
   const isOpen = expanded.has(folder.id);
   const isActive = currentFolderId === folder.id;
-  const count = countFilesInFolder(folder.id, files);
+  const count =
+    directFileCountByFolderId?.get(folder.id) ?? countFilesInFolder(folder.id, files);
   const isDropTarget = dropTargetFolderId === folder.id;
   const isDraggingThisFolder = draggingFolderId === folder.id;
 
@@ -222,6 +226,7 @@ function TreeBranch({
               depth={depth + 1}
               childrenMap={childrenMap}
               files={files}
+              directFileCountByFolderId={directFileCountByFolderId}
               expanded={expanded}
               toggle={toggle}
               currentFolderId={currentFolderId}
@@ -249,6 +254,7 @@ function TreeBranch({
 type FolderTreeProps = {
   folders: FolderRow[];
   files: FileRow[];
+  directFileCountByFolderId?: ReadonlyMap<string, number> | null;
   currentFolderId: string | null;
   onSelectAllFiles: () => void;
   onSelectFolder: (id: string) => void;
@@ -274,6 +280,7 @@ type FolderTreeProps = {
 export function FolderTree({
   folders,
   files,
+  directFileCountByFolderId = null,
   currentFolderId,
   onSelectAllFiles,
   onSelectFolder,
@@ -352,6 +359,7 @@ export function FolderTree({
               depth={0}
               childrenMap={childrenMap}
               files={files}
+              directFileCountByFolderId={directFileCountByFolderId}
               expanded={expanded}
               toggle={toggle}
               currentFolderId={currentFolderId}

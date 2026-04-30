@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { getFiles, getTotalFilesStorageBytes } from "@/actions/files";
+import { getDriveFolderDirectFileStats, getTotalFilesStorageBytes } from "@/actions/files";
 import { getDriveFolders } from "@/actions/folders";
 import { getProjects } from "@/actions/projects";
 import { getTeamMembers } from "@/actions/team-members";
@@ -55,15 +55,14 @@ export default async function DrivePage({ searchParams }: Props) {
   const isMember = role === "member";
   const driveUploadPathPrefix = `drive/user/${userId}`;
 
-  const [filesRes, foldersRes, totalRes, projectsRes, teamRes] = await Promise.all([
-    getFiles({ driveView: true }),
+  const [foldersRes, statsRes, totalRes, projectsRes, teamRes] = await Promise.all([
     getDriveFolders(),
+    getDriveFolderDirectFileStats(),
     getTotalFilesStorageBytes({ driveView: true }),
     getProjects(),
     getTeamMembers(),
   ]);
 
-  const initialFiles = filesRes.ok ? filesRes.data : [];
   const initialFolders = foldersRes.ok ? foldersRes.data : [];
   const usedBytes = totalRes.ok ? totalRes.total : 0;
   const availableProjects = projectsRes.ok
@@ -90,9 +89,10 @@ export default async function DrivePage({ searchParams }: Props) {
             standalone
             folderRouteBase="/dashboard/drive"
             driveUploadPathPrefix={driveUploadPathPrefix}
-            initialFiles={initialFiles}
+            initialFiles={[]}
             initialFolders={initialFolders}
             currentFolderId={currentFolderId}
+            initialDriveFolderDirectStats={statsRes.ok ? statsRes.data : []}
             availableProjects={availableProjects}
             availableTeamMembers={availableTeamMembers}
             allowStandaloneRoot={!isMember}
