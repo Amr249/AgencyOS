@@ -10,7 +10,13 @@ type FileGridProps = {
   childFolders: FolderRow[];
   files: FileRow[];
   fileCountByFolderId: Map<string, number>;
+  folderSizeBytesByFolderId: Map<string, number>;
+  folderDisplayDateMsByFolderId: Map<string, number>;
   onOpenFolder: (id: string) => void;
+  onRenameFolder: (folder: FolderRow) => void;
+  onDeleteFolder: (folder: FolderRow) => void;
+  onShareFolder: (folder: FolderRow) => void;
+  onAccessFolder: (folder: FolderRow) => void;
   onOpenFile: (file: FileRow) => void;
   onDownload: (url: string, name: string) => void;
   onCopyLink: (url: string) => void;
@@ -27,7 +33,13 @@ export function FileGrid({
   childFolders,
   files,
   fileCountByFolderId,
+  folderSizeBytesByFolderId,
+  folderDisplayDateMsByFolderId,
   onOpenFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onShareFolder,
+  onAccessFolder,
   onOpenFile,
   onDownload,
   onCopyLink,
@@ -49,9 +61,19 @@ export function FileGrid({
       {childFolders.map((f) => (
         <FolderCard
           key={f.id}
-          name={f.name}
+          folder={f}
           itemCount={fileCountByFolderId.get(f.id) ?? 0}
+          totalBytes={folderSizeBytesByFolderId.get(f.id) ?? 0}
+          displayDateMs={
+            folderDisplayDateMsByFolderId.get(f.id) ?? new Date(f.createdAt).getTime()
+          }
           onOpen={() => onOpenFolder(f.id)}
+          onRename={onRenameFolder}
+          onDelete={onDeleteFolder}
+          onShare={onShareFolder}
+          onAccess={onAccessFolder}
+          formatSize={formatSize}
+          formatDate={formatDate}
         />
       ))}
       {files.map((file) => (

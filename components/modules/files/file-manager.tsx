@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import { toast } from "sonner";
-import { ChevronRight, Grid3x3, List, Search, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, Grid3x3, List, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -54,6 +54,7 @@ import { FolderTree } from "@/components/modules/files/folder-tree";
 import { FileGrid } from "@/components/modules/files/file-grid";
 import { FileListView } from "@/components/modules/files/file-list-view";
 import { CreateFolderDialog } from "@/components/modules/files/create-folder-dialog";
+import { RenameFolderDialog } from "@/components/modules/files/rename-folder-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -77,7 +78,8 @@ function formatDateSafe(value: Date | string | null | undefined): string {
 }
 
 function formatSize(bytes: number | null | undefined): string {
-  if (bytes == null || bytes === 0) return "—";
+  if (bytes == null) return "—";
+  if (bytes === 0) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -190,6 +192,8 @@ export function FileManager({
   const [accessBusy, setAccessBusy] = React.useState(false);
   const [shareFolder, setShareFolder] = React.useState<FolderRow | null>(null);
   const [shareBusy, setShareBusy] = React.useState(false);
+  const [renameFolderTarget, setRenameFolderTarget] = React.useState<FolderRow | null>(null);
+  const [renameFolderBusy, setRenameFolderBusy] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const folderInputRef = React.useRef<HTMLInputElement>(null);
   const zipInputRef = React.useRef<HTMLInputElement>(null);
@@ -258,12 +262,71 @@ export function FileManager({
 
   const fileCountByFolderId = React.useMemo(() => {
     const m = new Map<string, number>();
+    const folderById = new Map(folders.map((f) => [f.id, f]));
+
+    // Count descendant folders as items for every ancestor.
+    for (const folder of folders) {
+      let parentId = folder.parentId ?? null;
+      while (parentId) {
+        m.set(parentId, (m.get(parentId) ?? 0) + 1);
+        parentId = folderById.get(parentId)?.parentId ?? null;
+      }
+    }
+
+    // Count files for folder and all ancestor folders.
     for (const f of files) {
       if (!f.folderId) continue;
-      m.set(f.folderId, (m.get(f.folderId) ?? 0) + 1);
+      let cur: string | null = f.folderId;
+      while (cur) {
+        m.set(cur, (m.get(cur) ?? 0) + 1);
+        cur = folderById.get(cur)?.parentId ?? null;
+      }
     }
     return m;
-  }, [files]);
+  }, [files, folders]);
+
+  const { folderSizeBytesByFolderId, folderDisplayDateMsByFolderId } = React.useMemo(() => {
+    const folderById = new Map(folders.map((f) => [f.id, f]));
+    const sizeMap = new Map<string, number>();
+    const touchMap = new Map<string, number>();
+    for (const fo of folders) {
+      sizeMap.set(fo.id, 0);
+      const t = new Date(fo.createdAt).getTime();
+      touchMap.set(fo.id, Number.isNaN(t) ? 0 : t);
+    }
+    for (const file of files) {
+      if (!file.folderId) continue;
+      const sz = file.sizeBytes != null ? Number(file.sizeBytes) : 0;
+      const ft = new Date(file.createdAt).getTime();
+      let cur: string | null = file.folderId;
+      while (cur) {
+        sizeMap.set(cur, (sizeMap.get(cur) ?? 0) + sz);
+        if (!Number.isNaN(ft)) {
+          touchMap.set(cur, Math.max(touchMap.get(cur) ?? 0, ft));
+        }
+        cur = folderById.get(cur)?.parentId ?? null;
+      }
+    }
+    const depth = new Map<string, number>();
+    for (const fo of folders) {
+      let d = 0;
+      let w: FolderRow | undefined = fo;
+      const guard = new Set<string>();
+      while (w?.parentId && !guard.has(w.id)) {
+        guard.add(w.id);
+        d++;
+        w = folderById.get(w.parentId);
+      }
+      depth.set(fo.id, d);
+    }
+    const sortedByDepth = [...folders].sort((a, b) => (depth.get(b.id) ?? 0) - (depth.get(a.id) ?? 0));
+    for (const fo of sortedByDepth) {
+      const p = fo.parentId;
+      if (!p) continue;
+      touchMap.set(p, Math.max(touchMap.get(p) ?? 0, touchMap.get(fo.id) ?? 0));
+    }
+    return { folderSizeBytesByFolderId: sizeMap, folderDisplayDateMsByFolderId: touchMap };
+  }, [files, folders]);
 
   const filesInScope = React.useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -299,6 +362,30 @@ export function FileManager({
     if (!q.length) return childFolders;
     return childFolders.filter((f) => f.name.toLowerCase().includes(q));
   }, [childFolders, search]);
+
+  const childFoldersSorted = React.useMemo(() => {
+    const list = [...childFoldersFiltered];
+    const dir = sortKey === "name" ? 1 : -1;
+    list.sort((a, b) => {
+      if (sortKey === "name") {
+        return dir * a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      }
+      if (sortKey === "size") {
+        const sa = folderSizeBytesByFolderId.get(a.id) ?? 0;
+        const sb = folderSizeBytesByFolderId.get(b.id) ?? 0;
+        return dir * (sa - sb);
+      }
+      const ta = folderDisplayDateMsByFolderId.get(a.id) ?? new Date(a.createdAt).getTime();
+      const tb = folderDisplayDateMsByFolderId.get(b.id) ?? new Date(b.createdAt).getTime();
+      return dir * (ta - tb);
+    });
+    return list;
+  }, [
+    childFoldersFiltered,
+    sortKey,
+    folderSizeBytesByFolderId,
+    folderDisplayDateMsByFolderId,
+  ]);
 
   const crumbs = React.useMemo(
     () => breadcrumbsForFolder(folders, currentFolderId),
@@ -817,16 +904,37 @@ export function FileManager({
     }
   };
 
-  const handleRenameFolder = async (id: string, name: string) => {
+  const handleRenameFolder = async (id: string, name: string): Promise<boolean> => {
     const res = await renameFolder(id, name);
     if (res.ok && res.data) {
       setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name: res.data!.name } : f)));
       toast.success(isArabic ? "تم تحديث الاسم." : "Name updated.");
       router.refresh();
-    } else {
-      toast.error(isArabic ? "فشلت إعادة التسمية." : "Rename failed.");
+      return true;
     }
+    toast.error(isArabic ? "فشلت إعادة التسمية." : "Rename failed.");
+    return false;
   };
+
+  const openFolderAccessFlow = React.useCallback(
+    (folder: FolderRow) => {
+      if (!folder.projectId) {
+        toast.info(
+          isArabic ? "صلاحيات الوصول مخصصة لمجلدات المشاريع." : "Access control is for project folders."
+        );
+        return;
+      }
+      void (async () => {
+        setAccessBusy(true);
+        setAccessFolder(folder);
+        const res = await getFolderAccess(folder.id);
+        if (res.ok) setAccessMemberIds(res.data);
+        else setAccessMemberIds([]);
+        setAccessBusy(false);
+      })();
+    },
+    [isArabic]
+  );
 
   const empty =
     childFoldersFiltered.length === 0 && filesInScope.length === 0 && uploadQueue.length === 0;
@@ -841,20 +949,9 @@ export function FileManager({
           onSelectAllFiles={() => navigateToFolder(null)}
           onSelectFolder={(id) => navigateToFolder(id)}
           onCreateFolder={() => setCreateFolderOpen(true)}
-          onRenameFolder={handleRenameFolder}
+          onRenameFolderRequest={(f) => setRenameFolderTarget(f)}
           onDeleteFolderRequest={(f) => setDeleteFolderTarget(f)}
-          onFolderAccessRequest={async (folder) => {
-            if (!folder.projectId) {
-              toast.info(isArabic ? "صلاحيات الوصول مخصصة لمجلدات المشاريع." : "Access control is for project folders.");
-              return;
-            }
-            setAccessBusy(true);
-            setAccessFolder(folder);
-            const res = await getFolderAccess(folder.id);
-            if (res.ok) setAccessMemberIds(res.data);
-            else setAccessMemberIds([]);
-            setAccessBusy(false);
-          }}
+          onFolderAccessRequest={openFolderAccessFlow}
           onFolderShareRequest={(folder) => {
             setShareFolder(folder);
           }}
@@ -874,7 +971,7 @@ export function FileManager({
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <Breadcrumb>
+            <Breadcrumb dir={isArabic ? "rtl" : "ltr"}>
               <BreadcrumbList className="flex-wrap">
                 <BreadcrumbItem>
                   <BreadcrumbLink asChild>
@@ -890,7 +987,11 @@ export function FileManager({
                 {crumbs.map((c) => (
                   <React.Fragment key={c.id}>
                     <BreadcrumbSeparator>
-                      <ChevronRight className="size-3.5" />
+                      {isArabic ? (
+                        <ChevronLeft className="size-3.5" />
+                      ) : (
+                        <ChevronRight className="size-3.5" />
+                      )}
                     </BreadcrumbSeparator>
                     <BreadcrumbItem>
                       {c.id === currentFolderId ? (
@@ -1054,10 +1155,16 @@ export function FileManager({
               </div>
             ) : viewMode === "grid" ? (
               <FileGrid
-                childFolders={childFoldersFiltered}
+                childFolders={childFoldersSorted}
                 files={filesInScope}
                 fileCountByFolderId={fileCountByFolderId}
+                folderSizeBytesByFolderId={folderSizeBytesByFolderId}
+                folderDisplayDateMsByFolderId={folderDisplayDateMsByFolderId}
                 onOpenFolder={(id) => navigateToFolder(id)}
+                onRenameFolder={(f) => setRenameFolderTarget(f)}
+                onDeleteFolder={(f) => setDeleteFolderTarget(f)}
+                onShareFolder={(f) => setShareFolder(f)}
+                onAccessFolder={openFolderAccessFlow}
                 onOpenFile={setPreviewFile}
                 onDownload={handleDownload}
                 onCopyLink={handleCopyLink}
@@ -1077,10 +1184,16 @@ export function FileManager({
               />
             ) : (
               <FileListView
-                childFolders={childFoldersFiltered}
+                childFolders={childFoldersSorted}
                 files={filesInScope}
                 fileCountByFolderId={fileCountByFolderId}
+                folderSizeBytesByFolderId={folderSizeBytesByFolderId}
+                folderDisplayDateMsByFolderId={folderDisplayDateMsByFolderId}
                 onOpenFolder={(id) => navigateToFolder(id)}
+                onRenameFolder={(f) => setRenameFolderTarget(f)}
+                onDeleteFolder={(f) => setDeleteFolderTarget(f)}
+                onShareFolder={(f) => setShareFolder(f)}
+                onAccessFolder={openFolderAccessFlow}
                 onOpenFile={setPreviewFile}
                 onDownload={handleDownload}
                 onCopyLink={handleCopyLink}
@@ -1143,6 +1256,25 @@ export function FileManager({
         availableTeamMembers={availableTeamMembers}
         allowStandaloneRoot={allowStandaloneRoot}
         onSubmit={handleCreateFolder}
+      />
+
+      <RenameFolderDialog
+        open={!!renameFolderTarget}
+        initialName={renameFolderTarget?.name ?? ""}
+        busy={renameFolderBusy}
+        onOpenChange={(open) => {
+          if (!open) setRenameFolderTarget(null);
+        }}
+        onSave={async (name) => {
+          if (!renameFolderTarget) return;
+          setRenameFolderBusy(true);
+          try {
+            const ok = await handleRenameFolder(renameFolderTarget.id, name);
+            if (ok) setRenameFolderTarget(null);
+          } finally {
+            setRenameFolderBusy(false);
+          }
+        }}
       />
 
       <Dialog open={!!accessFolder} onOpenChange={(open) => !open && setAccessFolder(null)}>

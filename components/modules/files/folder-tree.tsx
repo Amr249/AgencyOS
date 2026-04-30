@@ -21,14 +21,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 function buildChildrenMap(rows: FolderRow[]): Map<string | null, FolderRow[]> {
@@ -201,7 +193,7 @@ type FolderTreeProps = {
   onSelectAllFiles: () => void;
   onSelectFolder: (id: string) => void;
   onCreateFolder: () => void;
-  onRenameFolder: (id: string, name: string) => Promise<void>;
+  onRenameFolderRequest: (folder: FolderRow) => void;
   onDeleteFolderRequest: (folder: FolderRow) => void;
   onFolderAccessRequest: (folder: FolderRow) => void;
   onFolderShareRequest: (folder: FolderRow) => void;
@@ -222,7 +214,7 @@ export function FolderTree({
   onSelectAllFiles,
   onSelectFolder,
   onCreateFolder,
-  onRenameFolder,
+  onRenameFolderRequest,
   onDeleteFolderRequest,
   onFolderAccessRequest,
   onFolderShareRequest,
@@ -238,9 +230,6 @@ export function FolderTree({
   const childrenMap = React.useMemo(() => buildChildrenMap(folders), [folders]);
   const roots = childrenMap.get(null) ?? [];
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
-  const [renameTarget, setRenameTarget] = React.useState<FolderRow | null>(null);
-  const [renameValue, setRenameValue] = React.useState("");
-  const [renameBusy, setRenameBusy] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
   const toggle = React.useCallback((id: string) => {
@@ -265,24 +254,6 @@ export function FolderTree({
       });
     }
   }, [currentFolderId, folders]);
-
-  const openRename = (f: FolderRow) => {
-    setRenameTarget(f);
-    setRenameValue(f.name);
-  };
-
-  const submitRename = async () => {
-    if (!renameTarget) return;
-    const name = renameValue.trim();
-    if (!name) return;
-    setRenameBusy(true);
-    try {
-      await onRenameFolder(renameTarget.id, name);
-      setRenameTarget(null);
-    } finally {
-      setRenameBusy(false);
-    }
-  };
 
   const treeBody = (
     <>
@@ -319,7 +290,7 @@ export function FolderTree({
                 onSelectFolder(id);
                 setMobileOpen(false);
               }}
-              onRenameRequest={openRename}
+              onRenameRequest={onRenameFolderRequest}
               onDeleteRequest={onDeleteFolderRequest}
               onAccessRequest={onFolderAccessRequest}
               onShareRequest={onFolderShareRequest}
@@ -405,22 +376,6 @@ export function FolderTree({
         </aside>
       )}
 
-      <Dialog open={!!renameTarget} onOpenChange={(o) => !o && setRenameTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{isArabic ? "إعادة تسمية المجلد" : "Rename folder"}</DialogTitle>
-          </DialogHeader>
-          <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={renameBusy}>
-              {isArabic ? "إلغاء" : "Cancel"}
-            </Button>
-            <Button type="button" onClick={submitRename} disabled={renameBusy}>
-              {renameBusy ? (isArabic ? "جاري الحفظ…" : "Saving...") : isArabic ? "حفظ" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

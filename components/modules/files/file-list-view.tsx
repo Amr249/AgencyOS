@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Link as LinkIcon, Share2, Trash2 } from "lucide-react";
+import { Download, Folder, Link as LinkIcon, Pencil, Share2, Trash2, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 import type { FileRow } from "@/lib/file-types";
 import type { FolderRow } from "@/actions/folders";
@@ -15,14 +15,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
-import { Folder } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type FileListViewProps = {
   childFolders: FolderRow[];
   files: FileRow[];
   fileCountByFolderId: Map<string, number>;
+  folderSizeBytesByFolderId: Map<string, number>;
+  folderDisplayDateMsByFolderId: Map<string, number>;
   onOpenFolder: (id: string) => void;
+  onRenameFolder: (folder: FolderRow) => void;
+  onDeleteFolder: (folder: FolderRow) => void;
+  onShareFolder: (folder: FolderRow) => void;
+  onAccessFolder: (folder: FolderRow) => void;
   onOpenFile: (file: FileRow) => void;
   onDownload: (url: string, name: string) => void;
   onCopyLink: (url: string) => void;
@@ -63,7 +68,13 @@ export function FileListView({
   childFolders,
   files,
   fileCountByFolderId,
+  folderSizeBytesByFolderId,
+  folderDisplayDateMsByFolderId,
   onOpenFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onShareFolder,
+  onAccessFolder,
   onOpenFile,
   onDownload,
   onCopyLink,
@@ -93,30 +104,90 @@ export function FileListView({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {childFolders.map((f) => (
-            <TableRow
-              key={f.id}
-              className="cursor-pointer"
-              onClick={() => onOpenFolder(f.id)}
-            >
-              <TableCell>
-                <div className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 flex size-9 items-center justify-center rounded-md">
-                  <Folder className="size-4" />
-                </div>
-              </TableCell>
-              <TableCell className="font-medium">{f.name}</TableCell>
-              <TableCell className="text-muted-foreground hidden sm:table-cell">—</TableCell>
-              <TableCell className="text-muted-foreground hidden md:table-cell">—</TableCell>
-              <TableCell className="hidden lg:table-cell">
-                {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
-              </TableCell>
-              <TableCell className="text-end">
-                <Button type="button" size="sm" variant="ghost" onClick={() => onOpenFolder(f.id)}>
-                  {isArabic ? "فتح" : "Open"}
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
+          {childFolders.map((f) => {
+            const totalBytes = folderSizeBytesByFolderId.get(f.id) ?? 0;
+            const displayMs =
+              folderDisplayDateMsByFolderId.get(f.id) ?? new Date(f.createdAt).getTime();
+            return (
+              <TableRow
+                key={f.id}
+                className="cursor-pointer"
+                onClick={() => onOpenFolder(f.id)}
+              >
+                <TableCell>
+                  <div className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 flex size-9 items-center justify-center rounded-md">
+                    <Folder className="size-4" />
+                  </div>
+                </TableCell>
+                <TableCell className="font-medium">{f.name}</TableCell>
+                <TableCell className="text-muted-foreground hidden sm:table-cell">
+                  {formatSize(totalBytes)}
+                </TableCell>
+                <TableCell className="text-muted-foreground hidden md:table-cell">
+                  {formatDate(new Date(displayMs))}
+                </TableCell>
+                <TableCell className="hidden lg:table-cell">
+                  {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
+                </TableCell>
+                <TableCell className="text-end">
+                  <div className="flex flex-wrap justify-end gap-0.5">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-8"
+                      aria-label={isArabic ? "مشاركة" : "Share"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onShareFolder(f);
+                      }}
+                    >
+                      <Share2 className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-8"
+                      aria-label={isArabic ? "صلاحيات" : "Access"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAccessFolder(f);
+                      }}
+                    >
+                      <Users className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-8"
+                      aria-label={isArabic ? "إعادة تسمية" : "Rename"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRenameFolder(f);
+                      }}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="text-destructive size-8"
+                      aria-label={isArabic ? "حذف" : "Delete"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteFolder(f);
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
           {files.map((file) => (
             <TableRow
               key={file.id}
@@ -124,18 +195,7 @@ export function FileListView({
               draggable={!!onDragFileStart}
               onDragStart={(e) => onDragFileStart?.(file, e)}
               onDragEnd={() => onDragFileEnd?.()}
-              onClick={() => {
-                const k = getFileVisualKind(file.name, file.mimeType);
-                if (k === "pdf") {
-                  window.open(file.imagekitUrl, "_blank", "noopener,noreferrer");
-                  return;
-                }
-                if (k === "design" || k === "office" || k === "archive" || k === "audio") {
-                  onDownload(file.imagekitUrl, file.name);
-                  return;
-                }
-                onOpenFile(file);
-              }}
+              onClick={() => onOpenFile(file)}
             >
               <TableCell>
                 <FileTypeIcon name={file.name} mimeType={file.mimeType} compact />
