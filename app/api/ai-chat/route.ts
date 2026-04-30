@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { assertAdminSession } from "@/lib/auth-helpers";
 import { AI_CHAT_SYSTEM_PROMPT } from "@/lib/ai-chat/ai-system-prompt";
-import { buildBusinessContext } from "@/lib/ai-chat/business-retrieval";
+import { getContextForQuestion } from "@/actions/ai-context";
 import { getLastUserText, type OpenRouterChatMessage } from "@/lib/ai-chat/extract-user-text";
 import { extendMessagesWithOpenRouterToolRound } from "@/lib/ai-chat/openrouter-agent-loop";
 import { enrichMessagesWithPdfText } from "@/lib/ai-chat/enrich-messages-with-pdf-text";
@@ -70,9 +70,9 @@ export async function POST(req: NextRequest) {
   const lastUser = getLastUserText(messagesWithPdfText);
   let businessContext = "";
   try {
-    businessContext = await buildBusinessContext(lastUser);
+    businessContext = await getContextForQuestion(lastUser);
   } catch (e) {
-    console.error("ai-chat business retrieval", e);
+    console.error("ai-chat agency context", e);
   }
 
   const systemAndContext: OpenRouterChatMessage[] = [

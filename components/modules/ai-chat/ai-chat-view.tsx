@@ -99,6 +99,18 @@ type ModelRow = {
   iconSrc: string;
 };
 
+const AI_CHAT_SUGGESTION_POOL = [
+  "How much revenue did we make this month?",
+  "What are the overdue tasks?",
+  "Show me all outstanding invoices",
+  "How many active projects do we have?",
+  "What did we spend on software this year?",
+  "Which client has the highest revenue?",
+  "كم عدد المشاريع النشطة؟",
+  "ما هي المهام المتأخرة؟",
+  "كم إيراداتنا هذا الشهر؟",
+] as const;
+
 export const OPENROUTER_MODELS: ModelRow[] = [
   {
     id: "tencent/hy3-preview:free",
@@ -225,6 +237,16 @@ export function AiChatView() {
 
   const [ttsMessageIndex, setTtsMessageIndex] = React.useState<number | null>(null);
   const ttsLang = React.useMemo(() => synthesisLangFromLocale(locale), [locale]);
+
+  const [heroSuggestions] = React.useState(() => {
+    const pool = [...AI_CHAT_SUGGESTION_POOL];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+    }
+    const n = 4 + Math.floor(Math.random() * 3);
+    return pool.slice(0, n);
+  });
 
   const [callMode, setCallMode] = React.useState(false);
   const [callListening, setCallListening] = React.useState(false);
@@ -653,6 +675,23 @@ export function AiChatView() {
                 <p className="text-muted-foreground mt-8 max-w-md text-center text-lg font-medium tracking-tight sm:text-xl">
                   {t("heroAssist")}
                 </p>
+                <div className="mt-6 flex max-w-xl flex-wrap justify-center gap-2">
+                  {heroSuggestions.map((suggestion) => (
+                    <Button
+                      key={suggestion}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-auto max-w-full rounded-full px-3 py-2 text-start text-xs font-normal whitespace-normal sm:text-sm"
+                      disabled={streaming}
+                      onClick={() => {
+                        void sendMessage(suggestion);
+                      }}
+                    >
+                      {suggestion}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (
