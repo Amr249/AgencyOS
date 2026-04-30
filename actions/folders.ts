@@ -513,6 +513,36 @@ export async function setFolderAccess(folderId: string, teamMemberIds: string[])
   }
 }
 
+export async function getFolderAccess(folderId: string) {
+  const parsed = z.string().uuid().safeParse(folderId);
+  if (!parsed.success) return { ok: false as const, error: "Invalid folder id", data: [] as string[] };
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false as const, error: "Not authorized", data: [] as string[] };
+  const role = sessionUserRole(session);
+  try {
+    const [folder] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
+    if (!folder) return { ok: false as const, error: "Folder not found", data: [] as string[] };
+    if (role === "member") {
+      const allowed = await getMemberProjectIdsForUser(userId);
+      if (!folder.projectId || !allowed.includes(folder.projectId)) {
+        return { ok: false as const, error: "Forbidden", data: [] as string[] };
+      }
+    }
+    const rows = await db
+      .select({ teamMemberId: folderAccess.teamMemberId })
+      .from(folderAccess)
+      .where(eq(folderAccess.folderId, folder.id));
+    return { ok: true as const, data: rows.map((r) => r.teamMemberId) };
+  } catch (e) {
+    console.error("getFolderAccess", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e), data: [] as string[] };
+    }
+    return { ok: false as const, error: "Failed", data: [] as string[] };
+  }
+}
+
 export async function getFolderByShareToken(token: string) {
   const t = token.trim();
   if (!t || t.length < 8) return { ok: false as const, reason: "invalid" as const };

@@ -12,3 +12,7 @@ export function publicAppBaseUrl(): string {
 export function sharePageUrl(token: string): string {
   return `${publicAppBaseUrl()}/share/${encodeURIComponent(token)}`;
 }
+
+export function folderSharePageUrl(token: string): string {
+  return `${publicAppBaseUrl()}/share/folder/${encodeURIComponent(token)}`;
+}

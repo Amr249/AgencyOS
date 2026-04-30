@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import JSZip from "jszip";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import { toast } from "sonner";
@@ -39,17 +40,23 @@ import {
   createFolder,
   renameFolder,
   deleteFolder,
+  getFolderAccess,
+  setFolderAccess,
   toggleFolderPublic,
   type FolderRow,
 } from "@/actions/folders";
 import type { FileRow } from "@/lib/file-types";
 import { driveEntityPathFromFolder } from "@/lib/drive-upload-path";
+import { folderSharePageUrl } from "@/lib/public-app-url";
 import { FilePreviewModal } from "@/components/modules/files/file-preview-modal";
 import { FileShareDialog } from "@/components/modules/files/file-share-dialog";
 import { FolderTree } from "@/components/modules/files/folder-tree";
 import { FileGrid } from "@/components/modules/files/file-grid";
 import { FileListView } from "@/components/modules/files/file-list-view";
 import { CreateFolderDialog } from "@/components/modules/files/create-folder-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
 export type FileRecord = FileRow;
@@ -177,7 +184,14 @@ export function FileManager({
   const [dragDepth, setDragDepth] = React.useState(0);
   const [draggingFileId, setDraggingFileId] = React.useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = React.useState<string | null>(null);
+  const [accessFolder, setAccessFolder] = React.useState<FolderRow | null>(null);
+  const [accessMemberIds, setAccessMemberIds] = React.useState<string[]>([]);
+  const [accessBusy, setAccessBusy] = React.useState(false);
+  const [shareFolder, setShareFolder] = React.useState<FolderRow | null>(null);
+  const [shareBusy, setShareBusy] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
+  const zipInputRef = React.useRef<HTMLInputElement>(null);
   const dropZoneRef = React.useRef<HTMLDivElement>(null);
 
   const canUpload = Boolean(clientId || projectId || standalone);
@@ -290,13 +304,37 @@ export function FileManager({
     [folders, currentFolderId]
   );
 
+  const createFolderInScope = React.useCallback(
+    async (name: string, parentId: string | null): Promise<FolderRow | null> => {
+      const res = standalone
+        ? await createFolder({
+            name,
+            parentId,
+            ...(parentId
+              ? {}
+              : { standaloneRoot: true as const }),
+          })
+        : await createFolder({
+            name,
+            parentId,
+            clientId: clientId ?? undefined,
+            projectId: projectId ?? undefined,
+          });
+      if (!res.ok || !res.data) return null;
+      setFolders((prev) => [...prev, res.data]);
+      return res.data;
+    },
+    [standalone, clientId, projectId]
+  );
+
   const uploadOne = React.useCallback(
-    async (file: globalThis.File, key: string): Promise<FileRow | null> => {
+    async (file: globalThis.File, key: string, targetFolderId: string | null): Promise<FileRow | null> => {
       if (!canUpload) return null;
       setUploadProgress((prev) => ({ ...prev, [key]: 0 }));
 
+      const targetFolder = targetFolderId ? folders.find((f) => f.id === targetFolderId) ?? null : null;
       const drivePath = driveEntityPathFromFolder(
-        currentFolder,
+        targetFolder ?? currentFolder,
         clientId,
         projectId,
         driveUploadPathPrefix
@@ -360,7 +398,7 @@ export function FileManager({
           sizeBytes: res.size ?? file.size ?? null,
           clientId: standalone ? null : clientId ?? null,
           projectId: standalone ? null : projectId ?? null,
-          folderId: currentFolderId ?? undefined,
+          folderId: targetFolderId ?? undefined,
         });
 
         if (createResult.ok && createResult.data) {
@@ -384,16 +422,55 @@ export function FileManager({
         return null;
       }
     },
-    [canUpload, clientId, projectId, currentFolder, currentFolderId, standalone, driveUploadPathPrefix]
+    [canUpload, clientId, projectId, folders, currentFolder, standalone, driveUploadPathPrefix]
   );
 
-  const uploadFiles = React.useCallback(
-    async (fileList: globalThis.File[]) => {
-      if (!canUpload || fileList.length === 0) return;
+  type UploadEntry = { file: globalThis.File; relativePath: string };
+
+  const uploadEntries = React.useCallback(
+    async (entries: UploadEntry[], rootFolderId: string | null) => {
+      if (!canUpload || entries.length === 0) return;
+      const folderMap = new Map<string, string | null>();
+      folderMap.set("", rootFolderId);
+
+      const ensurePath = async (dirPath: string): Promise<string | null> => {
+        const normalized = dirPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+        if (folderMap.has(normalized)) return folderMap.get(normalized)!;
+        const parts = normalized.split("/").filter(Boolean);
+        let current = rootFolderId;
+        let acc = "";
+        for (const p of parts) {
+          acc = acc ? `${acc}/${p}` : p;
+          if (folderMap.has(acc)) {
+            current = folderMap.get(acc)!;
+            continue;
+          }
+          const existing = folders.find((f) => f.parentId === current && f.name === p);
+          if (existing) {
+            current = existing.id;
+            folderMap.set(acc, existing.id);
+            continue;
+          }
+          const created = await createFolderInScope(p, current);
+          if (!created) return null;
+          current = created.id;
+          folderMap.set(acc, created.id);
+        }
+        return current;
+      };
+
       const base = Date.now();
-      const keys = fileList.map((f, i) => `${f.name}-${f.size}-${base}-${i}`);
-      setUploadQueue(keys.map((key, i) => ({ key, name: fileList[i]!.name })));
-      const results = await mapPool(fileList, 3, (f, i) => uploadOne(f, keys[i]!));
+      const keys = entries.map((e, i) => `${e.file.name}-${e.file.size}-${base}-${i}`);
+      setUploadQueue(keys.map((key, i) => ({ key, name: entries[i]!.relativePath })));
+
+      const results = await mapPool(entries, 3, async (entry, i) => {
+        const dir = entry.relativePath.includes("/")
+          ? entry.relativePath.slice(0, entry.relativePath.lastIndexOf("/"))
+          : "";
+        const target = await ensurePath(dir);
+        return uploadOne(entry.file, keys[i]!, target);
+      });
+
       setUploadQueue([]);
       setUploadProgress({});
       const added = results.filter((r): r is FileRow => r != null);
@@ -402,13 +479,71 @@ export function FileManager({
         router.refresh();
       }
     },
-    [canUpload, router, uploadOne]
+    [canUpload, folders, createFolderInScope, uploadOne, router]
+  );
+
+  const uploadFiles = React.useCallback(
+    async (fileList: globalThis.File[]) => {
+      if (!canUpload || fileList.length === 0) return;
+      await uploadEntries(
+        fileList.map((f) => ({
+          file: f,
+          relativePath: (f as globalThis.File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+        })),
+        currentFolderId
+      );
+    },
+    [canUpload, uploadEntries, currentFolderId]
   );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files;
     if (!selected?.length || !canUpload) return;
     void uploadFiles(Array.from(selected));
+    e.target.value = "";
+  };
+
+  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files;
+    if (!selected?.length || !canUpload) return;
+    void uploadFiles(Array.from(selected));
+    e.target.value = "";
+  };
+
+  const extractZipEntries = React.useCallback(
+    async (zipFile: globalThis.File): Promise<UploadEntry[]> => {
+      const zip = await JSZip.loadAsync(zipFile);
+      const out: UploadEntry[] = [];
+      const root = zipFile.name.replace(/\.zip$/i, "").trim() || "archive";
+      for (const [path, obj] of Object.entries(zip.files)) {
+        if (obj.dir) continue;
+        const clean = path.replace(/^\/+/, "");
+        if (!clean) continue;
+        const blob = await obj.async("blob");
+        const name = clean.split("/").pop() || "file";
+        const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
+        out.push({ file, relativePath: `${root}/${clean}` });
+      }
+      return out;
+    },
+    []
+  );
+
+  const handleZipSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (!selected || !canUpload) return;
+    void (async () => {
+      try {
+        const entries = await extractZipEntries(selected);
+        if (entries.length === 0) {
+          toast.error(isArabic ? "ملف ZIP فارغ." : "ZIP file is empty.");
+          return;
+        }
+        await uploadEntries(entries, currentFolderId);
+      } catch {
+        toast.error(isArabic ? "تعذر فك ملف ZIP." : "Could not extract ZIP.");
+      }
+    })();
     e.target.value = "";
   };
 
@@ -488,6 +623,50 @@ export function FileManager({
     return types.includes("Files") && !types.includes("application/x-drive-file-id");
   };
 
+  const collectDroppedEntries = React.useCallback(async (dt: DataTransfer): Promise<UploadEntry[]> => {
+    const items = Array.from(dt.items ?? []);
+    const hasEntryApi = items.some((i) => typeof (i as DataTransferItem & { webkitGetAsEntry?: () => any }).webkitGetAsEntry === "function");
+    if (!hasEntryApi) {
+      return Array.from(dt.files ?? []).map((f) => ({
+        file: f,
+        relativePath: (f as globalThis.File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      }));
+    }
+
+    const readFile = (entry: any): Promise<globalThis.File> =>
+      new Promise((resolve, reject) => {
+        entry.file((f: globalThis.File) => resolve(f), reject);
+      });
+
+    const readDirEntries = (reader: any): Promise<any[]> =>
+      new Promise((resolve, reject) => {
+        reader.readEntries((entries: any[]) => resolve(entries), reject);
+      });
+
+    const walk = async (entry: any, prefix: string): Promise<UploadEntry[]> => {
+      if (entry.isFile) {
+        const file = await readFile(entry);
+        return [{ file, relativePath: `${prefix}${entry.name}` }];
+      }
+      if (!entry.isDirectory) return [];
+      const reader = entry.createReader();
+      const all: any[] = [];
+      while (true) {
+        const batch = await readDirEntries(reader);
+        if (batch.length === 0) break;
+        all.push(...batch);
+      }
+      const nested = await Promise.all(all.map((child) => walk(child, `${prefix}${entry.name}/`)));
+      return nested.flat();
+    };
+
+    const roots = items
+      .map((i) => (i as DataTransferItem & { webkitGetAsEntry?: () => any }).webkitGetAsEntry?.())
+      .filter(Boolean);
+    const nested = await Promise.all(roots.map((r) => walk(r, "")));
+    return nested.flat();
+  }, []);
+
   const onDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     if (!canUpload) return;
@@ -507,8 +686,21 @@ export function FileManager({
     setDragDepth(0);
     if (!canUpload) return;
     if (!isExternalFileDrag(e)) return;
-    const items = e.dataTransfer.files;
-    if (items?.length) void uploadFiles(Array.from(items));
+    void (async () => {
+      const dropped = await collectDroppedEntries(e.dataTransfer);
+      if (dropped.length === 0) return;
+      const zip = dropped.length === 1 && /\.zip$/i.test(dropped[0]!.file.name);
+      if (zip) {
+        try {
+          const entries = await extractZipEntries(dropped[0]!.file);
+          await uploadEntries(entries, currentFolderId);
+        } catch {
+          toast.error(isArabic ? "تعذر فك ملف ZIP." : "Could not extract ZIP.");
+        }
+        return;
+      }
+      await uploadEntries(dropped, currentFolderId);
+    })();
   };
 
   const handleMoveFileToFolder = React.useCallback(
@@ -593,33 +785,20 @@ export function FileManager({
           onCreateFolder={() => setCreateFolderOpen(true)}
           onRenameFolder={handleRenameFolder}
           onDeleteFolderRequest={(f) => setDeleteFolderTarget(f)}
-          onFolderAccessRequest={(folder) => {
+          onFolderAccessRequest={async (folder) => {
             if (!folder.projectId) {
               toast.info(isArabic ? "صلاحيات الوصول مخصصة لمجلدات المشاريع." : "Access control is for project folders.");
               return;
             }
-            toast.info(isArabic ? "حدد صلاحيات الوصول أثناء إنشاء المجلد." : "Set access while creating the folder.");
+            setAccessBusy(true);
+            setAccessFolder(folder);
+            const res = await getFolderAccess(folder.id);
+            if (res.ok) setAccessMemberIds(res.data);
+            else setAccessMemberIds([]);
+            setAccessBusy(false);
           }}
-          onFolderShareRequest={async (folder) => {
-            const shareToken = folder.shareToken;
-            if (folder.isPublic && shareToken) {
-              const url = `${window.location.origin}/share/folder/${shareToken}`;
-              await navigator.clipboard.writeText(url);
-              toast.success(isArabic ? "تم نسخ رابط مشاركة المجلد." : "Folder share link copied.");
-              return;
-            }
-            const res = await toggleFolderPublic(folder.id);
-            if (!res.ok) {
-              toast.error(
-                res.error?._form?.[0] ??
-                  (isArabic ? "تعذر تفعيل مشاركة المجلد." : "Could not enable folder sharing.")
-              );
-              return;
-            }
-            setFolders((prev) => prev.map((f) => (f.id === folder.id ? res.data : f)));
-            const url = `${window.location.origin}/share/folder/${res.data.shareToken}`;
-            await navigator.clipboard.writeText(url);
-            toast.success(isArabic ? "تم إنشاء الرابط ونسخه." : "Share link created and copied.");
+          onFolderShareRequest={(folder) => {
+            setShareFolder(folder);
           }}
           onFileDropToFolder={(targetFolderId, fileId) => {
             setDropTargetFolderId(targetFolderId);
@@ -728,6 +907,24 @@ export function FileManager({
                 <Upload className="size-4" />
                 {isArabic ? "رفع ملف +" : "Upload file +"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={!canUpload}
+                onClick={() => folderInputRef.current?.click()}
+              >
+                {isArabic ? "رفع مجلد" : "Upload folder"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={!canUpload}
+                onClick={() => zipInputRef.current?.click()}
+              >
+                {isArabic ? "رفع ZIP" : "Upload ZIP"}
+              </Button>
             </div>
           </div>
 
@@ -738,6 +935,21 @@ export function FileManager({
             className="hidden"
             accept="*"
             onChange={handleFileSelect}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFolderSelect}
+            {...({ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+          />
+          <input
+            ref={zipInputRef}
+            type="file"
+            className="hidden"
+            accept=".zip,application/zip,application/x-zip-compressed"
+            onChange={handleZipSelect}
           />
 
           <div
@@ -867,6 +1079,108 @@ export function FileManager({
         allowStandaloneRoot={allowStandaloneRoot}
         onSubmit={handleCreateFolder}
       />
+
+      <Dialog open={!!accessFolder} onOpenChange={(open) => !open && setAccessFolder(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{isArabic ? "إدارة صلاحيات المجلد" : "Manage folder access"}</DialogTitle>
+            <DialogDescription className="truncate">
+              {accessFolder?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-64 space-y-2 overflow-y-auto py-1">
+            {availableTeamMembers.map((m) => {
+              const checked = accessMemberIds.includes(m.id);
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-start text-sm ${checked ? "border-primary bg-primary/5" : ""}`}
+                  onClick={() =>
+                    setAccessMemberIds((prev) =>
+                      prev.includes(m.id) ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                    )
+                  }
+                  disabled={accessBusy}
+                >
+                  <span className="truncate">{m.name}</span>
+                  <span className="text-xs">{checked ? (isArabic ? "مسموح" : "Allowed") : (isArabic ? "غير مسموح" : "Blocked")}</span>
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => void (async () => {
+                if (!accessFolder) return;
+                setAccessBusy(true);
+                const res = await setFolderAccess(accessFolder.id, accessMemberIds);
+                setAccessBusy(false);
+                if (!res.ok) {
+                  toast.error(res.error?._form?.[0] ?? (isArabic ? "تعذر حفظ الصلاحيات." : "Could not save access."));
+                  return;
+                }
+                toast.success(isArabic ? "تم تحديث الصلاحيات." : "Access updated.");
+                setAccessFolder(null);
+              })()}
+              disabled={accessBusy}
+            >
+              {accessBusy ? (isArabic ? "جاري الحفظ..." : "Saving...") : (isArabic ? "حفظ" : "Save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!shareFolder} onOpenChange={(open) => !open && setShareFolder(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{isArabic ? "مشاركة المجلد" : "Share folder"}</DialogTitle>
+            <DialogDescription className="truncate">{shareFolder?.name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label>{isArabic ? "رابط عام" : "Public link"}</Label>
+                <p className="text-muted-foreground text-xs">
+                  {isArabic ? "أي شخص يملك الرابط يمكنه العرض فقط." : "Anyone with the link can view only."}
+                </p>
+              </div>
+              <Switch
+                checked={Boolean(shareFolder?.isPublic && shareFolder?.shareToken)}
+                onCheckedChange={() => void (async () => {
+                  if (!shareFolder) return;
+                  setShareBusy(true);
+                  const res = await toggleFolderPublic(shareFolder.id);
+                  setShareBusy(false);
+                  if (!res.ok) {
+                    toast.error(res.error?._form?.[0] ?? (isArabic ? "تعذر تحديث المشاركة." : "Could not update sharing."));
+                    return;
+                  }
+                  setFolders((prev) => prev.map((f) => (f.id === res.data.id ? res.data : f)));
+                  setShareFolder(res.data);
+                })()}
+                disabled={shareBusy}
+              />
+            </div>
+            {shareFolder?.isPublic && shareFolder.shareToken ? (
+              <div className="space-y-2">
+                <Label>{isArabic ? "رابط المشاركة" : "Share link"}</Label>
+                <div className="rounded-md border bg-muted px-2 py-1.5 font-mono text-xs" dir="ltr">
+                  {folderSharePageUrl(shareFolder.shareToken)}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void navigator.clipboard.writeText(folderSharePageUrl(shareFolder.shareToken!))}
+                >
+                  {isArabic ? "نسخ الرابط" : "Copy link"}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteFileTarget} onOpenChange={(open) => !open && setDeleteFileTarget(null)}>
         <AlertDialogContent className="w-[95vw] max-w-md sm:max-w-lg">

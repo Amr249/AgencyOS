@@ -47,6 +47,7 @@
     "embla-carousel-react": "^8.6.0",
     "eslint-plugin-better-tailwindcss": "^3.8.0",
     "input-otp": "^1.4.2",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.379.0",
     "nanoid": "^5.1.9",
     "next": "16.1.0",
