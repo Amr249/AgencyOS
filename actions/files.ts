@@ -15,9 +15,11 @@ import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser, memberIsAssignedToTask } from "@/lib/member-context";
 
-function fileStorageKey(row: { r2Key: string | null; filePath: string }): string {
+function fileStorageKey(row: { r2Key: string | null; filePath?: string | null }): string | null {
   const k = row.r2Key?.trim();
-  return k && k.length > 0 ? k : row.filePath;
+  if (k && k.length > 0) return k;
+  const fp = row.filePath?.trim();
+  return fp && fp.length > 0 ? fp : null;
 }
 
 async function withDbReadRetry<T>(label: string, run: () => Promise<T>, retries = 1): Promise<T> {
@@ -388,44 +390,93 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       }
     }
 
-    const [row] = await db
-      .insert(files)
-      .values({
-        name: d.name,
-        imagekitFileId: d.imagekitFileId,
-        imagekitUrl: d.imagekitUrl,
-        filePath: d.filePath,
-        mimeType: d.mimeType ?? null,
-        sizeBytes: d.sizeBytes ?? null,
-        clientId: d.clientId ?? null,
-        projectId: d.projectId ?? null,
-        taskId: d.taskId ?? null,
-        invoiceId: d.invoiceId ?? null,
-        expenseId: d.expenseId ?? null,
-        documentType: d.documentType ?? null,
-        description: d.description ?? null,
-        uploadedBy: userId,
-        folderId: d.folderId ?? null,
-        r2Key: d.r2Key ?? null,
-      })
-      .returning();
+    const inserted = await db.execute(sql`
+      insert into files (
+        name,
+        mime_type,
+        size_bytes,
+        client_id,
+        project_id,
+        task_id,
+        invoice_id,
+        expense_id,
+        document_type,
+        description,
+        uploaded_by,
+        folder_id,
+        r2_key
+      ) values (
+        ${d.name},
+        ${d.mimeType ?? null},
+        ${d.sizeBytes ?? null},
+        ${d.clientId ?? null},
+        ${d.projectId ?? null},
+        ${d.taskId ?? null},
+        ${d.invoiceId ?? null},
+        ${d.expenseId ?? null},
+        ${d.documentType ?? null},
+        ${d.description ?? null},
+        ${userId},
+        ${d.folderId ?? null},
+        ${d.r2Key ?? null}
+      )
+      returning
+        id,
+        name,
+        mime_type,
+        size_bytes,
+        client_id,
+        project_id,
+        task_id,
+        invoice_id,
+        expense_id,
+        document_type,
+        description,
+        uploaded_by,
+        folder_id,
+        r2_key,
+        is_public,
+        share_token,
+        share_expires_at,
+        created_at
+    `);
+    const row = inserted.rows[0] as {
+      id: string;
+      name: string;
+      mime_type: string | null;
+      size_bytes: number | null;
+      client_id: string | null;
+      project_id: string | null;
+      task_id: string | null;
+      invoice_id: string | null;
+      expense_id: string | null;
+      document_type: FileDocumentType | null;
+      description: string | null;
+      uploaded_by: string | null;
+      folder_id: string | null;
+      r2_key: string | null;
+      is_public: boolean;
+      share_token: string | null;
+      share_expires_at: Date | null;
+      created_at: Date;
+    } | undefined;
 
     if (!row) return { ok: false as const, error: { _form: ["Failed to create file record"] } };
 
-    let clientIdForLog = row.clientId;
-    if (!clientIdForLog && row.projectId) {
+    let clientIdForLog = row.client_id;
+    if (!clientIdForLog && row.project_id) {
       const [p] = await db
         .select({ clientId: projects.clientId })
         .from(projects)
-        .where(eq(projects.id, row.projectId))
+        .where(eq(projects.id, row.project_id))
         .limit(1);
       clientIdForLog = p?.clientId ?? null;
     }
-    if (!clientIdForLog && row.invoiceId) {
+    if (!clientIdForLog && row.invoice_id) {
       const [inv] = await db
         .select({ clientId: invoices.clientId })
         .from(invoices)
-        .where(eq(invoices.id, row.invoiceId))
+        .where(eq(invoices.id, row.invoice_id))
         .limit(1);
       clientIdForLog = inv?.clientId ?? null;
     }
@@ -437,18 +488,18 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
         metadata: {
           name: row.name,
           clientId: clientIdForLog,
-          projectId: row.projectId,
+          projectId: row.project_id,
         },
       });
     }
 
     let uploadedByName: string | null = null;
     let uploadedByAvatarUrl: string | null = null;
-    if (row.uploadedBy) {
+    if (row.uploaded_by) {
       const [tm] = await db
         .select({ name: teamMembers.name, avatarUrl: teamMembers.avatarUrl })
         .from(teamMembers)
-        .where(eq(teamMembers.userId, row.uploadedBy))
+        .where(eq(teamMembers.userId, row.uploaded_by))
         .limit(1);
       uploadedByName = tm?.name ?? null;
       uploadedByAvatarUrl = tm?.avatarUrl ?? null;
@@ -457,35 +508,35 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
     const data: FileRow = {
       id: row.id,
       name: row.name,
-      imagekitFileId: row.imagekitFileId,
-      imagekitUrl: row.imagekitUrl,
-      filePath: row.filePath,
-      mimeType: row.mimeType,
-      sizeBytes: row.sizeBytes,
-      clientId: row.clientId,
-      projectId: row.projectId,
-      taskId: row.taskId ?? null,
-      invoiceId: row.invoiceId ?? null,
-      expenseId: row.expenseId ?? null,
-      documentType: row.documentType ?? null,
+      imagekitFileId: d.imagekitFileId || row.r2_key || row.id,
+      imagekitUrl: d.imagekitUrl || "",
+      filePath: d.filePath || row.r2_key || "",
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes,
+      clientId: row.client_id,
+      projectId: row.project_id,
+      taskId: row.task_id ?? null,
+      invoiceId: row.invoice_id ?? null,
+      expenseId: row.expense_id ?? null,
+      documentType: row.document_type ?? null,
       description: row.description ?? null,
-      uploadedBy: row.uploadedBy ?? null,
+      uploadedBy: row.uploaded_by ?? null,
       uploadedByName,
       uploadedByAvatarUrl,
-      createdAt: row.createdAt,
-      folderId: row.folderId ?? null,
-      r2Key: row.r2Key ?? null,
-      isPublic: row.isPublic ?? false,
-      shareToken: row.shareToken ?? null,
-      shareExpiresAt: row.shareExpiresAt ?? null,
+      createdAt: row.created_at,
+      folderId: row.folder_id ?? null,
+      r2Key: row.r2_key ?? null,
+      isPublic: row.is_public ?? false,
+      shareToken: row.share_token ?? null,
+      shareExpiresAt: row.share_expires_at ?? null,
     };
 
     const isStandaloneScope =
-      !row.clientId &&
-      !row.projectId &&
-      !row.taskId &&
-      !row.invoiceId &&
-      !row.expenseId;
+      !row.client_id &&
+      !row.project_id &&
+      !row.task_id &&
+      !row.invoice_id &&
+      !row.expense_id;
     if (isStandaloneScope) {
       revalidatePath("/dashboard/drive");
     }
@@ -494,11 +545,11 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard/invoices");
     revalidatePath("/dashboard/expenses");
-    if (row.clientId) revalidatePath(`/dashboard/clients/${row.clientId}`);
-    if (row.projectId) revalidatePath(`/dashboard/projects/${row.projectId}`);
-    if (row.invoiceId) revalidatePath(`/dashboard/invoices/${row.invoiceId}`);
-    if (row.expenseId) revalidatePath(`/dashboard/expenses/${row.expenseId}`);
-    if (row.taskId) {
+    if (row.client_id) revalidatePath(`/dashboard/clients/${row.client_id}`);
+    if (row.project_id) revalidatePath(`/dashboard/projects/${row.project_id}`);
+    if (row.invoice_id) revalidatePath(`/dashboard/invoices/${row.invoice_id}`);
+    if (row.expense_id) revalidatePath(`/dashboard/expenses/${row.expense_id}`);
+    if (row.task_id) {
       revalidatePath("/dashboard/workspace");
       revalidatePath("/dashboard/my-tasks");
     }
@@ -522,7 +573,6 @@ export async function deleteFile(id: string) {
   const [row] = await db
     .select({
       id: files.id,
-      filePath: files.filePath,
       r2Key: files.r2Key,
       clientId: files.clientId,
       projectId: files.projectId,

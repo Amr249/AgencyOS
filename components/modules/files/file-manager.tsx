@@ -410,7 +410,14 @@ export function FileManager({
           toast.success(isArabic ? "تم رفع الملف." : "File uploaded.");
           return newFile;
         }
-        toast.error(isArabic ? "تعذر حفظ الملف في قاعدة البيانات." : "Could not save file in database.");
+        const createError =
+          !createResult.ok && "_form" in createResult.error && Array.isArray(createResult.error._form)
+            ? createResult.error._form[0]
+            : null;
+        toast.error(
+          createError ??
+            (isArabic ? "تعذر حفظ الملف في قاعدة البيانات." : "Could not save file in database.")
+        );
         return null;
       } catch {
         setUploadProgress((p) => {
