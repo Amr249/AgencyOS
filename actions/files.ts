@@ -743,16 +743,20 @@ export async function toggleFilePublic(fileId: string) {
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
   try {
-    const [existing] = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, parsed.data), isNull(files.deletedAt)))
-      .limit(1);
+    const existingRes = await db.execute(sql`
+      select id, is_public, share_token, share_expires_at
+      from files
+      where id = ${parsed.data} and deleted_at is null
+      limit 1
+    `);
+    const existing = existingRes.rows[0] as
+      | { id: string; is_public: boolean; share_token: string | null; share_expires_at: Date | null }
+      | undefined;
     if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
 
-    const nextPublic = !existing.isPublic;
-    let shareToken: string | null = existing.shareToken;
-    let shareExpiresAt: Date | null = existing.shareExpiresAt;
+    const nextPublic = !existing.is_public;
+    let shareToken: string | null = existing.share_token;
+    let shareExpiresAt: Date | null = existing.share_expires_at;
     if (nextPublic) {
       if (!shareToken) shareToken = nanoid(16);
     } else {
@@ -760,17 +764,29 @@ export async function toggleFilePublic(fileId: string) {
       shareExpiresAt = null;
     }
 
-    const [row] = await db
-      .update(files)
-      .set({ isPublic: nextPublic, shareToken, shareExpiresAt })
-      .where(eq(files.id, parsed.data))
-      .returning();
+    const updateRes = await db.execute(sql`
+      update files
+      set is_public = ${nextPublic}, share_token = ${shareToken}, share_expires_at = ${shareExpiresAt}
+      where id = ${parsed.data}
+      returning id, is_public, share_token, share_expires_at
+    `);
+    const row = updateRes.rows[0] as
+      | { id: string; is_public: boolean; share_token: string | null; share_expires_at: Date | null }
+      | undefined;
 
     if (!row) return { ok: false as const, error: { _form: ["Update failed"] } };
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard/drive");
-    return { ok: true as const, data: row };
+    return {
+      ok: true as const,
+      data: {
+        id: row.id,
+        isPublic: row.is_public,
+        shareToken: row.share_token,
+        shareExpiresAt: row.share_expires_at,
+      },
+    };
   } catch (e) {
     console.error("toggleFilePublic", e);
     if (isDbConnectionError(e)) {
@@ -801,28 +817,48 @@ export async function createShareLink(fileId: string, expiresInDays?: number) {
   }
 
   try {
-    const [existing] = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
-      .limit(1);
+    const existingRes = await db.execute(sql`
+      select id, is_public, share_token
+      from files
+      where id = ${parsed.data.fileId} and deleted_at is null
+      limit 1
+    `);
+    const existing = existingRes.rows[0] as
+      | { id: string; is_public: boolean; share_token: string | null }
+      | undefined;
     if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
 
     const token =
-      existing.isPublic && existing.shareToken?.trim()
-        ? existing.shareToken.trim()
+      existing.is_public && existing.share_token?.trim()
+        ? existing.share_token.trim()
         : nanoid(16);
 
-    const [row] = await db
-      .update(files)
-      .set({ shareToken: token, shareExpiresAt, isPublic: true })
-      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
-      .returning();
+    const updateRes = await db.execute(sql`
+      update files
+      set share_token = ${token}, share_expires_at = ${shareExpiresAt}, is_public = true
+      where id = ${parsed.data.fileId} and deleted_at is null
+      returning id, is_public, share_token, share_expires_at
+    `);
+    const row = updateRes.rows[0] as
+      | { id: string; is_public: boolean; share_token: string | null; share_expires_at: Date | null }
+      | undefined;
     if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard/drive");
-    return { ok: true as const, data: { shareToken: token, shareExpiresAt, file: row } };
+    return {
+      ok: true as const,
+      data: {
+        shareToken: token,
+        shareExpiresAt,
+        file: {
+          id: row.id,
+          isPublic: row.is_public,
+          shareToken: row.share_token,
+          shareExpiresAt: row.share_expires_at,
+        },
+      },
+    };
   } catch (e) {
     console.error("createShareLink", e);
     if (isDbConnectionError(e)) {
@@ -854,23 +890,31 @@ export async function setShareLinkExpiryDays(fileId: string, expiresInDays: numb
   }
 
   try {
-    const [row] = await db
-      .update(files)
-      .set({ shareExpiresAt })
-      .where(
-        and(
-          eq(files.id, parsed.data.fileId),
-          isNull(files.deletedAt),
-          eq(files.isPublic, true),
-          isNotNull(files.shareToken)
-        )
-      )
-      .returning();
+    const updateRes = await db.execute(sql`
+      update files
+      set share_expires_at = ${shareExpiresAt}
+      where id = ${parsed.data.fileId}
+        and deleted_at is null
+        and is_public = true
+        and share_token is not null
+      returning id, is_public, share_token, share_expires_at
+    `);
+    const row = updateRes.rows[0] as
+      | { id: string; is_public: boolean; share_token: string | null; share_expires_at: Date | null }
+      | undefined;
     if (!row) return { ok: false as const, error: { _form: ["File not found or not shared"] } };
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard/drive");
-    return { ok: true as const, data: row };
+    return {
+      ok: true as const,
+      data: {
+        id: row.id,
+        isPublic: row.is_public,
+        shareToken: row.share_token,
+        shareExpiresAt: row.share_expires_at,
+      },
+    };
   } catch (e) {
     console.error("setShareLinkExpiryDays", e);
     if (isDbConnectionError(e)) {
@@ -887,16 +931,28 @@ export async function revokeShareLink(fileId: string) {
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
   try {
-    const [row] = await db
-      .update(files)
-      .set({ shareToken: null, shareExpiresAt: null, isPublic: false })
-      .where(and(eq(files.id, parsed.data), isNull(files.deletedAt)))
-      .returning();
+    const updateRes = await db.execute(sql`
+      update files
+      set share_token = null, share_expires_at = null, is_public = false
+      where id = ${parsed.data} and deleted_at is null
+      returning id, is_public, share_token, share_expires_at
+    `);
+    const row = updateRes.rows[0] as
+      | { id: string; is_public: boolean; share_token: string | null; share_expires_at: Date | null }
+      | undefined;
     if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard/drive");
-    return { ok: true as const, data: row };
+    return {
+      ok: true as const,
+      data: {
+        id: row.id,
+        isPublic: row.is_public,
+        shareToken: row.share_token,
+        shareExpiresAt: row.share_expires_at,
+      },
+    };
   } catch (e) {
     console.error("revokeShareLink", e);
     if (isDbConnectionError(e)) {
