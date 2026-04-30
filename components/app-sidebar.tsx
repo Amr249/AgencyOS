@@ -93,7 +93,6 @@ export function AppSidebar({
       children: [
         { title: t("invoices"), url: "/dashboard/invoices", icon: IconReceipt },
         { title: t("expenses"), url: "/dashboard/expenses", icon: IconWallet },
-        { title: t("drive"), url: "/dashboard/drive", icon: IconFolder },
         { title: t("reports"), url: "/dashboard/reports", icon: IconReport },
       ],
     },
@@ -145,7 +144,10 @@ export function AppSidebar({
           groups={groups}
           footerBeforeSettings={
             !isMember
-              ? [{ title: t("aiChat"), url: "/dashboard/ai-chat", icon: IconSparkles }]
+              ? [
+                  { title: t("aiChat"), url: "/dashboard/ai-chat", icon: IconSparkles },
+                  { title: t("drive"), url: "/dashboard/drive", icon: IconFolder },
+                ]
               : undefined
           }
           showSettings={!isMember}

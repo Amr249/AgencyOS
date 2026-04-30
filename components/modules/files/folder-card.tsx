@@ -1,10 +1,11 @@
 "use client";
 
-import { Folder, Pencil, Share2, Trash2, Users } from "lucide-react";
+import { Pencil, Share2, Trash2, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { FolderRow } from "@/actions/folders";
+import { DriveFolderIcon, driveFolderPreviewSurfaceClass } from "@/components/modules/files/drive-folder-icon";
 import { cn } from "@/lib/utils";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 
@@ -51,7 +52,9 @@ export function FolderCard({
 }: FolderCardProps) {
   const isArabic = useLocale() === "ar";
   const dateLabel = formatDate(new Date(displayDateMs));
-  const draggable = Boolean(onDragFolderStart);
+  const systemLocked = folder.isSystem;
+  const draggable = Boolean(onDragFolderStart) && !systemLocked;
+  const showFolderActions = !systemLocked;
 
   return (
     <Card
@@ -92,67 +95,74 @@ export function FolderCard({
     >
       <CardContent className="flex flex-col items-center gap-2 p-4 text-center">
         <div className="relative mx-auto w-full max-w-[200px]">
-          <div className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200 flex h-[120px] w-full items-center justify-center rounded-lg border-b">
-            <Folder className="size-14 opacity-90" />
+          <div
+            className={cn(
+              "flex h-[120px] w-full items-center justify-center rounded-lg border-b",
+              driveFolderPreviewSurfaceClass(folder.systemType)
+            )}
+          >
+            <DriveFolderIcon systemType={folder.systemType} className="size-14 opacity-95" />
           </div>
-          <div className="absolute inset-0 flex flex-nowrap items-center justify-center gap-1 bg-black/55 px-1 opacity-0 transition-opacity group-hover:opacity-100">
-            <Button
-              type="button"
-              size="icon"
-              variant="secondary"
-              draggable={false}
-              className="size-9 shrink-0"
-              aria-label={isArabic ? "مشاركة" : "Share"}
-              onClick={(e) => {
-                e.stopPropagation();
-                onShare(folder);
-              }}
-            >
-              <Share2 className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="secondary"
-              draggable={false}
-              className="size-9 shrink-0"
-              aria-label={isArabic ? "صلاحيات" : "Access"}
-              onClick={(e) => {
-                e.stopPropagation();
-                onAccess(folder);
-              }}
-            >
-              <Users className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="secondary"
-              draggable={false}
-              className="size-9 shrink-0"
-              aria-label={isArabic ? "إعادة تسمية" : "Rename"}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRename(folder);
-              }}
-            >
-              <Pencil className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="destructive"
-              draggable={false}
-              className="size-9 shrink-0"
-              aria-label={isArabic ? "حذف" : "Delete"}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(folder);
-              }}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
+          {showFolderActions ? (
+            <div className="absolute inset-0 flex flex-nowrap items-center justify-center gap-1 bg-black/55 px-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                draggable={false}
+                className="size-9 shrink-0"
+                aria-label={isArabic ? "مشاركة" : "Share"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShare(folder);
+                }}
+              >
+                <Share2 className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                draggable={false}
+                className="size-9 shrink-0"
+                aria-label={isArabic ? "صلاحيات" : "Access"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAccess(folder);
+                }}
+              >
+                <Users className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                draggable={false}
+                className="size-9 shrink-0"
+                aria-label={isArabic ? "إعادة تسمية" : "Rename"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRename(folder);
+                }}
+              >
+                <Pencil className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="destructive"
+                draggable={false}
+                className="size-9 shrink-0"
+                aria-label={isArabic ? "حذف" : "Delete"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(folder);
+                }}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          ) : null}
         </div>
         <p className="line-clamp-2 w-full text-sm font-medium" title={folder.name}>
           {folder.name}

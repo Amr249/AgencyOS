@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Folder, Link as LinkIcon, Pencil, Share2, Trash2, Users } from "lucide-react";
+import { Download, Link as LinkIcon, Pencil, Share2, Trash2, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 import type { FileRow } from "@/lib/file-types";
 import type { FolderRow } from "@/actions/folders";
@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
+import { DriveFolderIcon, driveFolderPreviewSurfaceClass } from "@/components/modules/files/drive-folder-icon";
 import { cn } from "@/lib/utils";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 
@@ -150,7 +151,7 @@ export function FileListView({
                   "cursor-pointer",
                   dropTargetFolderId === f.id && "bg-primary/5 ring-1 ring-primary/30"
                 )}
-                draggable={!!onDragFolderStart}
+                draggable={!!onDragFolderStart && !f.isSystem}
                 onDragStart={(e) => onDragFolderStart?.(f, e)}
                 onDragEnd={() => onDragFolderEnd?.()}
                 onClick={() => onOpenFolder(f.id)}
@@ -160,8 +161,13 @@ export function FileListView({
                 }}
               >
                 <TableCell onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
-                  <div className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 flex size-9 items-center justify-center rounded-md">
-                    <Folder className="size-4" />
+                  <div
+                    className={cn(
+                      "flex size-9 items-center justify-center rounded-md",
+                      driveFolderPreviewSurfaceClass(f.systemType)
+                    )}
+                  >
+                    <DriveFolderIcon systemType={f.systemType} className="size-4" />
                   </div>
                 </TableCell>
                 <TableCell className="font-medium" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
@@ -185,64 +191,66 @@ export function FileListView({
                   {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
                 </TableCell>
                 <TableCell className="text-end" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
-                  <div className="flex flex-nowrap items-center justify-end gap-0.5">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      draggable={false}
-                      className="size-8 shrink-0"
-                      aria-label={isArabic ? "مشاركة" : "Share"}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onShareFolder(f);
-                      }}
-                    >
-                      <Share2 className="size-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      draggable={false}
-                      className="size-8 shrink-0"
-                      aria-label={isArabic ? "صلاحيات" : "Access"}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onAccessFolder(f);
-                      }}
-                    >
-                      <Users className="size-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      draggable={false}
-                      className="size-8 shrink-0"
-                      aria-label={isArabic ? "إعادة تسمية" : "Rename"}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRenameFolder(f);
-                      }}
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      draggable={false}
-                      className="text-destructive size-8 shrink-0"
-                      aria-label={isArabic ? "حذف" : "Delete"}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteFolder(f);
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
+                  {f.isSystem ? null : (
+                    <div className="flex flex-nowrap items-center justify-end gap-0.5">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        draggable={false}
+                        className="size-8 shrink-0"
+                        aria-label={isArabic ? "مشاركة" : "Share"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onShareFolder(f);
+                        }}
+                      >
+                        <Share2 className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        draggable={false}
+                        className="size-8 shrink-0"
+                        aria-label={isArabic ? "صلاحيات" : "Access"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAccessFolder(f);
+                        }}
+                      >
+                        <Users className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        draggable={false}
+                        className="size-8 shrink-0"
+                        aria-label={isArabic ? "إعادة تسمية" : "Rename"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRenameFolder(f);
+                        }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        draggable={false}
+                        className="text-destructive size-8 shrink-0"
+                        aria-label={isArabic ? "حذف" : "Delete"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteFolder(f);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  )}
                 </TableCell>
               </TableRow>
             );

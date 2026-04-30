@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   Folder,
+  Lock,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
@@ -33,6 +34,30 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
+import { DriveFolderIcon } from "@/components/modules/files/drive-folder-icon";
+
+const SYSTEM_ROOT_ORDER: Record<string, number> = {
+  root_clients: 0,
+  root_projects: 1,
+  root_invoices: 2,
+  root_expenses: 3,
+  root_team: 4,
+  root_general: 5,
+};
+
+function sortDriveFolderSiblings(list: FolderRow[]): FolderRow[] {
+  return [...list].sort((a, b) => {
+    if (a.isSystem !== b.isSystem) return a.isSystem ? -1 : 1;
+    const aRoot = a.parentId == null && a.systemType ? SYSTEM_ROOT_ORDER[a.systemType] : undefined;
+    const bRoot = b.parentId == null && b.systemType ? SYSTEM_ROOT_ORDER[b.systemType] : undefined;
+    if (aRoot !== undefined || bRoot !== undefined) {
+      const oa = aRoot ?? 99;
+      const ob = bRoot ?? 99;
+      if (oa !== ob) return oa - ob;
+    }
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+}
 
 function buildChildrenMap(rows: FolderRow[]): Map<string | null, FolderRow[]> {
   const map = new Map<string | null, FolderRow[]>();
@@ -43,7 +68,7 @@ function buildChildrenMap(rows: FolderRow[]): Map<string | null, FolderRow[]> {
     map.set(p, list);
   }
   for (const [, list] of map) {
-    list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    sortDriveFolderSiblings(list);
   }
   return map;
 }
@@ -108,10 +133,13 @@ function TreeBranch({
   const isDropTarget = dropTargetFolderId === folder.id;
   const isDraggingThisFolder = draggingFolderId === folder.id;
 
+  const systemLocked = folder.isSystem;
+  const showFolderActions = !systemLocked;
+
   return (
     <div className="min-w-0 select-none">
       <div
-        draggable
+        draggable={!systemLocked}
         onDragStart={(e) => onDragFolderStart(folder, e)}
         onDragEnd={onDragFolderEnd}
         className={cn(
@@ -162,60 +190,67 @@ function TreeBranch({
           className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded px-1 py-0.5 text-start text-sm"
           onClick={() => onSelectFolder(folder.id)}
         >
-          <Folder className="text-amber-600 dark:text-amber-400 size-4 shrink-0" />
+          <DriveFolderIcon systemType={folder.systemType} className="size-4 shrink-0" />
           <span className="min-w-0 truncate font-medium">{folder.name}</span>
+          {systemLocked ? (
+            <Lock className="text-muted-foreground size-3.5 shrink-0 opacity-70" aria-hidden />
+          ) : null}
           <span className="text-muted-foreground shrink-0 text-xs">({count})</span>
         </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              draggable={false}
-              className="size-7 shrink-0"
-              aria-label={isArabic ? "إجراءات المجلد" : "Folder actions"}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-40" onClick={(e) => e.stopPropagation()}>
-            <DropdownMenuItem
-              onClick={() => {
-                onShareRequest(folder);
-              }}
-            >
-              <Share2 className="size-4" />
-              {isArabic ? "مشاركة" : "Share"}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                onAccessRequest(folder);
-              }}
-            >
-              <Users className="size-4" />
-              {isArabic ? "صلاحيات" : "Access"}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                onRenameRequest(folder);
-              }}
-            >
-              <Pencil className="size-4" />
-              {isArabic ? "إعادة تسمية" : "Rename"}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => {
-                onDeleteRequest(folder);
-              }}
-            >
-              <Trash2 className="size-4" />
-              {isArabic ? "حذف" : "Delete"}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {showFolderActions ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                draggable={false}
+                className="size-7 shrink-0"
+                aria-label={isArabic ? "إجراءات المجلد" : "Folder actions"}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-40" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem
+                onClick={() => {
+                  onShareRequest(folder);
+                }}
+              >
+                <Share2 className="size-4" />
+                {isArabic ? "مشاركة" : "Share"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onAccessRequest(folder);
+                }}
+              >
+                <Users className="size-4" />
+                {isArabic ? "صلاحيات" : "Access"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onRenameRequest(folder);
+                }}
+              >
+                <Pencil className="size-4" />
+                {isArabic ? "إعادة تسمية" : "Rename"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  onDeleteRequest(folder);
+                }}
+              >
+                <Trash2 className="size-4" />
+                {isArabic ? "حذف" : "Delete"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span className="size-7 shrink-0" aria-hidden />
+        )}
       </div>
       {isOpen && children.length > 0 ? (
         <div>

@@ -11,6 +11,7 @@ import { clients, expenses, expenseServices, projects, services, teamMembers } f
 const expenseClient = alias(clients, "expense_client");
 const projectOwnerClient = alias(clients, "project_owner_client");
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { ensureSystemFoldersInternal, recordExpenseReceiptInCategoryFolder } from "@/actions/system-folders";
 
 const categoryValues = [
   "software",
@@ -395,6 +396,20 @@ export async function createExpense(input: z.input<typeof createExpenseSchema>) 
       })
       .returning();
     if (!row) return { ok: false as const, error: "Failed to create" };
+    if (row.receiptUrl) {
+      try {
+        await ensureSystemFoldersInternal();
+        await recordExpenseReceiptInCategoryFolder(
+          row.id,
+          row.category,
+          row.receiptUrl,
+          row.teamMemberId,
+          row.title
+        );
+      } catch (e) {
+        console.error("systemFolders/expenseReceipt", e);
+      }
+    }
     const sIds = parsed.data.serviceIds ?? [];
     if (sIds.length > 0) {
       await db.insert(expenseServices).values(sIds.map((sid) => ({ expenseId: row.id, serviceId: sid })));
@@ -444,6 +459,20 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
       ? await db.update(expenses).set(payload).where(eq(expenses.id, id)).returning()
       : await db.select().from(expenses).where(eq(expenses.id, id));
     if (!row) return { ok: false as const, error: "Expense not found" };
+    if (rest.receiptUrl !== undefined && row.receiptUrl) {
+      try {
+        await ensureSystemFoldersInternal();
+        await recordExpenseReceiptInCategoryFolder(
+          id,
+          row.category,
+          row.receiptUrl,
+          row.teamMemberId,
+          row.title
+        );
+      } catch (e) {
+        console.error("systemFolders/expenseReceiptUpdate", e);
+      }
+    }
     if (hasServiceUpdate) {
       await db.delete(expenseServices).where(eq(expenseServices.expenseId, id));
       const sIds = rest.serviceIds ?? [];

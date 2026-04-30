@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getDriveFolderDirectFileStats, getTotalFilesStorageBytes } from "@/actions/files";
 import { getDriveFolders } from "@/actions/folders";
+import { ensureSystemFolders } from "@/actions/system-folders";
 import { getProjects } from "@/actions/projects";
 import { getTeamMembers } from "@/actions/team-members";
 import { FileManager } from "@/components/modules/files/file-manager";
@@ -54,6 +55,8 @@ export default async function DrivePage({ searchParams }: Props) {
   const role = sessionUserRole(session);
   const isMember = role === "member";
   const driveUploadPathPrefix = `drive/user/${userId}`;
+
+  await ensureSystemFolders();
 
   const [foldersRes, statsRes, totalRes, projectsRes, teamRes] = await Promise.all([
     getDriveFolders(),

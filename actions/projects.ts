@@ -12,6 +12,7 @@ import { assertAdminSession, sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, memberHasProjectAccess } from "@/lib/member-context";
 import { syncProjectServices } from "@/actions/project-services";
 import { logActivityWithActor } from "@/actions/activity-log";
+import { ensureSystemFoldersInternal, recordProjectCoverInProjectFolder } from "@/actions/system-folders";
 import {
   createProjectSchema,
   updateProjectSchema,
@@ -81,6 +82,12 @@ export async function createProject(input: CreateProjectInput) {
       action: "created",
       metadata: { name: row.name, clientId: row.clientId },
     });
+    try {
+      await ensureSystemFoldersInternal();
+      if (row.coverImageUrl) await recordProjectCoverInProjectFolder(row.id, row.coverImageUrl);
+    } catch (e) {
+      console.error("systemFolders/project", e);
+    }
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${row.id}`);
     revalidatePath("/dashboard");
@@ -137,6 +144,14 @@ export async function updateProject(input: UpdateProjectInput) {
       action: "updated",
       metadata: { name: row.name, status: row.status, clientId: row.clientId },
     });
+    if (data.coverImageUrl !== undefined && row.coverImageUrl) {
+      try {
+        await ensureSystemFoldersInternal();
+        await recordProjectCoverInProjectFolder(id, row.coverImageUrl);
+      } catch (e) {
+        console.error("systemFolders/projectCover", e);
+      }
+    }
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${id}`);
     revalidatePath("/dashboard");

@@ -6,6 +6,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teamMembers, projectMembers, projects, clients, expenses } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { ensureSystemFoldersInternal, recordTeamAvatarInMemberFolder } from "@/actions/system-folders";
 
 const statusValues = ["active", "inactive"] as const;
 
@@ -147,6 +148,12 @@ export async function createTeamMember(input: CreateTeamMemberInput) {
       })
       .returning();
     if (!row) return { ok: false as const, error: "Failed to create" };
+    try {
+      await ensureSystemFoldersInternal();
+      if (row.avatarUrl) await recordTeamAvatarInMemberFolder(row.id, row.avatarUrl);
+    } catch (e) {
+      console.error("systemFolders/teamMember", e);
+    }
     revalidatePath("/dashboard/team");
     return { ok: true as const, data: row };
   } catch (e) {
@@ -182,6 +189,14 @@ export async function updateTeamMember(input: UpdateTeamMemberInput) {
       .where(eq(teamMembers.id, id))
       .returning();
     if (!row) return { ok: false as const, error: "Team member not found" };
+    if (data.avatarUrl !== undefined && row.avatarUrl) {
+      try {
+        await ensureSystemFoldersInternal();
+        await recordTeamAvatarInMemberFolder(id, row.avatarUrl);
+      } catch (e) {
+        console.error("systemFolders/teamAvatar", e);
+      }
+    }
     revalidatePath("/dashboard/team");
     revalidatePath(`/dashboard/team/${id}`);
     return { ok: true as const, data: row };

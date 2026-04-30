@@ -417,6 +417,12 @@ export const folders = pgTable(
     path: text("path").notNull(),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Fixed drive hierarchy (cannot rename/delete via UI). */
+    isSystem: boolean("is_system").notNull().default(false),
+    /** Discriminator for auto-managed folders (e.g. root_clients, client, project_designs). */
+    systemType: text("system_type"),
+    /** For systemType team_member / expense_team_member. */
+    teamMemberId: uuid("team_member_id").references(() => teamMembers.id, { onDelete: "set null" }),
   },
   (table) => [
     index("folders_parent_id_idx").on(table.parentId),
@@ -424,6 +430,9 @@ export const folders = pgTable(
     index("folders_project_id_idx").on(table.projectId),
     index("folders_path_idx").on(table.path),
     index("folders_share_token_idx").on(table.shareToken),
+    index("folders_is_system_idx").on(table.isSystem),
+    index("folders_system_type_idx").on(table.systemType),
+    index("folders_team_member_id_idx").on(table.teamMemberId),
     uniqueIndex("folders_share_token_unique")
       .on(table.shareToken)
       .where(sql`${table.shareToken} IS NOT NULL`),
@@ -1067,6 +1076,10 @@ export const foldersRelations = relations(folders, ({ one, many }) => ({
   children: many(folders, { relationName: "folderParent" }),
   client: one(clients, { fields: [folders.clientId], references: [clients.id] }),
   project: one(projects, { fields: [folders.projectId], references: [projects.id] }),
+  systemTeamMember: one(teamMembers, {
+    fields: [folders.teamMemberId],
+    references: [teamMembers.id],
+  }),
   files: many(files),
   access: many(folderAccess),
   createdByUser: one(users, { fields: [folders.createdBy], references: [users.id] }),

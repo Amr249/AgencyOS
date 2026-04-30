@@ -24,6 +24,7 @@ import {
 import { rollupRevenueByClient } from "@/lib/client-revenue-stats";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { logActivityWithActor } from "@/actions/activity-log";
+import { ensureSystemFoldersInternal, recordClientLogoInBrandFolder } from "@/actions/system-folders";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 
@@ -219,6 +220,12 @@ export async function createClient(input: CreateClientInput) {
       action: "created",
       metadata: { companyName: row.companyName },
     });
+    try {
+      await ensureSystemFoldersInternal();
+      if (row.logoUrl) await recordClientLogoInBrandFolder(row.id, row.logoUrl);
+    } catch (e) {
+      console.error("systemFolders/client", e);
+    }
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/crm/pipeline");
     revalidatePath("/dashboard");
@@ -343,6 +350,14 @@ export async function updateClient(input: UpdateClientInput) {
     }
     if (tagIds !== undefined) {
       await syncClientTags(id, tagIds);
+    }
+    if (data.logoUrl !== undefined && row.logoUrl) {
+      try {
+        await ensureSystemFoldersInternal();
+        await recordClientLogoInBrandFolder(id, row.logoUrl);
+      } catch (e) {
+        console.error("systemFolders/clientLogo", e);
+      }
     }
     revalidatePath("/dashboard/clients");
     revalidatePath(`/dashboard/clients/${id}`);

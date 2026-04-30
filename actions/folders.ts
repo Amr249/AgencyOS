@@ -91,8 +91,17 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
     if (parentId) {
       const [parent] = await db.select().from(folders).where(eq(folders.id, parentId)).limit(1);
       if (!parent) return { ok: false as const, error: { _form: ["parentFolderNotFound"] } };
-      if (!parent.clientId && !parent.projectId && !parent.path.startsWith(`/drive/user/${userId}/`)) {
+      const underSystemTree = parent.path.startsWith("/drive/system/");
+      if (
+        !parent.clientId &&
+        !parent.projectId &&
+        !parent.path.startsWith(`/drive/user/${userId}/`) &&
+        !underSystemTree
+      ) {
         return { ok: false as const, error: { _form: ["Invalid parent folder"] } };
+      }
+      if (underSystemTree && role === "member") {
+        return { ok: false as const, error: { _form: ["forbidden"] } };
       }
       resolvedClientId = parent.clientId;
       resolvedProjectId = parent.projectId;
@@ -217,8 +226,14 @@ export async function renameFolder(id: string, name: string) {
   try {
     const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data.id)).limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
+    if (existing.isSystem) {
+      return { ok: false as const, error: { _form: ["systemFolderReadOnly"] } };
+    }
     if (!existing.clientId && !existing.projectId) {
-      if (!existing.path.startsWith(`/drive/user/${session.user.id}/`)) {
+      const okPersonal = existing.path.startsWith(`/drive/user/${session.user.id}/`);
+      const okSystemTreeUserFolder =
+        existing.path.startsWith("/drive/system/") && !existing.isSystem;
+      if (!okPersonal && !okSystemTreeUserFolder) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
       }
     }
@@ -256,9 +271,14 @@ export async function deleteFolder(id: string) {
 
   const [root] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
   if (!root) return { ok: false as const, error: "Folder not found" };
+  if (root.isSystem) {
+    return { ok: false as const, error: "systemFolderReadOnly" };
+  }
 
   if (!root.clientId && !root.projectId) {
-    if (!root.path.startsWith(`/drive/user/${uid}/`)) {
+    const okPersonal = root.path.startsWith(`/drive/user/${uid}/`);
+    const okSystemTreeUserFolder = root.path.startsWith("/drive/system/") && !root.isSystem;
+    if (!okPersonal && !okSystemTreeUserFolder) {
       return { ok: false as const, error: "Forbidden" };
     }
   } else if (role === "member" && root.projectId) {
@@ -430,25 +450,20 @@ export async function getDriveFolders() {
     }
 
     const standalonePrefix = `/drive/user/${uid}/`;
+    const personalOrSystemTree = and(
+      isNull(folders.clientId),
+      isNull(folders.projectId),
+      or(sql`${folders.path} like ${standalonePrefix + "%"}`, sql`${folders.path} like '/drive/system%'`)
+    );
     const scopeCond =
       projectIds.length > 0
         ? or(
-            role === "member"
-              ? sql`false`
-              : and(
-                  isNull(folders.clientId),
-                  isNull(folders.projectId),
-                  sql`${folders.path} like ${standalonePrefix + "%"}`
-                ),
+            role === "member" ? sql`false` : personalOrSystemTree,
             inArray(folders.projectId, projectIds)
           )
         : role === "member"
           ? sql`false`
-          : and(
-              isNull(folders.clientId),
-              isNull(folders.projectId),
-              sql`${folders.path} like ${standalonePrefix + "%"}`
-            );
+          : personalOrSystemTree;
 
     const rows = await db
       .select()
@@ -489,6 +504,9 @@ export async function setFolderPublicSharing(folderId: string, enabled: boolean)
   try {
     const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
+    if (existing.path.startsWith("/drive/system/")) {
+      return { ok: false as const, error: { _form: ["systemFolderNoShare"] } };
+    }
     if (role === "member") {
       if (!existing.projectId) return { ok: false as const, error: { _form: ["Forbidden"] } };
       const allowed = await memberHasAccessToProjectFolder(userId, existing.id);
@@ -691,6 +709,9 @@ export async function moveFolder(folderId: string, newParentId: string | null) {
   try {
     const [moving] = await db.select().from(folders).where(eq(folders.id, parsed.data.folderId)).limit(1);
     if (!moving) return { ok: false as const, error: { _form: ["Folder not found"] } };
+    if (moving.isSystem) {
+      return { ok: false as const, error: { _form: ["systemFolderReadOnly"] } };
+    }
 
     const role = sessionUserRole(session);
     const uid = session.user.id;
