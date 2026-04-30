@@ -216,6 +216,8 @@ export async function deleteTeamMember(id: string) {
     const [row] = await db.delete(teamMembers).where(eq(teamMembers.id, parsed.data)).returning();
     if (!row) return { ok: false as const, error: "Team member not found" };
     revalidatePath("/dashboard/team");
+    revalidatePath("/dashboard/drive");
+    revalidatePath("/dashboard/member-drive");
     return { ok: true as const };
   } catch (e) {
     console.error("deleteTeamMember", e);

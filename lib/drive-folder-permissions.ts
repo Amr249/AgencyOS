@@ -17,6 +17,8 @@ export type DriveFolderPermissionInput = {
   isSystem: boolean;
   systemType: string | null;
   projectId: string | null;
+  /** When null after the linked team member is deleted, `team_member` / `expense_team_member` folders are not protected. */
+  teamMemberId?: string | null;
 };
 
 /** Normalize DB / serialization quirks (e.g. string booleans) for permission checks. */
@@ -36,13 +38,25 @@ export function isRootSystemDriveFolder(folder: DriveFolderPermissionInput): boo
   return Boolean(toTruthyBoolean(folder.isSystem) && st && DRIVE_ROOT_SYSTEM_TYPES.has(st));
 }
 
+/** `folders.team_member_id` is cleared when `team_members` is deleted — folder row becomes a manual cleanup target. */
+function isOrphanTeamLinkedDriveFolder(folder: DriveFolderPermissionInput): boolean {
+  const st = (folder.systemType ?? "").trim();
+  if (st !== "team_member" && st !== "expense_team_member") return false;
+  // If callers omit `teamMemberId`, do not unlock (legacy / partial payloads).
+  if (!("teamMemberId" in folder)) return false;
+  const id = folder.teamMemberId;
+  return id == null || (typeof id === "string" && id.trim() === "");
+}
+
 /**
  * True for root buckets and typed auto-managed rows (`team_member`, `client`, …).
+ * Orphan team-linked folders (`team_member` / `expense_team_member` with no `teamMemberId`) are editable/deletable.
  * Rows with `is_system` set but empty `system_type` are treated as user-managed (misclassified / legacy).
  */
 export function isDriveFolderProtectedFromUserEdits(folder: DriveFolderPermissionInput): boolean {
   if (!toTruthyBoolean(folder.isSystem)) return false;
   if (isRootSystemDriveFolder(folder)) return true;
+  if (isOrphanTeamLinkedDriveFolder(folder)) return false;
   return Boolean((folder.systemType ?? "").trim());
 }
 
