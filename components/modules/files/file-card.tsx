@@ -55,14 +55,6 @@ export function FileCard({
     );
 
   const handleCardClick = () => {
-    if (kind === "pdf") {
-      window.open(file.imagekitUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (kind === "design" || kind === "office" || kind === "archive" || kind === "audio") {
-      onDownload(file.imagekitUrl, file.name);
-      return;
-    }
     onOpen(file);
   };
 

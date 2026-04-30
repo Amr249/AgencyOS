@@ -55,12 +55,12 @@ export function FolderCard({
           <div className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200 flex h-[120px] w-full items-center justify-center rounded-lg border-b">
             <Folder className="size-14 opacity-90" />
           </div>
-          <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/55 opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="absolute inset-0 flex flex-nowrap items-center justify-center gap-1 bg-black/55 px-1 opacity-0 transition-opacity group-hover:opacity-100">
             <Button
               type="button"
               size="icon"
               variant="secondary"
-              className="size-9"
+              className="size-9 shrink-0"
               aria-label={isArabic ? "مشاركة" : "Share"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -73,7 +73,7 @@ export function FolderCard({
               type="button"
               size="icon"
               variant="secondary"
-              className="size-9"
+              className="size-9 shrink-0"
               aria-label={isArabic ? "صلاحيات" : "Access"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -86,7 +86,7 @@ export function FolderCard({
               type="button"
               size="icon"
               variant="secondary"
-              className="size-9"
+              className="size-9 shrink-0"
               aria-label={isArabic ? "إعادة تسمية" : "Rename"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -99,7 +99,7 @@ export function FolderCard({
               type="button"
               size="icon"
               variant="destructive"
-              className="size-9"
+              className="size-9 shrink-0"
               aria-label={isArabic ? "حذف" : "Delete"}
               onClick={(e) => {
                 e.stopPropagation();

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
@@ -33,11 +34,13 @@ export default async function MemberDrivePage() {
     ? projectsRes.data.map((p) => ({ id: p.id, name: p.name, iconUrl: p.coverImageUrl ?? null }))
     : [];
 
+  const t = await getTranslations("memberDrive");
+
   return (
     <div className="flex min-h-[calc(100vh-5.5rem)] flex-col gap-3">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Drive</h1>
-        <p className="text-muted-foreground text-sm">Project folders and files you can access</p>
+      <div className="text-start">
+        <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
+        <p className="text-muted-foreground text-sm">{t("subtitle")}</p>
       </div>
       <div className="min-h-0 flex-1">
         <FileManager
@@ -51,10 +54,10 @@ export default async function MemberDrivePage() {
           sidebarFooter={
             <Card className="w-full">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Storage</CardTitle>
+                <CardTitle className="text-sm font-medium">{t("storageTitle")}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground text-xs">Accessible (estimated)</p>
+                <p className="text-muted-foreground text-xs">{t("storageHint")}</p>
                 <p className="text-lg font-semibold tabular-nums">{formatUsedMb(totalRes.ok ? totalRes.total : 0)}</p>
               </CardContent>
             </Card>

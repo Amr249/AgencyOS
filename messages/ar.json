@@ -641,6 +641,12 @@
     "loadError": "تعذّر تحميل لوحتك.",
     "forbidden": "ليس لديك صلاحية لهذه الصفحة."
   },
+  "memberDrive": {
+    "title": "الملفات",
+    "subtitle": "مجلدات المشاريع والملفات التي يمكنك الوصول إليها",
+    "storageTitle": "التخزين",
+    "storageHint": "المساحة المستخدمة (تقديري)"
+  },
   "clientPortal": {
     "agencyOs": "AgencyOS",
     "brandName": "بوابة العميل",

@@ -73,7 +73,8 @@ export function FilePreviewModal({
   const isImg = kind === "image";
   const isPdfType = kind === "pdf";
   const isVideo = kind === "video";
-  const hasRichPreview = isImg || isPdfType || isVideo;
+  const isOffice = kind === "office";
+  const hasRichPreview = isImg || isPdfType || isVideo || isOffice;
   const contentMaxWidth = hasRichPreview ? "sm:max-w-3xl" : "sm:max-w-md";
 
   const imageUrl = isImg ? file.imagekitUrl : null;
@@ -113,7 +114,7 @@ export function FilePreviewModal({
           <Button
             variant="ghost"
             size="icon"
-            className="absolute start-4 top-4 h-8 w-8 shrink-0"
+            className="absolute inset-s-4 top-4 h-8 w-8 shrink-0"
             onClick={() => onOpenChange(false)}
             aria-label="إغلاق"
           >
@@ -192,6 +193,24 @@ export function FilePreviewModal({
                 title={file.name}
                 className="h-[min(70vh,600px)] w-full rounded border bg-muted"
                 onError={() => setPdfLoadFailed(true)}
+              />
+            </div>
+          )}
+
+          {isOffice && (
+            <div className="flex flex-col gap-2 p-4">
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" asChild className="gap-1">
+                  <a href={file.imagekitUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="size-3.5" />
+                    فتح في تبويب جديد
+                  </a>
+                </Button>
+              </div>
+              <iframe
+                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(file.imagekitUrl)}`}
+                title={file.name}
+                className="h-[min(70vh,600px)] w-full rounded border bg-muted"
               />
             </div>
           )}

@@ -1,19 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Folder, MoreHorizontal, PanelRightClose, PanelRightOpen, Plus } from "lucide-react";
+import { Folder, PanelRightClose, PanelRightOpen, Pencil, Plus, Share2, Trash2, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 import type { FolderRow } from "@/actions/folders";
 import type { FileRow } from "@/lib/file-types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Sheet,
   SheetContent,
@@ -57,6 +51,7 @@ type TreeBranchProps = {
   onFileDrop: (targetFolderId: string, draggedFileId: string) => void;
   dropTargetFolderId: string | null;
   onDropTargetChange: (folderId: string | null) => void;
+  isArabic: boolean;
 };
 
 function TreeBranch({
@@ -75,6 +70,7 @@ function TreeBranch({
   onFileDrop,
   dropTargetFolderId,
   onDropTargetChange,
+  isArabic,
 }: TreeBranchProps) {
   const children = childrenMap.get(folder.id) ?? [];
   const isOpen = expanded.has(folder.id);
@@ -118,7 +114,7 @@ function TreeBranch({
               toggle(folder.id);
             }}
           >
-            <span className="text-xs">{isOpen ? "▾" : "▸"}</span>
+            <span className="text-xs">{isOpen ? "▾" : isArabic ? "◂" : "▸"}</span>
           </button>
         ) : (
           <span className="size-6 shrink-0" />
@@ -132,31 +128,60 @@ function TreeBranch({
           <span className="truncate font-medium">{folder.name}</span>
           <span className="text-muted-foreground shrink-0 text-xs">({count})</span>
         </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-              aria-label="قائمة المجلد"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onRenameRequest(folder)}>Rename</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onAccessRequest(folder)}>Manage access</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onShareRequest(folder)}>Share folder</DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => onDeleteRequest(folder)}
-            >
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex shrink-0 flex-nowrap items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0"
+            aria-label={isArabic ? "مشاركة" : "Share"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onShareRequest(folder);
+            }}
+          >
+            <Share2 className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0"
+            aria-label={isArabic ? "صلاحيات" : "Access"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAccessRequest(folder);
+            }}
+          >
+            <Users className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0"
+            aria-label={isArabic ? "إعادة تسمية" : "Rename"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRenameRequest(folder);
+            }}
+          >
+            <Pencil className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="text-destructive hover:text-destructive size-7 shrink-0"
+            aria-label={isArabic ? "حذف" : "Delete"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteRequest(folder);
+            }}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
       </div>
       {isOpen && children.length > 0 ? (
         <div>
@@ -178,6 +203,7 @@ function TreeBranch({
               onFileDrop={onFileDrop}
               dropTargetFolderId={dropTargetFolderId}
               onDropTargetChange={onDropTargetChange}
+              isArabic={isArabic}
             />
           ))}
         </div>
@@ -227,6 +253,7 @@ export function FolderTree({
   className,
 }: FolderTreeProps) {
   const isArabic = useLocale() === "ar";
+  const treeDir = isArabic ? "rtl" : "ltr";
   const childrenMap = React.useMemo(() => buildChildrenMap(folders), [folders]);
   const roots = childrenMap.get(null) ?? [];
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
@@ -275,7 +302,7 @@ export function FolderTree({
       </button>
       <Separator className="my-2" />
       <ScrollArea className="min-h-0 flex-1">
-        <div className="pe-2 pb-2">
+        <div className="pb-2 ps-2 pe-2" dir={treeDir}>
           {roots.map((f) => (
             <TreeBranch
               key={f.id}
@@ -297,6 +324,7 @@ export function FolderTree({
               onFileDrop={onFileDropToFolder}
               dropTargetFolderId={dropTargetFolderId}
               onDropTargetChange={onDropTargetChange}
+              isArabic={isArabic}
             />
           ))}
         </div>
@@ -317,7 +345,7 @@ export function FolderTree({
 
   return (
     <>
-      <div className={cn("flex lg:hidden", className)}>
+      <div className={cn("flex lg:hidden", className)} dir={treeDir}>
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
             <Button type="button" variant="outline" size="sm" className="gap-2">
@@ -325,7 +353,11 @@ export function FolderTree({
               {isArabic ? "المجلدات" : "Folders"}
             </Button>
           </SheetTrigger>
-          <SheetContent side="right" className="flex w-[min(100%,280px)] flex-col gap-3">
+          <SheetContent
+            side={isArabic ? "left" : "right"}
+            dir={treeDir}
+            className="flex w-[min(100%,280px)] flex-col gap-3"
+          >
             <SheetHeader>
               <SheetTitle>{isArabic ? "المجلدات" : "Folders"}</SheetTitle>
             </SheetHeader>
@@ -335,7 +367,10 @@ export function FolderTree({
       </div>
 
       {collapsed ? (
-        <div className={cn("border-border hidden shrink-0 flex-col items-center gap-2 border-s bg-card p-2 lg:flex", className)}>
+        <div
+          dir={treeDir}
+          className={cn("border-border hidden shrink-0 flex-col items-center gap-2 border-s bg-card p-2 lg:flex", className)}
+        >
           {onCollapsedChange ? (
             <Button
               type="button"
@@ -350,6 +385,7 @@ export function FolderTree({
         </div>
       ) : (
         <aside
+          dir={treeDir}
           className={cn(
             "border-border bg-card hidden w-[240px] shrink-0 flex-col gap-2 rounded-lg border p-3 lg:flex",
             className

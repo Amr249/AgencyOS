@@ -100,7 +100,9 @@ export function FileListView({
             <TableHead className="hidden sm:table-cell">{isArabic ? "الحجم" : "Size"}</TableHead>
             <TableHead className="hidden md:table-cell">{isArabic ? "التاريخ" : "Date"}</TableHead>
             <TableHead className="hidden lg:table-cell">{isArabic ? "النوع" : "Type"}</TableHead>
-            <TableHead className="w-36 text-end">{isArabic ? "إجراءات" : "Actions"}</TableHead>
+            <TableHead className="w-44 min-w-44 text-end">
+              {isArabic ? "إجراءات" : "Actions"}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -130,12 +132,12 @@ export function FileListView({
                   {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
                 </TableCell>
                 <TableCell className="text-end">
-                  <div className="flex flex-wrap justify-end gap-0.5">
+                  <div className="flex flex-nowrap items-center justify-end gap-0.5">
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="size-8"
+                      className="size-8 shrink-0"
                       aria-label={isArabic ? "مشاركة" : "Share"}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -148,7 +150,7 @@ export function FileListView({
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="size-8"
+                      className="size-8 shrink-0"
                       aria-label={isArabic ? "صلاحيات" : "Access"}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -161,7 +163,7 @@ export function FileListView({
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="size-8"
+                      className="size-8 shrink-0"
                       aria-label={isArabic ? "إعادة تسمية" : "Rename"}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -174,7 +176,7 @@ export function FileListView({
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="text-destructive size-8"
+                      className="text-destructive size-8 shrink-0"
                       aria-label={isArabic ? "حذف" : "Delete"}
                       onClick={(e) => {
                         e.stopPropagation();

@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { getFiles, createFile, deleteFile, moveFile } from "@/actions/files";
 import {
   getAllFoldersForScope,
@@ -65,6 +66,15 @@ export type FolderRecord = FolderRow;
 
 type SortKey = "name" | "date" | "size";
 type ViewMode = "grid" | "list";
+
+const DRIVE_BATCH_TOAST_ID = "drive-batch-upload";
+
+type UploadOneOptions = {
+  /** Omit per-file success toasts (batch uploads). */
+  quiet?: boolean;
+  /** 0–1 for this file (presign + storage PUT). */
+  onFraction?: (fraction: number) => void;
+};
 
 function formatDateSafe(value: Date | string | null | undefined): string {
   if (value == null) return "—";
@@ -415,9 +425,17 @@ export function FileManager({
   );
 
   const uploadOne = React.useCallback(
-    async (file: globalThis.File, key: string, targetFolderId: string | null): Promise<FileRow | null> => {
+    async (
+      file: globalThis.File,
+      key: string,
+      targetFolderId: string | null,
+      options?: UploadOneOptions
+    ): Promise<FileRow | null> => {
       if (!canUpload) return null;
+      const quiet = options?.quiet ?? false;
+      const onFraction = options?.onFraction;
       setUploadProgress((prev) => ({ ...prev, [key]: 0 }));
+      onFraction?.(0);
 
       const targetFolder = targetFolderId ? folders.find((f) => f.id === targetFolderId) ?? null : null;
       const drivePath = driveEntityPathFromFolder(
@@ -445,14 +463,6 @@ export function FileManager({
           error?: string;
         }>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.upload.addEventListener("progress", (ev) => {
-            if (ev.lengthComputable) {
-              setUploadProgress((p) => ({
-                ...p,
-                [key]: Math.round((ev.loaded / ev.total) * 100),
-              }));
-            }
-          });
           xhr.addEventListener("load", () => {
             try {
               const data = JSON.parse(xhr.responseText);
@@ -477,14 +487,15 @@ export function FileManager({
           return null;
         }
 
+        onFraction?.(0.08);
+
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.upload.addEventListener("progress", (ev) => {
             if (ev.lengthComputable) {
-              setUploadProgress((p) => ({
-                ...p,
-                [key]: Math.round((ev.loaded / ev.total) * 100),
-              }));
+              const pct = Math.round((ev.loaded / ev.total) * 100);
+              setUploadProgress((p) => ({ ...p, [key]: pct }));
+              onFraction?.(0.08 + 0.92 * (ev.loaded / ev.total));
             }
           });
           xhr.addEventListener("load", () => {
@@ -496,6 +507,8 @@ export function FileManager({
           xhr.setRequestHeader("Content-Type", res.mimeType || file.type || "application/octet-stream");
           xhr.send(file);
         });
+
+        onFraction?.(1);
 
         setUploadProgress((p) => {
           const n = { ...p };
@@ -522,7 +535,9 @@ export function FileManager({
             ...row,
             sizeBytes: row.sizeBytes != null ? Number(row.sizeBytes) : null,
           };
-          toast.success(isArabic ? "تم رفع الملف." : "File uploaded.");
+          if (!quiet) {
+            toast.success(isArabic ? "تم رفع الملف." : "File uploaded.");
+          }
           return newFile;
         }
         const createError =
@@ -544,7 +559,7 @@ export function FileManager({
         return null;
       }
     },
-    [canUpload, clientId, projectId, folders, currentFolder, standalone, driveUploadPathPrefix]
+    [canUpload, clientId, projectId, folders, currentFolder, standalone, driveUploadPathPrefix, isArabic]
   );
 
   type UploadEntry = { file: globalThis.File; relativePath: string };
@@ -553,55 +568,175 @@ export function FileManager({
     async (entries: UploadEntry[], rootFolderId: string | null) => {
       if (!canUpload || entries.length === 0) return;
       const hasNested = entries.some((e) => e.relativePath.includes("/"));
+      const isBatch = entries.length > 1 || hasNested;
+
       if (hasNested) {
         setExtractingLabel(isArabic ? "جاري استخراج المجلد..." : "Extracting your folder...");
       }
+
+      const renderBatchToast = (pct: number, doneFiles: number, totalFiles: number) => {
+        const p = Math.max(0, Math.min(100, pct));
+        toast.custom(
+          () => (
+            <div className="w-[min(100vw-2rem,22rem)] px-1 py-0.5" dir={isArabic ? "rtl" : "ltr"}>
+              <Field className="w-full max-w-none">
+                <FieldLabel
+                  htmlFor={DRIVE_BATCH_TOAST_ID}
+                  className="flex w-full items-center justify-between gap-2"
+                >
+                  <span className="text-foreground text-sm font-medium">
+                    {isArabic ? "جاري رفع الملفات…" : "Uploading files…"}
+                  </span>
+                  <span className="text-muted-foreground shrink-0 text-sm tabular-nums">{Math.round(p)}%</span>
+                </FieldLabel>
+                <Progress value={p} id={DRIVE_BATCH_TOAST_ID} className="mt-1.5" />
+              </Field>
+              {totalFiles > 1 ? (
+                <p className="text-muted-foreground mt-1.5 text-xs tabular-nums">
+                  {isArabic ? `${doneFiles} / ${totalFiles} ملف` : `${doneFiles} / ${totalFiles} files`}
+                </p>
+              ) : null}
+            </div>
+          ),
+          { id: DRIVE_BATCH_TOAST_ID, duration: Infinity }
+        );
+      };
+
       try {
         const folderMap = new Map<string, string | null>();
         folderMap.set("", rootFolderId);
         const createdFolders: FolderRow[] = [];
 
-      const ensurePath = async (dirPath: string): Promise<string | null> => {
-        const normalized = dirPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-        if (folderMap.has(normalized)) return folderMap.get(normalized)!;
-        const parts = normalized.split("/").filter(Boolean);
-        let current = rootFolderId;
-        let acc = "";
-        for (const p of parts) {
-          acc = acc ? `${acc}/${p}` : p;
-          if (folderMap.has(acc)) {
-            current = folderMap.get(acc)!;
-            continue;
+        const allFoldersLookup = (): FolderRow[] => [...folders, ...createdFolders];
+
+        const ensurePath = async (dirPath: string): Promise<string | null> => {
+          const normalized = dirPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+          if (folderMap.has(normalized)) return folderMap.get(normalized)!;
+          const parts = normalized.split("/").filter(Boolean);
+          let current = rootFolderId;
+          let acc = "";
+          for (const p of parts) {
+            acc = acc ? `${acc}/${p}` : p;
+            if (folderMap.has(acc)) {
+              current = folderMap.get(acc)!;
+              continue;
+            }
+            const existing = allFoldersLookup().find((f) => f.parentId === current && f.name === p);
+            if (existing) {
+              current = existing.id;
+              folderMap.set(acc, existing.id);
+              continue;
+            }
+            const created = await createFolderInScope(p, current);
+            if (!created) return null;
+            current = created.id;
+            createdFolders.push(created);
+            folderMap.set(acc, created.id);
           }
-          const existing = folders.find((f) => f.parentId === current && f.name === p);
-          if (existing) {
-            current = existing.id;
-            folderMap.set(acc, existing.id);
-            continue;
+          return current;
+        };
+
+        if (hasNested) {
+          const dirPaths = new Set<string>();
+          for (const e of entries) {
+            if (!e.relativePath.includes("/")) continue;
+            const dir = e.relativePath.slice(0, e.relativePath.lastIndexOf("/"));
+            if (!dir) continue;
+            let acc = "";
+            for (const part of dir.split("/").filter(Boolean)) {
+              acc = acc ? `${acc}/${part}` : part;
+              dirPaths.add(acc);
+            }
           }
-          const created = await createFolderInScope(p, current);
-          if (!created) return null;
-          current = created.id;
-          createdFolders.push(created);
-          folderMap.set(acc, created.id);
+          const sortedDirs = Array.from(dirPaths).sort(
+            (a, b) =>
+              a.split("/").length - b.split("/").length ||
+              a.localeCompare(b, undefined, { sensitivity: "base" })
+          );
+          for (const d of sortedDirs) {
+            const resolved = await ensurePath(d);
+            if (resolved == null) {
+              toast.error(isArabic ? "تعذر إنشاء المجلدات." : "Could not create folders.");
+              return;
+            }
+          }
         }
-        return current;
-      };
 
         const base = Date.now();
         const keys = entries.map((e, i) => `${e.file.name}-${e.file.size}-${base}-${i}`);
-        setUploadQueue(keys.map((key, i) => ({ key, name: entries[i]!.relativePath })));
+        const totalFiles = entries.length;
+        const weights = entries.map((e) => Math.max(1, e.file.size));
+        const sumW = weights.reduce((a, b) => a + b, 0);
+
+        if (isBatch) {
+          setUploadQueue([]);
+          renderBatchToast(0, 0, totalFiles);
+        } else {
+          setUploadQueue(keys.map((key, i) => ({ key, name: entries[i]!.relativePath })));
+        }
+
+        let completedW = 0;
+        let filesDone = 0;
+        const inflightFrac = new Map<number, number>();
+
+        const reportOverall = () => {
+          if (!isBatch) return;
+          let inflightSum = 0;
+          for (const [idx, frac] of inflightFrac) {
+            inflightSum += weights[idx]! * frac;
+          }
+          const pct = sumW > 0 ? ((completedW + inflightSum) / sumW) * 100 : 100;
+          renderBatchToast(pct, filesDone, totalFiles);
+        };
 
         const results = await mapPool(entries, 3, async (entry, i) => {
           const dir = entry.relativePath.includes("/")
             ? entry.relativePath.slice(0, entry.relativePath.lastIndexOf("/"))
             : "";
-          const target = await ensurePath(dir);
-          return uploadOne(entry.file, keys[i]!, target);
+          const normalizedDir = dir.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+          let target: string | null = rootFolderId;
+          if (normalizedDir) {
+            if (!folderMap.has(normalizedDir)) {
+              const resolved = await ensurePath(normalizedDir);
+              if (resolved == null) return null;
+            }
+            target = folderMap.get(normalizedDir) ?? rootFolderId;
+          } else {
+            target = folderMap.get("") ?? rootFolderId;
+          }
+
+          if (isBatch) {
+            inflightFrac.set(i, 0);
+            reportOverall();
+          }
+
+          try {
+            const row = await uploadOne(entry.file, keys[i]!, target, {
+              quiet: isBatch,
+              onFraction: isBatch
+                ? (f) => {
+                    inflightFrac.set(i, f);
+                    reportOverall();
+                  }
+                : undefined,
+            });
+            return row;
+          } finally {
+            if (isBatch) {
+              inflightFrac.delete(i);
+              completedW += weights[i]!;
+              filesDone += 1;
+              reportOverall();
+            }
+          }
         });
 
         setUploadQueue([]);
         setUploadProgress({});
+        if (isBatch) {
+          toast.dismiss(DRIVE_BATCH_TOAST_ID);
+        }
+
         const added = results.filter((r): r is FileRow => r != null);
         if (createdFolders.length > 0) {
           setFolders((prev) => {
@@ -613,7 +748,23 @@ export function FileManager({
         if (added.length > 0) {
           setFiles((prev) => [...added, ...prev]);
           router.refresh();
+          if (isBatch) {
+            toast.success(
+              isArabic
+                ? `تم رفع ${added.length} من أصل ${totalFiles} ملفًا`
+                : `Uploaded ${added.length} of ${totalFiles} file(s)`
+            );
+          }
+        } else if (isBatch && totalFiles > 0) {
+          toast.error(isArabic ? "لم يُرفع أي ملف." : "No files were uploaded.");
         }
+      } catch (e) {
+        if (isBatch) {
+          toast.dismiss(DRIVE_BATCH_TOAST_ID);
+        }
+        setUploadQueue([]);
+        setUploadProgress({});
+        throw e;
       } finally {
         if (hasNested) {
           setExtractingLabel(null);

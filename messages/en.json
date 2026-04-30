@@ -641,6 +641,12 @@
     "loadError": "Could not load your dashboard.",
     "forbidden": "You do not have access to this page."
   },
+  "memberDrive": {
+    "title": "Drive",
+    "subtitle": "Project folders and files you can access",
+    "storageTitle": "Storage",
+    "storageHint": "Accessible (estimated)"
+  },
   "clientPortal": {
     "agencyOs": "AgencyOS",
     "brandName": "Client portal",
