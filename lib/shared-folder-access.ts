@@ -1,7 +1,8 @@
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 import { z } from "zod";
 import { db, files, folders } from "@/lib/db";
+import { publicUrlFromR2Key } from "@/lib/r2-public-url";
 
 export type SharedFolderRootResult =
   | { ok: true; root: typeof folders.$inferSelect }
@@ -19,35 +20,68 @@ function normalizeShareToken(rawToken: string): string {
   }
 }
 
+/** URL / sans-serif confusions (e.g. capital I vs lowercase L) — verified via DB: tokens differ by one char. */
+const CONFUSABLE: Record<string, string[]> = {
+  I: ["I", "l", "1"],
+  l: ["l", "I", "1"],
+  "1": ["1", "I", "l"],
+  O: ["O", "0"],
+  o: ["o", "0"],
+  "0": ["0", "O", "o"],
+};
+
+function shareTokenLookupCandidates(normalized: string): string[] {
+  const positions: { index: number; chars: string[] }[] = [];
+  for (let i = 0; i < normalized.length; i++) {
+    const c = normalized[i]!;
+    const alt = CONFUSABLE[c];
+    if (alt) positions.push({ index: i, chars: [...new Set(alt)] });
+  }
+  if (positions.length === 0) return [normalized];
+
+  const out = new Set<string>();
+  const MAX = 400;
+  const dfs = (pi: number, buf: string[]) => {
+    if (out.size >= MAX) return;
+    if (pi === positions.length) {
+      out.add(buf.join(""));
+      return;
+    }
+    const { index, chars } = positions[pi]!;
+    for (const ch of chars) {
+      if (out.size >= MAX) return;
+      const next = [...buf];
+      next[index] = ch;
+      dfs(pi + 1, next);
+    }
+  };
+  dfs(0, [...normalized]);
+  const list = [...out];
+  list.sort((a, b) => {
+    if (a === normalized) return -1;
+    if (b === normalized) return 1;
+    return 0;
+  });
+  return list;
+}
+
 export async function resolveSharedFolderRoot(token: string): Promise<SharedFolderRootResult> {
   noStore();
   const t = normalizeShareToken(token);
   if (!t || t.length < 8) return { ok: false, reason: "invalid" };
   try {
-    const [root] = await db
-      .select()
-      .from(folders)
-      .where(
-        or(
-          eq(folders.shareToken, t),
-          // Some edge proxies normalize URL path casing; keep links resilient.
-          sql`lower(${folders.shareToken}) = lower(${t})`
-        )
-      )
-      .limit(1);
-    if (!root) {
-      console.warn("resolveSharedFolderRoot:not_found", { token: t });
-      return { ok: false, reason: "not_found" };
+    for (const candidate of shareTokenLookupCandidates(t)) {
+      const [root] = await db.select().from(folders).where(eq(folders.shareToken, candidate)).limit(1);
+      if (!root) continue;
+      if (!root.isPublic) {
+        return { ok: false, reason: "forbidden" };
+      }
+      if (root.shareExpiresAt && new Date(root.shareExpiresAt).getTime() <= Date.now()) {
+        return { ok: false, reason: "expired" };
+      }
+      return { ok: true, root };
     }
-    if (!root.isPublic) {
-      console.warn("resolveSharedFolderRoot:not_public", { token: t, folderId: root.id });
-      return { ok: false, reason: "forbidden" };
-    }
-    if (root.shareExpiresAt && new Date(root.shareExpiresAt).getTime() <= Date.now()) {
-      console.warn("resolveSharedFolderRoot:expired", { token: t, folderId: root.id });
-      return { ok: false, reason: "expired" };
-    }
-    return { ok: true, root };
+    return { ok: false, reason: "not_found" };
   } catch (e) {
     console.error("resolveSharedFolderRoot:failed", { token: t, error: e });
     return { ok: false, reason: "not_found" };
@@ -75,23 +109,14 @@ export type SharedFolderBrowseData = {
   }[];
 };
 
-export async function getSharedFolderBrowse(
-  token: string,
-  browseFolderId: string | null
+async function loadSharedFolderBrowseTree(
+  root: typeof folders.$inferSelect,
+  rootPath: string,
+  targetId: string
 ): Promise<
   | { ok: true; data: SharedFolderBrowseData }
-  | { ok: false; reason: "invalid" | "not_found" | "forbidden" | "expired" | "failed" }
+  | { ok: false; reason: "not_found" | "forbidden" | "failed" }
 > {
-  const rootRes = await resolveSharedFolderRoot(token);
-  if (!rootRes.ok) return rootRes;
-
-  const root = rootRes.root;
-  const rootPath = root.path.replace(/\/+$/, "");
-
-  let targetId = browseFolderId?.trim() || root.id;
-  const parsed = z.string().uuid().safeParse(targetId);
-  if (!parsed.success) targetId = root.id;
-
   try {
     const [current] = await db.select().from(folders).where(eq(folders.id, targetId)).limit(1);
     if (!current) return { ok: false, reason: "not_found" };
@@ -126,7 +151,7 @@ export async function getSharedFolderBrowse(
       .select({
         id: files.id,
         name: files.name,
-        imagekitUrl: files.imagekitUrl,
+        r2Key: files.r2Key,
         mimeType: files.mimeType,
         sizeBytes: files.sizeBytes,
         createdAt: files.createdAt,
@@ -135,6 +160,16 @@ export async function getSharedFolderBrowse(
       .where(and(eq(files.folderId, current.id), isNull(files.deletedAt)))
       .orderBy(asc(files.name));
 
+    const filesForGuest = fileRows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      /** Legacy field name: public R2 URL for guests (ImageKit columns were dropped in migration 0028). */
+      imagekitUrl: publicUrlFromR2Key(r.r2Key),
+      mimeType: r.mimeType,
+      sizeBytes: r.sizeBytes,
+      createdAt: r.createdAt,
+    }));
+
     return {
       ok: true,
       data: {
@@ -142,13 +177,38 @@ export async function getSharedFolderBrowse(
         current: { id: current.id, name: current.name },
         breadcrumbs,
         childFolders,
-        files: fileRows,
+        files: filesForGuest,
       },
     };
   } catch (e) {
     console.error("getSharedFolderBrowse", e);
     return { ok: false, reason: "failed" };
   }
+}
+
+export async function getSharedFolderBrowse(
+  token: string,
+  browseFolderId: string | null
+): Promise<
+  | { ok: true; data: SharedFolderBrowseData }
+  | { ok: false; reason: "invalid" | "not_found" | "forbidden" | "expired" | "failed" }
+> {
+  const rootRes = await resolveSharedFolderRoot(token);
+  if (!rootRes.ok) return rootRes;
+
+  const root = rootRes.root;
+  const rootPath = root.path.replace(/\/+$/, "");
+
+  let targetId = browseFolderId?.trim() || root.id;
+  const parsed = z.string().uuid().safeParse(targetId);
+  if (!parsed.success) targetId = root.id;
+
+  const hadFolderParam = Boolean(browseFolderId?.trim());
+  let result = await loadSharedFolderBrowseTree(root, rootPath, targetId);
+  if (!result.ok && result.reason === "forbidden" && hadFolderParam && targetId !== root.id) {
+    result = await loadSharedFolderBrowseTree(root, rootPath, root.id);
+  }
+  return result;
 }
 
 export async function assertFileReadableViaSharedFolder(token: string, fileId: string): Promise<
@@ -168,7 +228,7 @@ export async function assertFileReadableViaSharedFolder(token: string, fileId: s
     .select({
       id: files.id,
       name: files.name,
-      imagekitUrl: files.imagekitUrl,
+      r2Key: files.r2Key,
       mimeType: files.mimeType,
       folderId: files.folderId,
     })
@@ -177,6 +237,9 @@ export async function assertFileReadableViaSharedFolder(token: string, fileId: s
     .limit(1);
 
   if (!file?.folderId) return { ok: false, status: 404 };
+
+  const publicUrl = publicUrlFromR2Key(file.r2Key);
+  if (!publicUrl) return { ok: false, status: 404 };
 
   const [folderRow] = await db
     .select({ path: folders.path })
@@ -194,7 +257,7 @@ export async function assertFileReadableViaSharedFolder(token: string, fileId: s
     file: {
       id: file.id,
       name: file.name,
-      imagekitUrl: file.imagekitUrl,
+      imagekitUrl: publicUrl,
       mimeType: file.mimeType,
     },
   };

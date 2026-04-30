@@ -497,12 +497,6 @@ export async function setFolderPublicSharing(folderId: string, enabled: boolean)
       return { ok: true as const, data: existing };
     }
     const token = enabled ? (existing.shareToken?.trim() || nanoidLower()) : null;
-    console.log("setFolderPublicSharing", {
-      folderId: existing.id,
-      enabled,
-      token,
-      wasPublic: existing.isPublic,
-    });
     const [row] = await db
       .update(folders)
       .set({

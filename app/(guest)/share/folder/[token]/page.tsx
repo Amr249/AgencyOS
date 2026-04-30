@@ -30,6 +30,14 @@ export default async function SharedFolderPage({ params, searchParams }: Props) 
   const sp = await searchParams;
   const browse = await getSharedFolderBrowse(token, sp.folder ?? null);
 
+  if (!browse.ok) {
+    console.warn("[share/folder] browse failed", {
+      reason: browse.reason,
+      tokenLength: token.length,
+      folderParam: sp.folder ?? null,
+    });
+  }
+
   const [settingsRow] = await db.select().from(settings).where(eq(settings.id, 1)).limit(1);
   const agencyName = settingsRow?.agencyName?.trim() || "AgencyOS";
   const logoUrl = settingsRow?.agencyLogoUrl?.trim() || null;
