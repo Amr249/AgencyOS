@@ -364,6 +364,21 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       }
     }
 
+    const folder =
+      d.folderId != null
+        ? (await db.select().from(folders).where(eq(folders.id, d.folderId)).limit(1))[0] ?? null
+        : null;
+
+    // If folder is scoped to project/client, inherit that scope automatically.
+    // This is required for Drive project-linked folders where client/project ids
+    // are not sent explicitly from the uploader.
+    if (folder?.projectId && d.projectId == null) {
+      d.projectId = folder.projectId;
+    }
+    if (folder?.clientId && d.clientId == null) {
+      d.clientId = folder.clientId;
+    }
+
     const isPersonalDriveFile =
       d.clientId == null &&
       d.projectId == null &&
@@ -386,7 +401,7 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       d.projectId = targetFolder.projectId;
     }
     if (isPersonalDriveFile && d.folderId != null && userId) {
-      const [fol] = await db.select().from(folders).where(eq(folders.id, d.folderId)).limit(1);
+      const fol = folder;
       if (
         !fol ||
         fol.clientId != null ||
