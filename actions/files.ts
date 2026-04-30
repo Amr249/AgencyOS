@@ -6,14 +6,15 @@ import { eq, isNull, isNotNull, and, desc, or, inArray, sql } from "drizzle-orm"
 import { nanoid } from "nanoid";
 import { getServerSession } from "next-auth";
 import { db } from "@/lib/db";
-import { files, folders, projects, invoices, teamMembers, folderAccess } from "@/lib/db";
+import { files, folders, projects, invoices, teamMembers } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { logActivityWithActor } from "@/actions/activity-log";
 import { deleteFromR2, getPublicUrl } from "@/lib/r2";
 import { FILE_DOCUMENT_TYPES, type FileRow, type FileDocumentType } from "@/lib/file-types";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser, memberIsAssignedToTask } from "@/lib/member-context";
+import { getMemberProjectIdsForUser, memberIsAssignedToTask } from "@/lib/member-context";
+import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 
 function fileStorageKey(row: { r2Key: string | null; filePath?: string | null }): string | null {
   const k = row.r2Key?.trim();
@@ -160,44 +161,11 @@ export async function getFiles(params: {
       if (!uid) return { ok: false as const, error: "Not authorized", data: [] as FileRow[] };
       const role = sessionUserRole(session);
       if (role === "member") {
-        const projectIds = await getMemberProjectIdsForUser(uid);
-        if (projectIds.length === 0) {
+        const accessible = await getMemberAccessibleProjectFolderIds(uid);
+        if (accessible.size === 0) {
           return { ok: true as const, data: [] as FileRow[] };
         }
-        const memberIds = await getTeamMemberIdsForSessionUser(uid);
-        const driveFolders = await withDbReadRetry("getFiles.driveFolders", () =>
-          db.select({ id: folders.id }).from(folders).where(inArray(folders.projectId, projectIds))
-        );
-        const folderIds = driveFolders.map((f) => f.id);
-        if (folderIds.length === 0) {
-          conditions.push(inArray(files.projectId, projectIds));
-        } else {
-          const acl = await withDbReadRetry("getFiles.folderAcl", () =>
-            db
-              .select({ folderId: folderAccess.folderId, teamMemberId: folderAccess.teamMemberId })
-              .from(folderAccess)
-              .where(inArray(folderAccess.folderId, folderIds))
-          );
-          const aclMap = new Map<string, string[]>();
-          for (const a of acl) {
-            const list = aclMap.get(a.folderId) ?? [];
-            list.push(a.teamMemberId);
-            aclMap.set(a.folderId, list);
-          }
-          const allowedFolderIds = folderIds.filter((id) => {
-            const row = aclMap.get(id);
-            if (!row || row.length === 0) return true;
-            return row.some((x) => memberIds.includes(x));
-          });
-          const driveCond =
-            allowedFolderIds.length > 0
-              ? or(
-                  inArray(files.projectId, projectIds),
-                  inArray(files.folderId, allowedFolderIds)
-                )
-              : inArray(files.projectId, projectIds);
-          if (driveCond) conditions.push(driveCond);
-        }
+        conditions.push(inArray(files.folderId, Array.from(accessible)));
       }
       if (folderId != null) conditions.push(eq(files.folderId, folderId));
     } else if (allForUser) {
@@ -352,11 +320,12 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
   try {
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id ?? null;
+    const role = sessionUserRole(session);
     if (d.taskId) {
       if (!userId) {
         return { ok: false as const, error: { _form: ["Not authorized"] } };
       }
-      if (sessionUserRole(session) === "member") {
+      if (role === "member") {
         const allowed = await memberIsAssignedToTask(d.taskId, userId);
         if (!allowed) {
           return { ok: false as const, error: { _form: ["Forbidden"] } };
@@ -379,13 +348,28 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       d.clientId = folder.clientId;
     }
 
+    if (
+      role === "member" &&
+      !d.taskId &&
+      !d.invoiceId &&
+      !d.expenseId &&
+      (folder?.projectId || d.projectId)
+    ) {
+      if (!d.folderId || !userId) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      const allowedFolder = await memberHasAccessToProjectFolder(userId, d.folderId);
+      if (!allowedFolder) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+    }
+
     const isPersonalDriveFile =
       d.clientId == null &&
       d.projectId == null &&
       d.taskId == null &&
       d.invoiceId == null &&
       d.expenseId == null;
-    const role = sessionUserRole(session);
     if (role === "member" && isPersonalDriveFile) {
       if (!d.folderId) {
         return { ok: false as const, error: { _form: ["Members cannot upload standalone drive files"] } };
@@ -602,6 +586,7 @@ export async function deleteFile(id: string) {
       invoiceId: files.invoiceId,
       expenseId: files.expenseId,
       uploadedBy: files.uploadedBy,
+      folderId: files.folderId,
     })
     .from(files)
     .where(eq(files.id, parsed.data));
@@ -610,16 +595,22 @@ export async function deleteFile(id: string) {
     return { ok: false as const, error: "File not found" };
   }
 
-  if (row.taskId) {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id ?? null;
-    if (!userId) return { ok: false as const, error: "Not authorized" };
-    if (sessionUserRole(session) === "member") {
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id ?? null;
+  if (!userId) return { ok: false as const, error: "Not authorized" };
+  const role = sessionUserRole(session);
+
+  if (role === "member") {
+    if (row.taskId) {
       const assigned = await memberIsAssignedToTask(row.taskId, userId);
       if (!assigned) return { ok: false as const, error: "Forbidden" };
       if (row.uploadedBy !== userId) {
         return { ok: false as const, error: "Forbidden" };
       }
+    } else if (row.projectId) {
+      if (!row.folderId) return { ok: false as const, error: "Forbidden" };
+      const allowed = await memberHasAccessToProjectFolder(userId, row.folderId);
+      if (!allowed) return { ok: false as const, error: "Forbidden" };
     }
   }
 
@@ -676,8 +667,32 @@ export async function moveFile(fileId: string, folderId: string | null) {
   }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+  const uid = session.user.id;
+  const role = sessionUserRole(session);
 
   try {
+    const [fileRow] = await db
+      .select({
+        id: files.id,
+        projectId: files.projectId,
+        folderId: files.folderId,
+      })
+      .from(files)
+      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .limit(1);
+    if (!fileRow) return { ok: false as const, error: { _form: ["File not found"] } };
+
+    if (role === "member" && fileRow.projectId) {
+      if (!fileRow.folderId || !parsed.data.folderId) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      const srcOk = await memberHasAccessToProjectFolder(uid, fileRow.folderId);
+      const destOk = await memberHasAccessToProjectFolder(uid, parsed.data.folderId);
+      if (!srcOk || !destOk) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+    }
+
     const updated = await db.execute(sql`
       update files
       set folder_id = ${parsed.data.folderId}
@@ -714,8 +729,25 @@ export async function renameFile(fileId: string, newName: string) {
   }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+  const role = sessionUserRole(session);
 
   try {
+    const [existing] = await db
+      .select({
+        id: files.id,
+        projectId: files.projectId,
+        folderId: files.folderId,
+      })
+      .from(files)
+      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .limit(1);
+    if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
+    if (role === "member" && existing.projectId) {
+      if (!existing.folderId) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const allowed = await memberHasAccessToProjectFolder(session.user.id, existing.folderId);
+      if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
+
     const [row] = await db
       .update(files)
       .set({ name: parsed.data.newName.trim() })
@@ -744,15 +776,27 @@ export async function toggleFilePublic(fileId: string) {
 
   try {
     const existingRes = await db.execute(sql`
-      select id, is_public, share_token, share_expires_at
+      select id, is_public, share_token, share_expires_at, project_id, folder_id
       from files
       where id = ${parsed.data} and deleted_at is null
       limit 1
     `);
     const existing = existingRes.rows[0] as
-      | { id: string; is_public: boolean; share_token: string | null; share_expires_at: Date | null }
+      | {
+          id: string;
+          is_public: boolean;
+          share_token: string | null;
+          share_expires_at: Date | null;
+          project_id: string | null;
+          folder_id: string | null;
+        }
       | undefined;
     if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
+    if (sessionUserRole(session) === "member" && existing.project_id) {
+      if (!existing.folder_id) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const allowed = await memberHasAccessToProjectFolder(session.user.id, existing.folder_id);
+      if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
 
     const nextPublic = !existing.is_public;
     let shareToken: string | null = existing.share_token;
@@ -818,15 +862,26 @@ export async function createShareLink(fileId: string, expiresInDays?: number) {
 
   try {
     const existingRes = await db.execute(sql`
-      select id, is_public, share_token
+      select id, is_public, share_token, project_id, folder_id
       from files
       where id = ${parsed.data.fileId} and deleted_at is null
       limit 1
     `);
     const existing = existingRes.rows[0] as
-      | { id: string; is_public: boolean; share_token: string | null }
+      | {
+          id: string;
+          is_public: boolean;
+          share_token: string | null;
+          project_id: string | null;
+          folder_id: string | null;
+        }
       | undefined;
     if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
+    if (sessionUserRole(session) === "member" && existing.project_id) {
+      if (!existing.folder_id) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const allowed = await memberHasAccessToProjectFolder(session.user.id, existing.folder_id);
+      if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
 
     const token =
       existing.is_public && existing.share_token?.trim()
@@ -890,6 +945,18 @@ export async function setShareLinkExpiryDays(fileId: string, expiresInDays: numb
   }
 
   try {
+    const [before] = await db
+      .select({ projectId: files.projectId, folderId: files.folderId })
+      .from(files)
+      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .limit(1);
+    if (!before) return { ok: false as const, error: { _form: ["File not found"] } };
+    if (sessionUserRole(session) === "member" && before.projectId) {
+      if (!before.folderId) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const allowed = await memberHasAccessToProjectFolder(session.user.id, before.folderId);
+      if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
+
     const updateRes = await db.execute(sql`
       update files
       set share_expires_at = ${shareExpiresAt}
@@ -1140,11 +1207,11 @@ export async function getTotalFilesStorageBytes(input?: { standaloneDrive?: bool
     const conditions = [isNull(files.deletedAt)];
     if (input?.driveView) {
       if (sessionUserRole(session) === "member") {
-        const projectIds = await getMemberProjectIdsForUser(session.user.id);
-        if (projectIds.length === 0) {
+        const accessible = await getMemberAccessibleProjectFolderIds(session.user.id);
+        if (accessible.size === 0) {
           return { ok: true as const, total: 0 };
         }
-        conditions.push(inArray(files.projectId, projectIds));
+        conditions.push(inArray(files.folderId, Array.from(accessible)));
       }
     } else if (input?.standaloneDrive || input?.allForUser) {
       conditions.push(eq(files.uploadedBy, session.user.id));

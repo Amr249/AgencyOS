@@ -1,7 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { Folder, PanelRightClose, PanelRightOpen, Pencil, Plus, Share2, Trash2, Users } from "lucide-react";
+import {
+  Folder,
+  MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
+  Pencil,
+  Plus,
+  Share2,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { useLocale } from "next-intl";
 import type { FolderRow } from "@/actions/folders";
 import type { FileRow } from "@/lib/file-types";
@@ -16,6 +26,12 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 
 function buildChildrenMap(rows: FolderRow[]): Map<string | null, FolderRow[]> {
@@ -89,13 +105,13 @@ function TreeBranch({
   const isDraggingThisFolder = draggingFolderId === folder.id;
 
   return (
-    <div className="select-none">
+    <div className="min-w-0 select-none">
       <div
         draggable
         onDragStart={(e) => onDragFolderStart(folder, e)}
         onDragEnd={onDragFolderEnd}
         className={cn(
-          "group flex items-center gap-1 rounded-md py-1 pe-1 ps-1 hover:bg-muted/80",
+          "group flex min-w-0 items-center gap-1 rounded-md py-1 pe-1 ps-1 hover:bg-muted/80",
           isActive && "bg-muted",
           isDropTarget && "bg-primary/10 ring-1 ring-primary/40",
           isDraggingThisFolder && "opacity-50"
@@ -139,71 +155,63 @@ function TreeBranch({
         <button
           type="button"
           draggable={false}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-0.5 text-start text-sm"
+          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded px-1 py-0.5 text-start text-sm"
           onClick={() => onSelectFolder(folder.id)}
         >
           <Folder className="text-amber-600 dark:text-amber-400 size-4 shrink-0" />
-          <span className="truncate font-medium">{folder.name}</span>
+          <span className="min-w-0 truncate font-medium">{folder.name}</span>
           <span className="text-muted-foreground shrink-0 text-xs">({count})</span>
         </button>
-        <div className="flex shrink-0 flex-nowrap items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            draggable={false}
-            className="size-7 shrink-0"
-            aria-label={isArabic ? "مشاركة" : "Share"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onShareRequest(folder);
-            }}
-          >
-            <Share2 className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            draggable={false}
-            className="size-7 shrink-0"
-            aria-label={isArabic ? "صلاحيات" : "Access"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onAccessRequest(folder);
-            }}
-          >
-            <Users className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            draggable={false}
-            className="size-7 shrink-0"
-            aria-label={isArabic ? "إعادة تسمية" : "Rename"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRenameRequest(folder);
-            }}
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            draggable={false}
-            className="text-destructive hover:text-destructive size-7 shrink-0"
-            aria-label={isArabic ? "حذف" : "Delete"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteRequest(folder);
-            }}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              draggable={false}
+              className="size-7 shrink-0"
+              aria-label={isArabic ? "إجراءات المجلد" : "Folder actions"}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-40" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenuItem
+              onClick={() => {
+                onShareRequest(folder);
+              }}
+            >
+              <Share2 className="size-4" />
+              {isArabic ? "مشاركة" : "Share"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                onAccessRequest(folder);
+              }}
+            >
+              <Users className="size-4" />
+              {isArabic ? "صلاحيات" : "Access"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                onRenameRequest(folder);
+              }}
+            >
+              <Pencil className="size-4" />
+              {isArabic ? "إعادة تسمية" : "Rename"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => {
+                onDeleteRequest(folder);
+              }}
+            >
+              <Trash2 className="size-4" />
+              {isArabic ? "حذف" : "Delete"}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {isOpen && children.length > 0 ? (
         <div>
@@ -425,12 +433,12 @@ export function FolderTree({
         <aside
           dir={treeDir}
           className={cn(
-            "border-border bg-card hidden w-[240px] shrink-0 flex-col gap-2 rounded-lg border p-3 lg:flex",
+            "border-border bg-card hidden min-w-0 w-[min(100%,280px)] max-w-[280px] shrink-0 flex-col gap-2 rounded-lg border p-3 lg:flex",
             className
           )}
         >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <span className="text-muted-foreground min-w-0 truncate text-xs font-medium uppercase tracking-wide">
               {isArabic ? "المجلدات" : "Folders"}
             </span>
             {onCollapsedChange ? (

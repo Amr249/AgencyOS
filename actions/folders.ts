@@ -10,8 +10,9 @@ import { deleteFromR2 } from "@/lib/r2";
 import { authOptions } from "@/lib/auth";
 import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/lib/member-context";
+import { getMemberProjectIdsForUser } from "@/lib/member-context";
 import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
+import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 
 export type FolderRow = typeof folders.$inferSelect;
 
@@ -101,6 +102,10 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
         if (!allowedProjects.includes(resolvedProjectId)) {
           return { ok: false as const, error: { _form: ["Forbidden"] } };
         }
+        const canUseParent = await memberHasAccessToProjectFolder(userId, parentId);
+        if (!canUseParent) {
+          return { ok: false as const, error: { _form: ["Forbidden"] } };
+        }
       }
       const base = parent.path.endsWith("/") ? parent.path.slice(0, -1) : parent.path;
       path = `${base}/${segment}`;
@@ -116,10 +121,7 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
       } else if (resolvedClientId) path = `/client/${resolvedClientId}/${segment}`;
       else if (resolvedProjectId) {
         if (role === "member") {
-          const allowedProjects = await getMemberProjectIdsForUser(userId);
-          if (!allowedProjects.includes(resolvedProjectId)) {
-            return { ok: false as const, error: { _form: ["Forbidden"] } };
-          }
+          return { ok: false as const, error: { _form: ["Members must create folders inside a shared folder"] } };
         }
         path = `/project/${resolvedProjectId}/${segment}`;
       }
@@ -190,6 +192,10 @@ export async function renameFolder(id: string, name: string) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
       }
     }
+    if (sessionUserRole(session) === "member" && existing.projectId) {
+      const allowed = await memberHasAccessToProjectFolder(session.user.id, existing.id);
+      if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
 
     const [row] = await db
       .update(folders)
@@ -215,6 +221,20 @@ export async function deleteFolder(id: string) {
   if (!parsed.success) return { ok: false as const, error: "Invalid folder id" };
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: "Not authorized" };
+  const uid = session.user.id;
+  const role = sessionUserRole(session);
+
+  const [root] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
+  if (!root) return { ok: false as const, error: "Folder not found" };
+
+  if (!root.clientId && !root.projectId) {
+    if (!root.path.startsWith(`/drive/user/${uid}/`)) {
+      return { ok: false as const, error: "Forbidden" };
+    }
+  } else if (role === "member" && root.projectId) {
+    const allowed = await memberHasAccessToProjectFolder(uid, root.id);
+    if (!allowed) return { ok: false as const, error: "Forbidden" };
+  }
 
   try {
     const subtreeIds = await collectSubtreeFolderIds(parsed.data);
@@ -239,14 +259,6 @@ export async function deleteFolder(id: string) {
 
     await db.delete(files).where(inArray(files.folderId, subtreeIds));
 
-    const [root] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
-    if (!root) return { ok: false as const, error: "Folder not found" };
-    const uid = session.user.id;
-    if (!root.clientId && !root.projectId) {
-      if (!root.path.startsWith(`/drive/user/${uid}/`)) {
-        return { ok: false as const, error: "Forbidden" };
-      }
-    }
     await db.delete(folders).where(eq(folders.id, parsed.data));
 
     if (root?.clientId) revalidatePath(`/dashboard/clients/${root.clientId}`);
@@ -377,10 +389,8 @@ export async function getDriveFolders() {
   try {
     const role = sessionUserRole(session);
     let projectIds: string[] = [];
-    let memberIds: string[] = [];
     if (role === "member") {
       projectIds = await getMemberProjectIdsForUser(uid);
-      memberIds = await getTeamMemberIdsForSessionUser(uid);
     } else {
       const rows = await db
         .select({ id: projects.id })
@@ -423,23 +433,8 @@ export async function getDriveFolders() {
       return { ok: true as const, data: rows };
     }
 
-    const aclRows = await db
-      .select({ folderId: folderAccess.folderId, teamMemberId: folderAccess.teamMemberId })
-      .from(folderAccess)
-      .where(inArray(folderAccess.folderId, rows.map((r) => r.id)));
-    const aclMap = new Map<string, string[]>();
-    for (const a of aclRows) {
-      const list = aclMap.get(a.folderId) ?? [];
-      list.push(a.teamMemberId);
-      aclMap.set(a.folderId, list);
-    }
-
-    const filtered = rows.filter((f) => {
-      if (!f.projectId) return false;
-      const acl = aclMap.get(f.id);
-      if (!acl || acl.length === 0) return true;
-      return acl.some((id) => memberIds.includes(id));
-    });
+    const accessible = await getMemberAccessibleProjectFolderIds(uid);
+    const filtered = rows.filter((f) => f.projectId != null && accessible.has(f.id));
     return { ok: true as const, data: filtered };
   } catch (e) {
     console.error("getDriveFolders", e);
@@ -465,10 +460,9 @@ export async function setFolderPublicSharing(folderId: string, enabled: boolean)
     const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
     if (role === "member") {
-      const projectsAllowed = await getMemberProjectIdsForUser(userId);
-      if (!existing.projectId || !projectsAllowed.includes(existing.projectId)) {
-        return { ok: false as const, error: { _form: ["Forbidden"] } };
-      }
+      if (!existing.projectId) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const allowed = await memberHasAccessToProjectFolder(userId, existing.id);
+      if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
     }
     if (existing.isPublic === enabled && (!enabled || (existing.shareToken?.trim() ?? "").length > 0)) {
       return { ok: true as const, data: existing };
@@ -518,8 +512,8 @@ export async function setFolderAccess(folderId: string, teamMemberIds: string[])
     if (!folder) return { ok: false as const, error: { _form: ["Folder not found"] } };
     if (!folder.projectId) return { ok: false as const, error: { _form: ["Access list is only for project folders"] } };
     if (role === "member") {
-      const allowed = await getMemberProjectIdsForUser(userId);
-      if (!allowed.includes(folder.projectId)) return { ok: false as const, error: { _form: ["Forbidden"] } };
+      const allowed = await memberHasAccessToProjectFolder(userId, folder.id);
+      if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
     }
     await db.delete(folderAccess).where(eq(folderAccess.folderId, folder.id));
     const dedup = Array.from(new Set(parsed.data.teamMemberIds));
@@ -548,10 +542,9 @@ export async function getFolderAccess(folderId: string) {
     const [folder] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
     if (!folder) return { ok: false as const, error: "Folder not found", data: [] as string[] };
     if (role === "member") {
-      const allowed = await getMemberProjectIdsForUser(userId);
-      if (!folder.projectId || !allowed.includes(folder.projectId)) {
-        return { ok: false as const, error: "Forbidden", data: [] as string[] };
-      }
+      if (!folder.projectId) return { ok: false as const, error: "Forbidden", data: [] as string[] };
+      const allowed = await memberHasAccessToProjectFolder(userId, folder.id);
+      if (!allowed) return { ok: false as const, error: "Forbidden", data: [] as string[] };
     }
     const rows = await db
       .select({ teamMemberId: folderAccess.teamMemberId })
@@ -605,7 +598,25 @@ export async function getFolderBreadcrumbs(folderId: string) {
   if (!parsed.success) {
     return { ok: false as const, error: "Invalid folder id", data: [] as { id: string; name: string }[] };
   }
+  const session = await getServerSession(authOptions);
+  const uid = session?.user?.id;
+  if (!uid) {
+    return { ok: false as const, error: "Not authorized", data: [] as { id: string; name: string }[] };
+  }
   try {
+    if (sessionUserRole(session) === "member") {
+      const [target] = await db
+        .select({ projectId: folders.projectId })
+        .from(folders)
+        .where(eq(folders.id, parsed.data))
+        .limit(1);
+      if (target?.projectId) {
+        const ok = await memberHasAccessToProjectFolder(uid, parsed.data);
+        if (!ok) {
+          return { ok: false as const, error: "Forbidden", data: [] as { id: string; name: string }[] };
+        }
+      }
+    }
     const crumbs: { id: string; name: string }[] = [];
     let currentId: string | null = parsed.data;
     const guard = new Set<string>();
@@ -646,6 +657,20 @@ export async function moveFolder(folderId: string, newParentId: string | null) {
   try {
     const [moving] = await db.select().from(folders).where(eq(folders.id, parsed.data.folderId)).limit(1);
     if (!moving) return { ok: false as const, error: { _form: ["Folder not found"] } };
+
+    const role = sessionUserRole(session);
+    const uid = session.user.id;
+    if (role === "member" && moving.projectId) {
+      if (!(await memberHasAccessToProjectFolder(uid, moving.id))) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      if (!parsed.data.newParentId) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      if (!(await memberHasAccessToProjectFolder(uid, parsed.data.newParentId))) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+    }
 
     const subtree = await collectSubtreeFolderIds(parsed.data.folderId);
     if (parsed.data.newParentId && subtree.includes(parsed.data.newParentId)) {

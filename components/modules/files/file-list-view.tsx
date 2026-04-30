@@ -123,6 +123,26 @@ export function FileListView({
             const totalBytes = folderSizeBytesByFolderId.get(f.id) ?? 0;
             const displayMs =
               folderDisplayDateMsByFolderId.get(f.id) ?? new Date(f.createdAt).getTime();
+            const canReceiveDrop = Boolean(onFileDropToFolder || onFolderDropToFolder);
+            const onFolderCellDragOver = (e: React.DragEvent) => {
+              if (!canReceiveDrop) return;
+              if (dataTransferHasDriveFile(e.dataTransfer.types) || dataTransferHasDriveFolder(e.dataTransfer.types)) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "move";
+                onDropTargetChange?.(f.id);
+              }
+            };
+            const onFolderCellDrop = (e: React.DragEvent) => {
+              const fileId = e.dataTransfer.getData(DRIVE_FILE_DRAG_MIME);
+              const draggedFolderId = e.dataTransfer.getData(DRIVE_FOLDER_DRAG_MIME);
+              if (!fileId && !draggedFolderId) return;
+              e.preventDefault();
+              e.stopPropagation();
+              if (fileId) onFileDropToFolder?.(f.id, fileId);
+              else if (draggedFolderId) onFolderDropToFolder?.(f.id, draggedFolderId);
+              onDropTargetChange?.(null);
+            };
             return (
               <TableRow
                 key={f.id}
@@ -134,44 +154,37 @@ export function FileListView({
                 onDragStart={(e) => onDragFolderStart?.(f, e)}
                 onDragEnd={() => onDragFolderEnd?.()}
                 onClick={() => onOpenFolder(f.id)}
-                onDragOver={(e) => {
-                  if (!onFileDropToFolder && !onFolderDropToFolder) return;
-                  if (dataTransferHasDriveFile(e.dataTransfer.types) || dataTransferHasDriveFolder(e.dataTransfer.types)) {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    onDropTargetChange?.(f.id);
-                  }
-                }}
                 onDragLeave={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) onDropTargetChange?.(null);
-                }}
-                onDrop={(e) => {
-                  const fileId = e.dataTransfer.getData(DRIVE_FILE_DRAG_MIME);
-                  const draggedFolderId = e.dataTransfer.getData(DRIVE_FOLDER_DRAG_MIME);
-                  if (!fileId && !draggedFolderId) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (fileId) onFileDropToFolder?.(f.id, fileId);
-                  else if (draggedFolderId) onFolderDropToFolder?.(f.id, draggedFolderId);
-                  onDropTargetChange?.(null);
+                  const rel = e.relatedTarget as Node | null;
+                  if (!rel || !e.currentTarget.contains(rel)) onDropTargetChange?.(null);
                 }}
               >
-                <TableCell>
+                <TableCell onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
                   <div className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 flex size-9 items-center justify-center rounded-md">
                     <Folder className="size-4" />
                   </div>
                 </TableCell>
-                <TableCell className="font-medium">{f.name}</TableCell>
-                <TableCell className="text-muted-foreground hidden sm:table-cell">
+                <TableCell className="font-medium" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
+                  {f.name}
+                </TableCell>
+                <TableCell
+                  className="text-muted-foreground hidden sm:table-cell"
+                  onDragOver={onFolderCellDragOver}
+                  onDrop={onFolderCellDrop}
+                >
                   {formatSize(totalBytes)}
                 </TableCell>
-                <TableCell className="text-muted-foreground hidden md:table-cell">
+                <TableCell
+                  className="text-muted-foreground hidden md:table-cell"
+                  onDragOver={onFolderCellDragOver}
+                  onDrop={onFolderCellDrop}
+                >
                   {formatDate(new Date(displayMs))}
                 </TableCell>
-                <TableCell className="hidden lg:table-cell">
+                <TableCell className="hidden lg:table-cell" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
                   {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
                 </TableCell>
-                <TableCell className="text-end">
+                <TableCell className="text-end" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
                   <div className="flex flex-nowrap items-center justify-end gap-0.5">
                     <Button
                       type="button"
@@ -234,19 +247,62 @@ export function FileListView({
               </TableRow>
             );
           })}
-          {files.map((file) => (
+          {files.map((file) => {
+            const fid = file.folderId ?? null;
+            const fileRowCanReceive = Boolean(fid && (onFileDropToFolder || onFolderDropToFolder));
+            const isFileRowDropHighlight = Boolean(fid && dropTargetFolderId === fid);
+            const onFileRowCellDragOver = (e: React.DragEvent) => {
+              if (!fid || (!onFileDropToFolder && !onFolderDropToFolder)) return;
+              if (!dataTransferHasDriveFile(e.dataTransfer.types) && !dataTransferHasDriveFolder(e.dataTransfer.types)) {
+                return;
+              }
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "move";
+              onDropTargetChange?.(fid);
+            };
+            const onFileRowCellDrop = (e: React.DragEvent) => {
+              if (!fid) return;
+              const draggedFileId = e.dataTransfer.getData(DRIVE_FILE_DRAG_MIME);
+              const draggedFolderId = e.dataTransfer.getData(DRIVE_FOLDER_DRAG_MIME);
+              if (!draggedFileId && !draggedFolderId) return;
+              e.preventDefault();
+              e.stopPropagation();
+              if (draggedFileId && draggedFileId !== file.id) {
+                onFileDropToFolder?.(fid, draggedFileId);
+              } else if (draggedFolderId) {
+                onFolderDropToFolder?.(fid, draggedFolderId);
+              }
+              onDropTargetChange?.(null);
+            };
+            return (
             <TableRow
               key={file.id}
-              className="cursor-pointer"
+              className={cn(
+                "cursor-pointer",
+                isFileRowDropHighlight && "bg-primary/5 ring-1 ring-primary/30"
+              )}
               draggable={!!onDragFileStart}
               onDragStart={(e) => onDragFileStart?.(file, e)}
               onDragEnd={() => onDragFileEnd?.()}
               onClick={() => onOpenFile(file)}
+              onDragLeave={(e) => {
+                const rel = e.relatedTarget as Node | null;
+                if (!rel || !e.currentTarget.contains(rel)) onDropTargetChange?.(null);
+              }}
             >
-              <TableCell>
+              <TableCell
+                onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
+                onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
+              >
                 <FileTypeIcon name={file.name} mimeType={file.mimeType} compact />
               </TableCell>
-              <TableCell className="max-w-[220px] font-medium" title={file.name}>
+              <TableCell
+                className="max-w-[220px] font-medium"
+                title={file.name}
+                onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
+                onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
+              >
                 <div className="flex min-w-0 items-center gap-2">
                   {file.isPublic && file.shareToken ? (
                     <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px] font-normal">
@@ -256,22 +312,39 @@ export function FileListView({
                   <span className="truncate">{file.name}</span>
                 </div>
               </TableCell>
-              <TableCell className="text-muted-foreground hidden sm:table-cell">
+              <TableCell
+                className="text-muted-foreground hidden sm:table-cell"
+                onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
+                onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
+              >
                 {formatSize(file.sizeBytes)}
               </TableCell>
-              <TableCell className="text-muted-foreground hidden md:table-cell">
+              <TableCell
+                className="text-muted-foreground hidden md:table-cell"
+                onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
+                onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
+              >
                 {formatDate(file.createdAt)}
               </TableCell>
-              <TableCell className="hidden lg:table-cell">
+              <TableCell
+                className="hidden lg:table-cell"
+                onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
+                onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
+              >
                 {typeLabel(file.name, file.mimeType, isArabic)}
               </TableCell>
-              <TableCell className="text-end">
+              <TableCell
+                className="text-end"
+                onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
+                onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
+              >
                 <div className="flex justify-end gap-0.5">
                   {onShareFile ? (
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
+                      draggable={false}
                       className="size-8"
                       aria-label="مشاركة"
                       onClick={(e) => {
@@ -286,6 +359,7 @@ export function FileListView({
                     type="button"
                     size="icon"
                     variant="ghost"
+                    draggable={false}
                     className="size-8"
                     aria-label="تنزيل"
                     onClick={(e) => {
@@ -299,6 +373,7 @@ export function FileListView({
                     type="button"
                     size="icon"
                     variant="ghost"
+                    draggable={false}
                     className="size-8"
                     aria-label="نسخ الرابط"
                     onClick={(e) => {
@@ -312,6 +387,7 @@ export function FileListView({
                     type="button"
                     size="icon"
                     variant="ghost"
+                    draggable={false}
                     className="text-destructive size-8"
                     aria-label="حذف"
                     onClick={(e) => {
@@ -324,7 +400,8 @@ export function FileListView({
                 </div>
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
     </div>
