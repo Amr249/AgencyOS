@@ -42,16 +42,32 @@ function normalizeDrivePath(folderPath: string): string {
 }
 
 /**
+ * Drive object key: always includes a unique `storageId` so identical filenames
+ * (batch uploads, ZIP extracts, camera rolls) never share one R2 object.
+ */
+export function buildDriveObjectKey(
+  folderPathSegment: string,
+  filename: string,
+  storageId: string
+): string {
+  const sub = normalizeDrivePath(folderPathSegment);
+  const prefix = sub ? `drive/${sub}` : "drive";
+  const safeName = sanitizeFilename(filename);
+  const id = storageId.trim() || randomUUID();
+  return `${prefix}/${id}_${safeName}`;
+}
+
+/**
  * Builds an object key for the given scope.
  *
  * - **clients (logo):** `entityId` = `clientId` → `clients/{clientId}/logo_{timestamp}.{ext}`
  * - **clients (files):** `entityId` = `clientId/fileId` → `clients/{clientId}/files/{fileId}_{sanitizedName}`
  * - **projects (cover):** `entityId` = `projectId` (must not end with `/files`) → `projects/{projectId}/cover_{timestamp}.{ext}`
- * - **projects (files):** `entityId` = `projectId/files` → `projects/{projectId}/files/{sanitizedName}`
+ * - **projects (files):** via {@link buildUploadStorageKey} → `projects/{projectId}/files/{fileId}_{sanitizedName}`
  * - **team:** `entityId` = `memberId` → `team/{memberId}/avatar_{timestamp}.{ext}`
  * - **agency:** `entityId` ignored → `agency/logo_{timestamp}.{ext}`
  * - **expenses:** `entityId` = `expenseId` → `expenses/receipts/{expenseId}_{sanitizedName}`
- * - **drive:** `entityId` = folder path (use `""` for root) → `drive/{folderPath}/{sanitizedName}`
+ * - **drive:** `entityId` = folder path (use `""` for root) → `drive/{folderPath}/{uuid}_{sanitizedName}`
  */
 export function buildR2Key(
   scope: R2BuildScope,
@@ -97,9 +113,7 @@ export function buildR2Key(
   }
 
   if (scope === DRIVE_SCOPE) {
-    const sub = normalizeDrivePath(entityId);
-    const prefix = sub ? `drive/${sub}` : "drive";
-    return `${prefix}/${safeName}`;
+    return buildDriveObjectKey(entityId, filename, randomUUID());
   }
 
   const _exhaustive: never = scope;
@@ -172,7 +186,8 @@ export function buildUploadStorageKey(
     }
     case "project-files": {
       const projectId = orRandomId(input.entityId ?? input.projectId);
-      return buildR2Key("projects", `${projectId}/files`, filename);
+      const fid = orRandomId(input.fileId);
+      return `projects/${projectId}/files/${fid}_${safe}`;
     }
     case "team-avatar":
       return buildR2Key("team", orRandomId(input.entityId), filename);
@@ -181,10 +196,10 @@ export function buildUploadStorageKey(
     case "expense-receipt":
       return buildR2Key("expenses", orRandomId(input.entityId ?? input.expenseId), filename);
     case "drive":
-      return buildR2Key(
-        "drive",
+      return buildDriveObjectKey(
         (input.folderId ?? input.entityId ?? "").trim(),
-        filename
+        filename,
+        orRandomId(input.fileId)
       );
     case "ai-chat":
       return `ai-chat/${ts}_${safe}`;
