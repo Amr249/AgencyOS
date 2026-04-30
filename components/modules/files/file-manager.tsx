@@ -916,17 +916,23 @@ export function FileManager({
 
   const isExternalFileDrag = (e: React.DragEvent) => {
     const types = Array.from(e.dataTransfer.types ?? []);
-    return types.includes("Files") && !types.includes("application/x-drive-file-id");
+    if (types.includes("application/x-drive-file-id")) return false;
+    return types.includes("Files") || types.includes("application/x-moz-file");
   };
 
   const collectDroppedEntries = React.useCallback(async (dt: DataTransfer): Promise<UploadEntry[]> => {
     const items = Array.from(dt.items ?? []);
-    const hasEntryApi = items.some((i) => typeof (i as DataTransferItem & { webkitGetAsEntry?: () => any }).webkitGetAsEntry === "function");
-    if (!hasEntryApi) {
-      return Array.from(dt.files ?? []).map((f) => ({
+    const hasEntryApi = items.some(
+      (i) => typeof (i as DataTransferItem & { webkitGetAsEntry?: () => unknown }).webkitGetAsEntry === "function"
+    );
+    const flatFromFileList = (): UploadEntry[] =>
+      Array.from(dt.files ?? []).map((f) => ({
         file: f,
         relativePath: (f as globalThis.File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
       }));
+
+    if (!hasEntryApi) {
+      return flatFromFileList();
     }
 
     const readFile = (entry: any): Promise<globalThis.File> =>
@@ -957,8 +963,13 @@ export function FileManager({
     };
 
     const roots = items
-      .map((i) => (i as DataTransferItem & { webkitGetAsEntry?: () => any }).webkitGetAsEntry?.())
+      .map((i) => (i as DataTransferItem & { webkitGetAsEntry?: () => unknown }).webkitGetAsEntry?.())
       .filter(Boolean);
+
+    if (roots.length === 0) {
+      return flatFromFileList();
+    }
+
     const nested = await Promise.all(roots.map((r) => walk(r, "")));
     return nested.flat();
   }, []);
@@ -975,10 +986,18 @@ export function FileManager({
     setDragDepth((d) => Math.max(0, d - 1));
   };
   const onDragOver = (e: React.DragEvent) => {
-    if (isExternalFileDrag(e)) e.preventDefault();
+    if (!isExternalFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (canUpload) {
+      e.dataTransfer.dropEffect = "copy";
+    } else {
+      e.dataTransfer.dropEffect = "none";
+    }
   };
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragDepth(0);
     if (!canUpload) return;
     if (!isExternalFileDrag(e)) return;
@@ -1272,7 +1291,9 @@ export function FileManager({
           >
             {dragDepth > 0 && canUpload ? (
               <div className="bg-primary/10 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-primary border-dashed">
-                <p className="text-primary font-medium">{isArabic ? "أفلت الملفات للرفع" : "Drop files to upload"}</p>
+                <p className="text-primary font-medium">
+                  {isArabic ? "أفلت الملفات أو المجلدات للرفع" : "Drop files or folders to upload"}
+                </p>
               </div>
             ) : null}
             {extractingLabel ? (

@@ -14,6 +14,7 @@ import type { FileRow } from "@/lib/file-types";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
 import { getFileVisualKind } from "@/components/modules/files/file-type-icon";
+import { driveInlinePreviewUrl } from "@/lib/drive-inline-preview";
 
 function formatDateSafe(value: Date | string | null | undefined): string {
   if (value == null) return "—";
@@ -189,7 +190,7 @@ export function FilePreviewModal({
                 </Button>
               </div>
               <iframe
-                src={file.imagekitUrl}
+                src={driveInlinePreviewUrl(file.imagekitUrl)}
                 title={file.name}
                 className="h-[min(70vh,600px)] w-full rounded border bg-muted"
                 onError={() => setPdfLoadFailed(true)}

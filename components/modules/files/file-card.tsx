@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
 import type { FileRow } from "@/lib/file-types";
+import { driveInlinePreviewUrl } from "@/lib/drive-inline-preview";
 import { cn } from "@/lib/utils";
 
 type FileCardProps = {
@@ -35,6 +36,7 @@ export function FileCard({
 }: FileCardProps) {
   const isArabic = useLocale() === "ar";
   const kind = getFileVisualKind(file.name, file.mimeType);
+  /** PDFs use same-origin proxy (`/api/drive-inline-file`) so R2 does not force download in iframes. */
   const thumb =
     kind === "image" && file.imagekitUrl ? (
       <img
@@ -44,7 +46,7 @@ export function FileCard({
       />
     ) : kind === "pdf" && file.imagekitUrl ? (
       <iframe
-        src={`${file.imagekitUrl}#page=1&view=FitH&toolbar=0&navpanes=0&scrollbar=0`}
+        src={driveInlinePreviewUrl(file.imagekitUrl)}
         className="h-[150px] w-full border-0 bg-white"
         title={file.name}
       />
