@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const MEMBER_HOME = "/dashboard/me";
 const MEMBER_ACCOUNT = "/dashboard/account";
+const MEMBER_DRIVE = "/dashboard/member-drive";
 
 const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
 
@@ -10,6 +11,7 @@ function isMemberAllowedPath(pathname: string): boolean {
   if (pathname === "/dashboard" || pathname === "/dashboard/") return true;
   if (pathname === MEMBER_HOME || pathname.startsWith(`${MEMBER_HOME}/`)) return true;
   if (pathname === MEMBER_ACCOUNT || pathname.startsWith(`${MEMBER_ACCOUNT}/`)) return true;
+  if (pathname === MEMBER_DRIVE || pathname.startsWith(`${MEMBER_DRIVE}/`)) return true;
   if (pathname === "/dashboard/projects" || pathname.startsWith("/dashboard/projects/"))
     return true;
   if (pathname === "/dashboard/workspace" || pathname.startsWith("/dashboard/workspace/")) return true;
@@ -80,6 +82,9 @@ export async function proxy(request: NextRequest) {
 
   if (pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/")) {
     return NextResponse.redirect(new URL(MEMBER_ACCOUNT, request.url));
+  }
+  if (pathname === "/dashboard/drive" || pathname.startsWith("/dashboard/drive/")) {
+    return NextResponse.redirect(new URL(MEMBER_DRIVE, request.url));
   }
 
   if (isMemberAllowedPath(pathname)) {
