@@ -276,5 +276,3 @@ export async function getFolderAccessDirectCountsByFolderId() {
     return { ok: false as const, error: getDbErrorKey(e), data: {} as Record<string, number> };
   }
 }
-
-export { getAccessibleFolderIds, canAccessFolder } from "@/lib/member-drive-access";
