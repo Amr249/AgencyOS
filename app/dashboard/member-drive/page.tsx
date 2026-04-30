@@ -48,12 +48,12 @@ export default async function MemberDrivePage({ searchParams }: PageProps) {
   const t = await getTranslations("memberDrive");
 
   return (
-    <div className="flex min-h-[calc(100vh-5.5rem)] flex-col gap-3">
-      <div className="text-start">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      <div className="shrink-0 text-start">
         <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
         <p className="text-muted-foreground text-sm">{t("subtitle")}</p>
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <FileManager
           standalone
           folderRouteBase="/dashboard/member-drive"

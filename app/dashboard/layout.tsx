@@ -40,9 +40,9 @@ export default async function DashboardLayout({
   const inner = (
     <>
       <SiteHeader hideGlobalSearch={isMember} hideLanguageToggle={isMember} />
-      <div className="flex flex-1 flex-col pb-20 md:pb-0">
-        <div className="@container/main flex flex-1 flex-col gap-2">
-          <div className="flex flex-col gap-4 md:gap-6 px-4 py-4 md:px-6 md:py-6">
+      <div className="flex min-h-0 flex-1 flex-col pb-20 md:pb-0">
+        <div className="@container/main flex min-h-0 flex-1 flex-col gap-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6 px-4 py-4 md:px-6 md:py-6">
             {children}
           </div>
         </div>
@@ -61,7 +61,7 @@ export default async function DashboardLayout({
       }
     >
       <AppSidebar variant="inset" side={sidebarSide} userRole={userRole} />
-      <SidebarInset>
+      <SidebarInset className="min-h-0">
         {isMember ? (
           <div dir="rtl" lang="ar">
             <MemberDashboardLocaleShell>{inner}</MemberDashboardLocaleShell>
