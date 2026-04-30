@@ -42,6 +42,12 @@ export function FileCard({
         alt=""
         className="h-[150px] w-full object-cover"
       />
+    ) : kind === "pdf" && file.imagekitUrl ? (
+      <iframe
+        src={`${file.imagekitUrl}#page=1&view=FitH&toolbar=0&navpanes=0&scrollbar=0`}
+        className="h-[150px] w-full border-0 bg-white"
+        title={file.name}
+      />
     ) : (
       <div className="flex h-[150px] w-[200px] max-w-full items-center justify-center bg-muted">
         <FileTypeIcon name={file.name} mimeType={file.mimeType} />

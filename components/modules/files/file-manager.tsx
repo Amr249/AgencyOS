@@ -184,6 +184,7 @@ export function FileManager({
   const [dragDepth, setDragDepth] = React.useState(0);
   const [draggingFileId, setDraggingFileId] = React.useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = React.useState<string | null>(null);
+  const [extractingLabel, setExtractingLabel] = React.useState<string | null>(null);
   const [accessFolder, setAccessFolder] = React.useState<FolderRow | null>(null);
   const [accessMemberIds, setAccessMemberIds] = React.useState<string[]>([]);
   const [accessBusy, setAccessBusy] = React.useState(false);
@@ -321,7 +322,6 @@ export function FileManager({
             projectId: projectId ?? undefined,
           });
       if (!res.ok || !res.data) return null;
-      setFolders((prev) => [...prev, res.data]);
       return res.data;
     },
     [standalone, clientId, projectId]
@@ -465,8 +465,14 @@ export function FileManager({
   const uploadEntries = React.useCallback(
     async (entries: UploadEntry[], rootFolderId: string | null) => {
       if (!canUpload || entries.length === 0) return;
-      const folderMap = new Map<string, string | null>();
-      folderMap.set("", rootFolderId);
+      const hasNested = entries.some((e) => e.relativePath.includes("/"));
+      if (hasNested) {
+        setExtractingLabel(isArabic ? "جاري استخراج المجلد..." : "Extracting your folder...");
+      }
+      try {
+        const folderMap = new Map<string, string | null>();
+        folderMap.set("", rootFolderId);
+        const createdFolders: FolderRow[] = [];
 
       const ensurePath = async (dirPath: string): Promise<string | null> => {
         const normalized = dirPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
@@ -489,32 +495,45 @@ export function FileManager({
           const created = await createFolderInScope(p, current);
           if (!created) return null;
           current = created.id;
+          createdFolders.push(created);
           folderMap.set(acc, created.id);
         }
         return current;
       };
 
-      const base = Date.now();
-      const keys = entries.map((e, i) => `${e.file.name}-${e.file.size}-${base}-${i}`);
-      setUploadQueue(keys.map((key, i) => ({ key, name: entries[i]!.relativePath })));
+        const base = Date.now();
+        const keys = entries.map((e, i) => `${e.file.name}-${e.file.size}-${base}-${i}`);
+        setUploadQueue(keys.map((key, i) => ({ key, name: entries[i]!.relativePath })));
 
-      const results = await mapPool(entries, 3, async (entry, i) => {
-        const dir = entry.relativePath.includes("/")
-          ? entry.relativePath.slice(0, entry.relativePath.lastIndexOf("/"))
-          : "";
-        const target = await ensurePath(dir);
-        return uploadOne(entry.file, keys[i]!, target);
-      });
+        const results = await mapPool(entries, 3, async (entry, i) => {
+          const dir = entry.relativePath.includes("/")
+            ? entry.relativePath.slice(0, entry.relativePath.lastIndexOf("/"))
+            : "";
+          const target = await ensurePath(dir);
+          return uploadOne(entry.file, keys[i]!, target);
+        });
 
-      setUploadQueue([]);
-      setUploadProgress({});
-      const added = results.filter((r): r is FileRow => r != null);
-      if (added.length > 0) {
-        setFiles((prev) => [...added, ...prev]);
-        router.refresh();
+        setUploadQueue([]);
+        setUploadProgress({});
+        const added = results.filter((r): r is FileRow => r != null);
+        if (createdFolders.length > 0) {
+          setFolders((prev) => {
+            const map = new Map(prev.map((f) => [f.id, f]));
+            for (const f of createdFolders) map.set(f.id, f);
+            return Array.from(map.values());
+          });
+        }
+        if (added.length > 0) {
+          setFiles((prev) => [...added, ...prev]);
+          router.refresh();
+        }
+      } finally {
+        if (hasNested) {
+          setExtractingLabel(null);
+        }
       }
     },
-    [canUpload, folders, createFolderInScope, uploadOne, router]
+    [canUpload, folders, createFolderInScope, uploadOne, router, isArabic]
   );
 
   const uploadFiles = React.useCallback(
@@ -569,14 +588,18 @@ export function FileManager({
     if (!selected || !canUpload) return;
     void (async () => {
       try {
+        setExtractingLabel(isArabic ? "جاري استخراج ملف ZIP..." : "Extracting your ZIP...");
         const entries = await extractZipEntries(selected);
         if (entries.length === 0) {
           toast.error(isArabic ? "ملف ZIP فارغ." : "ZIP file is empty.");
+          setExtractingLabel(null);
           return;
         }
         await uploadEntries(entries, currentFolderId);
       } catch {
         toast.error(isArabic ? "تعذر فك ملف ZIP." : "Could not extract ZIP.");
+      } finally {
+        setExtractingLabel(null);
       }
     })();
     e.target.value = "";
@@ -998,6 +1021,13 @@ export function FileManager({
             {dragDepth > 0 && canUpload ? (
               <div className="bg-primary/10 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-primary border-dashed">
                 <p className="text-primary font-medium">{isArabic ? "أفلت الملفات للرفع" : "Drop files to upload"}</p>
+              </div>
+            ) : null}
+            {extractingLabel ? (
+              <div className="bg-background/80 absolute inset-0 z-20 flex items-center justify-center backdrop-blur-sm">
+                <div className="rounded-md border bg-card px-4 py-3 text-sm font-medium shadow">
+                  {extractingLabel}
+                </div>
               </div>
             ) : null}
 
