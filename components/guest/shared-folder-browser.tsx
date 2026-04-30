@@ -3,7 +3,7 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Download, FolderOpen, ChevronRight, Moon, Sparkles, Sun } from "lucide-react";
+import { Download, FolderOpen, ChevronRight, Moon, Sun } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -181,13 +181,12 @@ export function SharedFolderBrowser({
       data-sfb-theme={theme}
     >
       <header className="border-b border-zinc-800 bg-zinc-900/90 px-3 py-3 text-zinc-50 backdrop-blur sm:px-4 sm:py-4">
-        <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+        <div className="relative mx-auto max-w-5xl px-11 sm:px-12">
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
             {logoUrl ? (
               <Image src={logoUrl} alt="" width={40} height={40} className="size-9 shrink-0 rounded-md object-contain sm:size-10" />
             ) : null}
-            <Sparkles className="size-8 shrink-0 text-[#a4fe19] sm:size-9" aria-hidden />
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 max-w-full text-center">
               <p className="truncate font-semibold tracking-tight">AgencyOS Drive</p>
               <p className="truncate text-xs text-zinc-400" dir="rtl">
                 مشاركة مجلد · {rootFolderName}
@@ -198,7 +197,7 @@ export function SharedFolderBrowser({
             type="button"
             variant="ghost"
             size="icon"
-            className="shrink-0 text-zinc-200 hover:bg-zinc-800 hover:text-white"
+            className="absolute end-0 top-1/2 shrink-0 -translate-y-1/2 text-zinc-200 hover:bg-zinc-800 hover:text-white"
             onClick={toggleTheme}
             aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
           >
