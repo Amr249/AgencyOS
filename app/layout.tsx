@@ -37,8 +37,13 @@ export const metadata: Metadata = {
   description: "OnePixle Agency Operations Dashboard",
   manifest: "/manifest.json",
   icons: {
-    icon: "/Logo1.png",
-    apple: "/Logo1.png",
+    icon: [
+      { url: "/favicon_io%20(3)/favicon.ico", type: "image/x-icon" },
+      { url: "/favicon_io%20(3)/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon_io%20(3)/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+    ],
+    shortcut: "/favicon_io%20(3)/favicon.ico",
+    apple: "/favicon_io%20(3)/apple-touch-icon.png",
   },
   appleWebApp: {
     capable: true,

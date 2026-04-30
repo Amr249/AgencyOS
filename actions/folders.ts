@@ -100,11 +100,13 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
       if (role === "member" && resolvedProjectId) {
         const allowedProjects = await getMemberProjectIdsForUser(userId);
         if (!allowedProjects.includes(resolvedProjectId)) {
-          return { ok: false as const, error: { _form: ["Forbidden"] } };
+          return { ok: false as const, error: { _form: ["forbidden"] } };
         }
-        const canUseParent = await memberHasAccessToProjectFolder(userId, parentId);
+        const canUseParent =
+          parent.createdBy === userId ||
+          (await memberHasAccessToProjectFolder(userId, parentId));
         if (!canUseParent) {
-          return { ok: false as const, error: { _form: ["Forbidden"] } };
+          return { ok: false as const, error: { _form: ["forbidden"] } };
         }
       }
       const base = parent.path.endsWith("/") ? parent.path.slice(0, -1) : parent.path;
