@@ -1,12 +1,19 @@
 "use client";
 
-import { Pencil, Share2, Trash2, Users } from "lucide-react";
+import { Lock, Pencil, Share2, Trash2, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { FolderRow } from "@/actions/folders";
 import { DriveFolderIcon, driveFolderPreviewSurfaceClass } from "@/components/modules/files/drive-folder-icon";
 import { cn } from "@/lib/utils";
+import {
+  canAccessDriveFolder,
+  canDeleteDriveFolder,
+  canRenameDriveFolder,
+  canShareDriveFolder,
+  showDriveFolderLock,
+} from "@/lib/drive-folder-permissions";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 
 type FolderCardProps = {
@@ -28,6 +35,7 @@ type FolderCardProps = {
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
+  canManageFolderAccess?: boolean;
 };
 
 export function FolderCard({
@@ -49,12 +57,17 @@ export function FolderCard({
   formatSize,
   formatDate,
   className,
+  canManageFolderAccess = true,
 }: FolderCardProps) {
   const isArabic = useLocale() === "ar";
   const dateLabel = formatDate(new Date(displayDateMs));
-  const systemLocked = folder.isSystem;
-  const draggable = Boolean(onDragFolderStart) && !systemLocked;
-  const showFolderActions = !systemLocked;
+  const canRename = canRenameDriveFolder(folder);
+  const canDelete = canDeleteDriveFolder(folder);
+  const canShare = canShareDriveFolder(folder);
+  const canAccess = canAccessDriveFolder(folder, canManageFolderAccess);
+  const showLock = showDriveFolderLock(folder);
+  const draggable = Boolean(onDragFolderStart) && canRename;
+  const hasOverlayActions = canShare || canAccess || canRename || canDelete;
 
   return (
     <Card
@@ -103,69 +116,78 @@ export function FolderCard({
           >
             <DriveFolderIcon systemType={folder.systemType} className="size-14 opacity-95" />
           </div>
-          {showFolderActions ? (
+          {hasOverlayActions ? (
             <div className="absolute inset-0 flex flex-nowrap items-center justify-center gap-1 bg-black/55 px-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                draggable={false}
-                className="size-9 shrink-0"
-                aria-label={isArabic ? "مشاركة" : "Share"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onShare(folder);
-                }}
-              >
-                <Share2 className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                draggable={false}
-                className="size-9 shrink-0"
-                aria-label={isArabic ? "صلاحيات" : "Access"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAccess(folder);
-                }}
-              >
-                <Users className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                draggable={false}
-                className="size-9 shrink-0"
-                aria-label={isArabic ? "إعادة تسمية" : "Rename"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRename(folder);
-                }}
-              >
-                <Pencil className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="destructive"
-                draggable={false}
-                className="size-9 shrink-0"
-                aria-label={isArabic ? "حذف" : "Delete"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(folder);
-                }}
-              >
-                <Trash2 className="size-4" />
-              </Button>
+              {canShare ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  draggable={false}
+                  className="size-9 shrink-0"
+                  aria-label={isArabic ? "مشاركة" : "Share"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShare(folder);
+                  }}
+                >
+                  <Share2 className="size-4" />
+                </Button>
+              ) : null}
+              {canAccess ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  draggable={false}
+                  className="size-9 shrink-0"
+                  aria-label={isArabic ? "صلاحيات" : "Access"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAccess(folder);
+                  }}
+                >
+                  <Users className="size-4" />
+                </Button>
+              ) : null}
+              {canRename ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  draggable={false}
+                  className="size-9 shrink-0"
+                  aria-label={isArabic ? "إعادة تسمية" : "Rename"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRename(folder);
+                  }}
+                >
+                  <Pencil className="size-4" />
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="destructive"
+                  draggable={false}
+                  className="size-9 shrink-0"
+                  aria-label={isArabic ? "حذف" : "Delete"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(folder);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>
-        <p className="line-clamp-2 w-full text-sm font-medium" title={folder.name}>
-          {folder.name}
+        <p className="line-clamp-2 flex w-full items-center justify-center gap-1 text-sm font-medium" title={folder.name}>
+          {showLock ? <Lock className="text-muted-foreground size-3.5 shrink-0 opacity-70" aria-hidden /> : null}
+          <span className="min-w-0 truncate">{folder.name}</span>
         </p>
         <p className="text-muted-foreground text-xs">
           {itemCount} {isArabic ? (itemCount === 1 ? "عنصر" : "عناصر") : itemCount === 1 ? "item" : "items"}

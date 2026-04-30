@@ -3,7 +3,7 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Download, FolderOpen, ChevronLeft } from "lucide-react";
+import { Download, FolderOpen, ChevronRight, Moon, Sparkles, Sun } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,9 +23,12 @@ export type SharedFolderFileItem = {
   sizeBytes: number | null;
 };
 
+const SHARE_THEME_STORAGE_KEY = "agencyos-share-folder-theme";
+
+type ThemeMode = "light" | "dark";
+
 type Props = {
   token: string;
-  agencyName: string;
   logoUrl: string | null;
   shareExpiresAtIso: string | null;
   rootFolderName: string;
@@ -33,6 +36,67 @@ type Props = {
   childFolders: { id: string; name: string }[];
   files: SharedFolderFileItem[];
 };
+
+function readStoredTheme(): ThemeMode | null {
+  if (typeof window === "undefined") return null;
+  const v = localStorage.getItem(SHARE_THEME_STORAGE_KEY);
+  if (v === "light" || v === "dark") return v;
+  return null;
+}
+
+function readSystemTheme(): ThemeMode {
+  if (typeof window === "undefined") return "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+/** CSS variables for main + cards (header stays fixed dark). */
+function themeSurfaceCssVars(mode: ThemeMode): React.CSSProperties {
+  if (mode === "dark") {
+    return {
+      "--sfb-page-bg": "#09090b",
+      "--sfb-card-bg": "#18181b",
+      "--sfb-card-border": "#27272a",
+      "--sfb-text": "#fafafa",
+      "--sfb-text-muted": "#a1a1aa",
+      "--sfb-folder-bg": "#1c1c1e",
+      "--sfb-folder-hover": "#27272a",
+      "--sfb-thumb-bg": "#18181b",
+      "--sfb-link": "#7dd3fc",
+      "--sfb-link-hover": "#bae6fd",
+    } as React.CSSProperties;
+  }
+  return {
+    "--sfb-page-bg": "#ffffff",
+    "--sfb-card-bg": "#ffffff",
+    "--sfb-card-border": "#e5e7eb",
+    "--sfb-text": "#111827",
+    "--sfb-text-muted": "#6b7280",
+    "--sfb-folder-bg": "#f3f4f6",
+    "--sfb-folder-hover": "#e5e7eb",
+    "--sfb-thumb-bg": "#f9fafb",
+    "--sfb-link": "#0284c7",
+    "--sfb-link-hover": "#0369a1",
+  } as React.CSSProperties;
+}
+
+function dialogChromeCssVars(mode: ThemeMode): React.CSSProperties {
+  if (mode === "dark") {
+    return {
+      "--sfb-dlg-bg": "#18181b",
+      "--sfb-dlg-surface": "#09090b",
+      "--sfb-dlg-border": "#27272a",
+      "--sfb-dlg-text": "#fafafa",
+      "--sfb-dlg-muted": "#a1a1aa",
+    } as React.CSSProperties;
+  }
+  return {
+    "--sfb-dlg-bg": "#ffffff",
+    "--sfb-dlg-surface": "#f9fafb",
+    "--sfb-dlg-border": "#e5e7eb",
+    "--sfb-dlg-text": "#111827",
+    "--sfb-dlg-muted": "#6b7280",
+  } as React.CSSProperties;
+}
 
 function formatSize(bytes: number | null | undefined): string {
   if (bytes == null || bytes <= 0) return "—";
@@ -75,7 +139,6 @@ function folderHref(token: string, folderId: string, rootId: string): string {
 
 export function SharedFolderBrowser({
   token,
-  agencyName,
   logoUrl,
   shareExpiresAtIso,
   rootFolderName,
@@ -84,48 +147,95 @@ export function SharedFolderBrowser({
   files,
 }: Props) {
   const [preview, setPreview] = React.useState<SharedFolderFileItem | null>(null);
+  const [theme, setTheme] = React.useState<ThemeMode>("light");
   const rootId = breadcrumbs[0]?.id ?? "";
   const expiryLabel = formatExpiry(shareExpiresAtIso);
 
+  React.useEffect(() => {
+    const stored = readStoredTheme();
+    setTheme(stored ?? readSystemTheme());
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystem = () => {
+      if (readStoredTheme() == null) setTheme(mq.matches ? "dark" : "light");
+    };
+    mq.addEventListener("change", onSystem);
+    return () => mq.removeEventListener("change", onSystem);
+  }, []);
+
+  const surfaceStyle = themeSurfaceCssVars(theme);
+  const dialogStyle = dialogChromeCssVars(theme);
+
+  const toggleTheme = () => {
+    setTheme((t) => {
+      const next: ThemeMode = t === "light" ? "dark" : "light";
+      localStorage.setItem(SHARE_THEME_STORAGE_KEY, next);
+      return next;
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-50" dir="rtl">
-      <header className="border-b border-zinc-800 bg-zinc-900/90 px-3 py-3 backdrop-blur sm:px-4 sm:py-4">
+    <div
+      dir="ltr"
+      className="min-h-screen bg-[var(--sfb-page-bg)] text-[var(--sfb-text)] transition-colors duration-200"
+      style={surfaceStyle}
+      data-sfb-theme={theme}
+    >
+      <header className="border-b border-zinc-800 bg-zinc-900/90 px-3 py-3 text-zinc-50 backdrop-blur sm:px-4 sm:py-4">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          {logoUrl ? (
-            <Image src={logoUrl} alt="" width={40} height={40} className="size-9 shrink-0 rounded-md object-contain sm:size-10" />
-          ) : (
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-800 text-sm font-bold sm:size-10">
-              A
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            {logoUrl ? (
+              <Image src={logoUrl} alt="" width={40} height={40} className="size-9 shrink-0 rounded-md object-contain sm:size-10" />
+            ) : null}
+            <Sparkles className="size-8 shrink-0 text-[#a4fe19] sm:size-9" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold tracking-tight">AgencyOS Drive</p>
+              <p className="truncate text-xs text-zinc-400" dir="rtl">
+                مشاركة مجلد · {rootFolderName}
+              </p>
             </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold tracking-tight">{agencyName}</p>
-            <p className="text-muted-foreground truncate text-xs">مشاركة مجلد · {rootFolderName}</p>
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="shrink-0 text-zinc-200 hover:bg-zinc-800 hover:text-white"
+            onClick={toggleTheme}
+            aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+          >
+            {theme === "light" ? <Moon className="size-5" /> : <Sun className="size-5" />}
+          </Button>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-3 py-5 sm:px-4 sm:py-8">
         {expiryLabel ? (
-          <p className="text-amber-200/90 mb-4 text-sm">ينتهي الرابط في: {expiryLabel}</p>
+          <p
+            className={cn("mb-4 text-sm", theme === "dark" ? "text-amber-200/90" : "text-amber-700")}
+            dir="rtl"
+          >
+            ينتهي الرابط في: {expiryLabel}
+          </p>
         ) : null}
 
-        <nav aria-label="مسار المجلد" className="mb-6 flex flex-wrap items-center gap-1 text-sm">
+        <nav aria-label="Folder path" className="mb-6 flex flex-wrap items-center gap-1 text-sm">
           {breadcrumbs.map((c, i) => {
             const isLast = i === breadcrumbs.length - 1;
             return (
               <React.Fragment key={c.id}>
                 {i > 0 ? (
-                  <ChevronLeft className="text-muted-foreground size-4 shrink-0 opacity-60" aria-hidden />
+                  <ChevronRight className="size-4 shrink-0 opacity-60 text-[var(--sfb-text-muted)]" aria-hidden />
                 ) : null}
                 {isLast ? (
-                  <span className="max-w-[min(100%,12rem)] truncate font-medium sm:max-w-none" title={c.name}>
+                  <span
+                    className="max-w-[min(100%,12rem)] truncate font-medium text-[var(--sfb-text)] sm:max-w-none"
+                    title={c.name}
+                  >
                     {c.name}
                   </span>
                 ) : (
                   <Link
                     href={folderHref(token, c.id, rootId)}
-                    className="text-sky-300 hover:text-sky-200 max-w-[min(100%,10rem)] truncate underline-offset-2 hover:underline sm:max-w-none"
+                    className="max-w-[min(100%,10rem)] truncate underline-offset-2 text-[var(--sfb-link)] hover:text-[var(--sfb-link-hover)] hover:underline sm:max-w-none"
                     title={c.name}
                   >
                     {c.name}
@@ -138,16 +248,21 @@ export function SharedFolderBrowser({
 
         {childFolders.length > 0 ? (
           <section className="mb-8">
-            <h2 className="text-muted-foreground mb-3 text-xs font-semibold uppercase tracking-wide">المجلدات</h2>
+            <h2
+              className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--sfb-text-muted)]"
+              dir="rtl"
+            >
+              المجلدات
+            </h2>
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {childFolders.map((f) => (
                 <li key={f.id}>
                   <Link
                     href={folderHref(token, f.id, rootId)}
-                    className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 transition-colors hover:border-zinc-600 hover:bg-zinc-900"
+                    className="flex items-center gap-3 rounded-xl border border-[var(--sfb-card-border)] bg-[var(--sfb-folder-bg)] px-4 py-3 transition-colors hover:bg-[var(--sfb-folder-hover)]"
                   >
-                    <FolderOpen className="text-sky-400 size-8 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
+                    <FolderOpen className="size-8 shrink-0 text-sky-500 dark:text-sky-400" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-[var(--sfb-text)]">{f.name}</span>
                   </Link>
                 </li>
               ))}
@@ -156,9 +271,16 @@ export function SharedFolderBrowser({
         ) : null}
 
         <section>
-          <h2 className="text-muted-foreground mb-3 text-xs font-semibold uppercase tracking-wide">الملفات</h2>
+          <h2
+            className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--sfb-text-muted)]"
+            dir="rtl"
+          >
+            الملفات
+          </h2>
           {files.length === 0 ? (
-            <p className="text-muted-foreground text-sm">لا توجد ملفات في هذا المجلد.</p>
+            <p className="text-sm text-[var(--sfb-text-muted)]" dir="rtl">
+              لا توجد ملفات في هذا المجلد.
+            </p>
           ) : (
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {files.map((f) => {
@@ -170,23 +292,29 @@ export function SharedFolderBrowser({
                       type="button"
                       onClick={() => setPreview(f)}
                       className={cn(
-                        "flex w-full flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 text-start transition-colors hover:border-zinc-600 hover:bg-zinc-900",
-                        "focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:outline-none"
+                        "flex w-full flex-col overflow-hidden rounded-xl border border-[var(--sfb-card-border)] bg-[var(--sfb-card-bg)] text-start transition-colors hover:border-[var(--sfb-text-muted)]/40",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                       )}
                     >
-                      <div className="bg-zinc-950/80 flex aspect-4/3 w-full items-center justify-center overflow-hidden">
+                      <div
+                        className="flex aspect-4/3 w-full items-center justify-center overflow-hidden bg-[var(--sfb-thumb-bg)]"
+                      >
                         {img ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={f.publicFileUrl} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <FileTypeIcon name={f.name} mimeType={f.mimeType} className="scale-125 text-zinc-500" />
+                          <FileTypeIcon
+                            name={f.name}
+                            mimeType={f.mimeType}
+                            className="scale-125 text-[var(--sfb-text-muted)]"
+                          />
                         )}
                       </div>
                       <div className="min-w-0 p-3">
-                        <p className="truncate text-sm font-medium" title={f.name}>
+                        <p className="truncate text-sm font-medium text-[var(--sfb-text)]" title={f.name}>
                           {f.name}
                         </p>
-                        <p className="text-muted-foreground mt-0.5 text-xs">
+                        <p className="mt-0.5 text-xs text-[var(--sfb-text-muted)]">
                           {kind} · {formatSize(f.sizeBytes)}
                         </p>
                       </div>
@@ -201,21 +329,27 @@ export function SharedFolderBrowser({
 
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent
-          className="flex max-h-[95vh] w-[95vw] max-w-[95vw] flex-col gap-0 overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-zinc-50 sm:max-h-[90vh] sm:max-w-3xl"
+          style={dialogStyle}
+          className={cn(
+            "flex max-h-[95vh] w-[95vw] max-w-[95vw] flex-col gap-0 overflow-hidden border-[var(--sfb-dlg-border)] bg-[var(--sfb-dlg-bg)] p-0 text-[var(--sfb-dlg-text)] sm:max-h-[90vh] sm:max-w-3xl"
+          )}
           showCloseButton
         >
           {preview ? (
             <>
-              <DialogHeader className="border-b border-zinc-800 px-4 py-3 sm:px-6">
+              <DialogHeader className="border-b border-[var(--sfb-dlg-border)] px-4 py-3 sm:px-6">
                 <DialogTitle className="truncate text-start text-base">{preview.name}</DialogTitle>
-                <p className="text-muted-foreground text-start text-xs">
+                <p className="text-start text-xs text-[var(--sfb-dlg-muted)]">
                   {formatSize(preview.sizeBytes)}
                   {preview.mimeType ? ` · ${preview.mimeType}` : ""}
                 </p>
               </DialogHeader>
               <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
                 {isImage(preview.name, preview.mimeType) ? (
-                  <div className="flex justify-center bg-black/40 p-2">
+                  <div
+                    className="flex justify-center p-2"
+                    style={{ background: theme === "dark" ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.06)" }}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={preview.publicFileUrl}
@@ -234,26 +368,26 @@ export function SharedFolderBrowser({
                   <iframe
                     title={preview.name}
                     src={shareFolderInlineFileUrl(token, preview.id)}
-                    className="h-[min(70vh,640px)] w-full rounded-md border border-zinc-800 bg-zinc-900"
+                    className="h-[min(70vh,640px)] w-full rounded-md border border-[var(--sfb-dlg-border)] bg-[var(--sfb-dlg-surface)]"
                   />
                 ) : isOffice(preview.name, preview.mimeType) ? (
                   <iframe
                     title={preview.name}
                     src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.publicFileUrl)}`}
-                    className="h-[min(70vh,640px)] w-full rounded-md border border-zinc-800 bg-zinc-900"
+                    className="h-[min(70vh,640px)] w-full rounded-md border border-[var(--sfb-dlg-border)] bg-[var(--sfb-dlg-surface)]"
                   />
                 ) : (
-                  <div className="text-muted-foreground flex flex-col items-center gap-4 py-12 text-center text-sm">
-                    <FileTypeIcon name={preview.name} mimeType={preview.mimeType} className="scale-150 text-zinc-500" />
-                    <p>معاينة غير متاحة لهذا النوع.</p>
+                  <div className="flex flex-col items-center gap-4 py-12 text-center text-sm text-[var(--sfb-dlg-muted)]">
+                    <FileTypeIcon name={preview.name} mimeType={preview.mimeType} className="scale-150 text-[var(--sfb-dlg-muted)]" />
+                    <p dir="rtl">معاينة غير متاحة لهذا النوع.</p>
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2 border-t border-zinc-800 px-4 py-3 sm:px-6">
+              <div className="flex flex-wrap gap-2 border-t border-[var(--sfb-dlg-border)] px-4 py-3 sm:px-6">
                 <Button asChild size="sm" variant="secondary" className="gap-2">
                   <a href={preview.publicFileUrl} download={preview.name} target="_blank" rel="noopener noreferrer">
                     <Download className="size-4" />
-                    تحميل
+                    <span dir="rtl">تحميل</span>
                   </a>
                 </Button>
               </div>

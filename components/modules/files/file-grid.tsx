@@ -33,6 +33,7 @@ type FileGridProps = {
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
+  canManageFolderAccess?: boolean;
 };
 
 export function FileGrid({
@@ -62,6 +63,7 @@ export function FileGrid({
   formatSize,
   formatDate,
   className,
+  canManageFolderAccess = true,
 }: FileGridProps) {
   return (
     <div
@@ -96,6 +98,7 @@ export function FileGrid({
           onDropTargetChange={onDropTargetChange}
           formatSize={formatSize}
           formatDate={formatDate}
+          canManageFolderAccess={canManageFolderAccess}
         />
       ))}
       {files.map((file) => (

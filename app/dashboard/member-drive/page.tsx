@@ -64,6 +64,7 @@ export default async function MemberDrivePage({ searchParams }: PageProps) {
           availableProjects={availableProjects}
           availableTeamMembers={teamRes.ok ? teamRes.data : []}
           allowStandaloneRoot={false}
+          canManageFolderAccess={false}
           sidebarFooter={
             <Card className="w-full">
               <CardHeader className="pb-2">

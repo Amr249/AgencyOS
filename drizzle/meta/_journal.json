@@ -106,6 +106,13 @@
       "when": 1777600000000,
       "tag": "0030_folders_system_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777700000000,
+      "tag": "0031_folder_access_type_and_exclusions",
+      "breakpoints": true
     }
   ]
 }

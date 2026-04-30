@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Link as LinkIcon, Pencil, Share2, Trash2, Users } from "lucide-react";
+import { Download, Link as LinkIcon, Lock, Pencil, Share2, Trash2, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 import type { FileRow } from "@/lib/file-types";
 import type { FolderRow } from "@/actions/folders";
@@ -16,6 +16,13 @@ import {
 } from "@/components/ui/table";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
 import { DriveFolderIcon, driveFolderPreviewSurfaceClass } from "@/components/modules/files/drive-folder-icon";
+import {
+  canAccessDriveFolder,
+  canDeleteDriveFolder,
+  canRenameDriveFolder,
+  canShareDriveFolder,
+  showDriveFolderLock,
+} from "@/lib/drive-folder-permissions";
 import { cn } from "@/lib/utils";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 
@@ -46,6 +53,7 @@ type FileListViewProps = {
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
+  canManageFolderAccess?: boolean;
 };
 
 function typeLabel(name: string, mime: string | null | undefined, isArabic: boolean): string {
@@ -99,6 +107,7 @@ export function FileListView({
   formatSize,
   formatDate,
   className,
+  canManageFolderAccess = true,
 }: FileListViewProps) {
   const isArabic = useLocale() === "ar";
   const hasRows = childFolders.length > 0 || files.length > 0;
@@ -124,6 +133,11 @@ export function FileListView({
             const totalBytes = folderSizeBytesByFolderId.get(f.id) ?? 0;
             const displayMs =
               folderDisplayDateMsByFolderId.get(f.id) ?? new Date(f.createdAt).getTime();
+            const canRen = canRenameDriveFolder(f);
+            const canDel = canDeleteDriveFolder(f);
+            const canShr = canShareDriveFolder(f);
+            const canAcc = canAccessDriveFolder(f, canManageFolderAccess);
+            const hasFolderActions = canShr || canAcc || canRen || canDel;
             const canReceiveDrop = Boolean(onFileDropToFolder || onFolderDropToFolder);
             const onFolderCellDragOver = (e: React.DragEvent) => {
               if (!canReceiveDrop) return;
@@ -151,7 +165,7 @@ export function FileListView({
                   "cursor-pointer",
                   dropTargetFolderId === f.id && "bg-primary/5 ring-1 ring-primary/30"
                 )}
-                draggable={!!onDragFolderStart && !f.isSystem}
+                draggable={!!onDragFolderStart && canRen}
                 onDragStart={(e) => onDragFolderStart?.(f, e)}
                 onDragEnd={() => onDragFolderEnd?.()}
                 onClick={() => onOpenFolder(f.id)}
@@ -171,7 +185,12 @@ export function FileListView({
                   </div>
                 </TableCell>
                 <TableCell className="font-medium" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
-                  {f.name}
+                  <div className="flex min-w-0 items-center gap-2">
+                    {showDriveFolderLock(f) ? (
+                      <Lock className="text-muted-foreground size-3.5 shrink-0 opacity-70" aria-hidden />
+                    ) : null}
+                    <span className="min-w-0 truncate">{f.name}</span>
+                  </div>
                 </TableCell>
                 <TableCell
                   className="text-muted-foreground hidden sm:table-cell"
@@ -191,66 +210,78 @@ export function FileListView({
                   {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
                 </TableCell>
                 <TableCell className="text-end" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
-                  {f.isSystem ? null : (
+                  {hasFolderActions ? (
                     <div className="flex flex-nowrap items-center justify-end gap-0.5">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        draggable={false}
-                        className="size-8 shrink-0"
-                        aria-label={isArabic ? "مشاركة" : "Share"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onShareFolder(f);
-                        }}
-                      >
-                        <Share2 className="size-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        draggable={false}
-                        className="size-8 shrink-0"
-                        aria-label={isArabic ? "صلاحيات" : "Access"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAccessFolder(f);
-                        }}
-                      >
-                        <Users className="size-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        draggable={false}
-                        className="size-8 shrink-0"
-                        aria-label={isArabic ? "إعادة تسمية" : "Rename"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRenameFolder(f);
-                        }}
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        draggable={false}
-                        className="text-destructive size-8 shrink-0"
-                        aria-label={isArabic ? "حذف" : "Delete"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteFolder(f);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      {canShr ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          draggable={false}
+                          className="size-8 shrink-0"
+                          aria-label={isArabic ? "مشاركة" : "Share"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onShareFolder(f);
+                          }}
+                        >
+                          <Share2 className="size-3.5" />
+                        </Button>
+                      ) : null}
+                      {canAcc ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          draggable={false}
+                          className="size-8 shrink-0"
+                          aria-label={isArabic ? "صلاحيات" : "Access"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAccessFolder(f);
+                          }}
+                        >
+                          <Users className="size-3.5" />
+                        </Button>
+                      ) : null}
+                      {canRen ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          draggable={false}
+                          className="size-8 shrink-0"
+                          aria-label={isArabic ? "إعادة تسمية" : "Rename"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRenameFolder(f);
+                          }}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                      ) : null}
+                      {canDel ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          draggable={false}
+                          className="text-destructive size-8 shrink-0"
+                          aria-label={isArabic ? "حذف" : "Delete"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteFolder(f);
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      ) : null}
                     </div>
-                  )}
+                  ) : showDriveFolderLock(f) ? (
+                    <span className="text-muted-foreground inline-flex justify-end opacity-60" title={isArabic ? "مجلد نظام" : "System folder"}>
+                      <Lock className="size-4" aria-hidden />
+                    </span>
+                  ) : null}
                 </TableCell>
               </TableRow>
             );

@@ -15,7 +15,7 @@ import { FILE_DOCUMENT_TYPES, type FileRow, type FileDocumentType } from "@/lib/
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, memberIsAssignedToTask } from "@/lib/member-context";
-import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
+import { getMemberDriveContentFolderIdsForUser, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 import { getDriveFolders } from "@/actions/folders";
 
 export type DriveFolderDirectFileStat = {
@@ -25,23 +25,23 @@ export type DriveFolderDirectFileStat = {
   newestAt: string | null;
 };
 
-/** Folder ids that may appear in agency drive (/drive, /member-drive) for the current user. */
+/** Folder ids for agency drive (/drive, /member-drive): `contentIds` for file listing; admin uses full tree. */
 async function driveViewScopedFolderIdsForUser(): Promise<
-  { ok: true; ids: string[] } | { ok: false; error: string }
+  { ok: true; contentIds: string[] } | { ok: false; error: string }
 > {
   const session = await getServerSession(authOptions);
   const uid = session?.user?.id;
   if (!uid) return { ok: false, error: "Not authorized" };
   const role = sessionUserRole(session);
   if (role === "member") {
-    const accessible = await getMemberAccessibleProjectFolderIds(uid);
-    return { ok: true, ids: Array.from(accessible) };
+    const content = await getMemberDriveContentFolderIdsForUser(uid);
+    return { ok: true, contentIds: [...content] };
   }
   const tree = await getDriveFolders();
   if (!tree.ok) {
     return { ok: false, error: typeof tree.error === "string" ? tree.error : "Failed to load drive folders" };
   }
-  return { ok: true, ids: tree.data.map((f) => f.id) };
+  return { ok: true, contentIds: tree.data.map((f) => f.id) };
 }
 
 /**
@@ -52,7 +52,7 @@ export async function getDriveFolderDirectFileStats(): Promise<
 > {
   const scope = await driveViewScopedFolderIdsForUser();
   if (!scope.ok) return { ok: false, error: scope.error, data: [] };
-  if (scope.ids.length === 0) return { ok: true, data: [] };
+  if (scope.contentIds.length === 0) return { ok: true, data: [] };
   try {
     const rows = await withDbReadRetry("getDriveFolderDirectFileStats", () =>
       db
@@ -64,7 +64,7 @@ export async function getDriveFolderDirectFileStats(): Promise<
         })
         .from(files)
         .where(
-          and(isNull(files.deletedAt), isNotNull(files.folderId), inArray(files.folderId, scope.ids))
+          and(isNull(files.deletedAt), isNotNull(files.folderId), inArray(files.folderId, scope.contentIds))
         )
         .groupBy(files.folderId)
     );
@@ -223,10 +223,10 @@ export async function getFiles(params: {
       if (!scope.ok) {
         return { ok: false as const, error: scope.error, data: [] as FileRow[] };
       }
-      if (scope.ids.length === 0) {
+      if (scope.contentIds.length === 0) {
         return { ok: true as const, data: [] as FileRow[] };
       }
-      conditions.push(inArray(files.folderId, scope.ids));
+      conditions.push(inArray(files.folderId, scope.contentIds));
       if (folderId != null) conditions.push(eq(files.folderId, folderId));
     } else if (allForUser) {
       const session = await getServerSession(authOptions);
@@ -1270,10 +1270,10 @@ export async function getTotalFilesStorageBytes(input?: { standaloneDrive?: bool
       if (!scope.ok) {
         return { ok: false as const, error: scope.error, total: 0 };
       }
-      if (scope.ids.length === 0) {
+      if (scope.contentIds.length === 0) {
         return { ok: true as const, total: 0 };
       }
-      conditions.push(inArray(files.folderId, scope.ids));
+      conditions.push(inArray(files.folderId, scope.contentIds));
     } else if (input?.standaloneDrive || input?.allForUser) {
       conditions.push(eq(files.uploadedBy, session.user.id));
     }

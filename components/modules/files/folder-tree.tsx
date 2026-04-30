@@ -11,6 +11,7 @@ import {
   Plus,
   Share2,
   Trash2,
+  Upload,
   Users,
 } from "lucide-react";
 import { useLocale } from "next-intl";
@@ -35,6 +36,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 import { DriveFolderIcon } from "@/components/modules/files/drive-folder-icon";
+import {
+  canAccessDriveFolder,
+  canDeleteDriveFolder,
+  canRenameDriveFolder,
+  canShareDriveFolder,
+  showDriveFolderLock,
+} from "@/lib/drive-folder-permissions";
 
 const SYSTEM_ROOT_ORDER: Record<string, number> = {
   root_clients: 0,
@@ -100,6 +108,11 @@ type TreeBranchProps = {
   onDragFolderStart: (folder: FolderRow, e: React.DragEvent) => void;
   onDragFolderEnd: () => void;
   isArabic: boolean;
+  /** When true with `onUploadIntoFolder`, show "Upload file" on folder context menu (e.g. system roots). */
+  showFolderUploadMenu?: boolean;
+  onUploadIntoFolder?: (folderId: string) => void;
+  canManageFolderAccess?: boolean;
+  folderAccessCountByFolderId?: ReadonlyMap<string, number> | null;
 };
 
 function TreeBranch({
@@ -124,6 +137,10 @@ function TreeBranch({
   onDragFolderStart,
   onDragFolderEnd,
   isArabic,
+  showFolderUploadMenu = false,
+  onUploadIntoFolder,
+  canManageFolderAccess = true,
+  folderAccessCountByFolderId = null,
 }: TreeBranchProps) {
   const children = childrenMap.get(folder.id) ?? [];
   const isOpen = expanded.has(folder.id);
@@ -133,13 +150,20 @@ function TreeBranch({
   const isDropTarget = dropTargetFolderId === folder.id;
   const isDraggingThisFolder = draggingFolderId === folder.id;
 
-  const systemLocked = folder.isSystem;
-  const showFolderActions = !systemLocked;
+  const showLock = showDriveFolderLock(folder);
+  const canRename = canRenameDriveFolder(folder);
+  const canDelete = canDeleteDriveFolder(folder);
+  const canShare = canShareDriveFolder(folder);
+  const canAccess = canAccessDriveFolder(folder, canManageFolderAccess);
+  const accessCount = folderAccessCountByFolderId?.get(folder.id) ?? 0;
+  const hasFolderMenu = canShare || canAccess || canRename || canDelete;
+  const showUploadMenuItem = Boolean(showFolderUploadMenu && onUploadIntoFolder);
+  const showMenu = hasFolderMenu || showUploadMenuItem;
 
   return (
     <div className="min-w-0 select-none">
       <div
-        draggable={!systemLocked}
+        draggable={canRename}
         onDragStart={(e) => onDragFolderStart(folder, e)}
         onDragEnd={onDragFolderEnd}
         className={cn(
@@ -192,12 +216,12 @@ function TreeBranch({
         >
           <DriveFolderIcon systemType={folder.systemType} className="size-4 shrink-0" />
           <span className="min-w-0 truncate font-medium">{folder.name}</span>
-          {systemLocked ? (
+          {showLock ? (
             <Lock className="text-muted-foreground size-3.5 shrink-0 opacity-70" aria-hidden />
           ) : null}
           <span className="text-muted-foreground shrink-0 text-xs">({count})</span>
         </button>
-        {showFolderActions ? (
+        {showMenu ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -213,39 +237,64 @@ function TreeBranch({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-40" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem
-                onClick={() => {
-                  onShareRequest(folder);
-                }}
-              >
-                <Share2 className="size-4" />
-                {isArabic ? "مشاركة" : "Share"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  onAccessRequest(folder);
-                }}
-              >
-                <Users className="size-4" />
-                {isArabic ? "صلاحيات" : "Access"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  onRenameRequest(folder);
-                }}
-              >
-                <Pencil className="size-4" />
-                {isArabic ? "إعادة تسمية" : "Rename"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => {
-                  onDeleteRequest(folder);
-                }}
-              >
-                <Trash2 className="size-4" />
-                {isArabic ? "حذف" : "Delete"}
-              </DropdownMenuItem>
+              {showUploadMenuItem ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    onUploadIntoFolder?.(folder.id);
+                  }}
+                >
+                  <Upload className="size-4" />
+                  {isArabic ? "رفع ملف" : "Upload file"}
+                </DropdownMenuItem>
+              ) : null}
+              {canShare ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    onShareRequest(folder);
+                  }}
+                >
+                  <Share2 className="size-4" />
+                  {isArabic ? "مشاركة" : "Share"}
+                </DropdownMenuItem>
+              ) : null}
+              {canAccess ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    onAccessRequest(folder);
+                  }}
+                >
+                  <Users className="size-4" />
+                  <span className="flex flex-1 items-center justify-between gap-2">
+                    <span>{isArabic ? "إدارة الوصول" : "Manage access"}</span>
+                    {accessCount > 0 ? (
+                      <span className="text-muted-foreground bg-muted rounded px-1.5 py-0 text-[10px] font-medium tabular-nums">
+                        {accessCount}
+                      </span>
+                    ) : null}
+                  </span>
+                </DropdownMenuItem>
+              ) : null}
+              {canRename ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    onRenameRequest(folder);
+                  }}
+                >
+                  <Pencil className="size-4" />
+                  {isArabic ? "إعادة تسمية" : "Rename"}
+                </DropdownMenuItem>
+              ) : null}
+              {canDelete ? (
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    onDeleteRequest(folder);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  {isArabic ? "حذف" : "Delete"}
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
@@ -278,6 +327,10 @@ function TreeBranch({
               onDragFolderStart={onDragFolderStart}
               onDragFolderEnd={onDragFolderEnd}
               isArabic={isArabic}
+              showFolderUploadMenu={showFolderUploadMenu}
+              onUploadIntoFolder={onUploadIntoFolder}
+              canManageFolderAccess={canManageFolderAccess}
+              folderAccessCountByFolderId={folderAccessCountByFolderId}
             />
           ))}
         </div>
@@ -310,6 +363,10 @@ type FolderTreeProps = {
   collapsed?: boolean;
   onCollapsedChange?: (v: boolean) => void;
   className?: string;
+  showFolderUploadMenu?: boolean;
+  onUploadIntoFolder?: (folderId: string) => void;
+  canManageFolderAccess?: boolean;
+  folderAccessCountByFolderId?: ReadonlyMap<string, number> | null;
 };
 
 export function FolderTree({
@@ -335,6 +392,10 @@ export function FolderTree({
   collapsed = false,
   onCollapsedChange,
   className,
+  showFolderUploadMenu = false,
+  onUploadIntoFolder,
+  canManageFolderAccess = true,
+  folderAccessCountByFolderId = null,
 }: FolderTreeProps) {
   const isArabic = useLocale() === "ar";
   const treeDir = isArabic ? "rtl" : "ltr";
@@ -414,6 +475,10 @@ export function FolderTree({
               onDragFolderStart={onDragFolderStart}
               onDragFolderEnd={onDragFolderEnd}
               isArabic={isArabic}
+              showFolderUploadMenu={showFolderUploadMenu}
+              onUploadIntoFolder={onUploadIntoFolder}
+              canManageFolderAccess={canManageFolderAccess}
+              folderAccessCountByFolderId={folderAccessCountByFolderId}
             />
           ))}
         </div>

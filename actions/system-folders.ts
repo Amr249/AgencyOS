@@ -36,6 +36,19 @@ function seg(name: string): string {
   return name.trim().replace(/\//g, "-").replace(/\s+/g, " ").slice(0, 200) || "untitled";
 }
 
+/** Keep materialized `path` correct under a parent after its path changes. */
+async function syncChildFolderPathsRecursive(parentId: string, parentPath: string) {
+  const kids = await db.select().from(folders).where(eq(folders.parentId, parentId));
+  const base = parentPath.endsWith("/") ? parentPath.slice(0, -1) : parentPath;
+  for (const k of kids) {
+    const newPath = `${base}/${seg(k.name)}`;
+    if (k.path !== newPath) {
+      await db.update(folders).set({ path: newPath }).where(eq(folders.id, k.id));
+    }
+    await syncChildFolderPathsRecursive(k.id, newPath);
+  }
+}
+
 async function findOne(where: SQL | undefined): Promise<(typeof folders.$inferSelect) | null> {
   if (!where) return null;
   const [row] = await db.select().from(folders).where(where).limit(1);
@@ -117,6 +130,26 @@ async function ensureChildFolder(opts: {
   projectId?: string | null;
   teamMemberId?: string | null;
 }): Promise<string> {
+  if (opts.systemType === "project" && opts.projectId != null) {
+    const byProject = await findOne(
+      and(
+        eq(folders.parentId, opts.parentId),
+        eq(folders.systemType, "project"),
+        eq(folders.projectId, opts.projectId)
+      )
+    );
+    if (byProject) {
+      const base = opts.parentPath.endsWith("/") ? opts.parentPath.slice(0, -1) : opts.parentPath;
+      const path = `${base}/${seg(opts.name)}`;
+      const clientId = opts.clientId ?? null;
+      if (byProject.name !== opts.name || byProject.path !== path || byProject.clientId !== clientId) {
+        await db.update(folders).set({ name: opts.name, path, clientId }).where(eq(folders.id, byProject.id));
+        await syncChildFolderPathsRecursive(byProject.id, path);
+      }
+      return byProject.id;
+    }
+  }
+
   const parts: SQL[] = [
     eq(folders.parentId, opts.parentId),
     eq(folders.systemType, opts.systemType),
@@ -237,7 +270,6 @@ async function runSystemFolderSync() {
       id: projects.id,
       name: projects.name,
       clientId: projects.clientId,
-      companyName: clients.companyName,
     })
     .from(projects)
     .innerJoin(clients, eq(projects.clientId, clients.id))
@@ -245,7 +277,7 @@ async function runSystemFolderSync() {
     .orderBy(asc(clients.companyName), asc(projects.name));
 
   for (const p of activeProjects) {
-    const displayName = `${p.companyName} — ${p.name}`;
+    const displayName = p.name.trim() || "Untitled";
     const projectFolderId = await ensureChildFolder({
       parentId: projectsRoot,
       parentPath: projectsRootRow.path,

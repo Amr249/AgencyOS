@@ -449,12 +449,34 @@ export const folderAccess = pgTable(
     teamMemberId: uuid("team_member_id")
       .notNull()
       .references(() => teamMembers.id, { onDelete: "cascade" }),
+    /** "view" = see and download; "upload" reserved for future. */
+    accessType: text("access_type").notNull().default("view"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("folder_access_folder_member_unique").on(table.folderId, table.teamMemberId),
     index("folder_access_folder_id_idx").on(table.folderId),
     index("folder_access_team_member_id_idx").on(table.teamMemberId),
+  ]
+);
+
+/** Subfolders excluded from inherited team access (member still has parent grant). */
+export const folderAccessExclusions = pgTable(
+  "folder_access_exclusions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    folderId: uuid("folder_id")
+      .notNull()
+      .references(() => folders.id, { onDelete: "cascade" }),
+    teamMemberId: uuid("team_member_id")
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("folder_access_exclusions_folder_member_unique").on(table.folderId, table.teamMemberId),
+    index("folder_access_exclusions_folder_id_idx").on(table.folderId),
+    index("folder_access_exclusions_team_member_id_idx").on(table.teamMemberId),
   ]
 );
 
@@ -978,6 +1000,8 @@ export const teamMembersRelations = relations(teamMembers, ({ one, many }) => ({
   recurringExpenses: many(recurringExpenses),
   availability: many(teamAvailability),
   milestoneAssignments: many(milestoneTeamMembers),
+  driveFolderAccessGrants: many(folderAccess),
+  driveFolderAccessExclusions: many(folderAccessExclusions),
 }));
 
 export const teamAvailabilityRelations = relations(teamAvailability, ({ one }) => ({
@@ -1082,12 +1106,21 @@ export const foldersRelations = relations(folders, ({ one, many }) => ({
   }),
   files: many(files),
   access: many(folderAccess),
+  accessExclusions: many(folderAccessExclusions),
   createdByUser: one(users, { fields: [folders.createdBy], references: [users.id] }),
 }));
 
 export const folderAccessRelations = relations(folderAccess, ({ one }) => ({
   folder: one(folders, { fields: [folderAccess.folderId], references: [folders.id] }),
   teamMember: one(teamMembers, { fields: [folderAccess.teamMemberId], references: [teamMembers.id] }),
+}));
+
+export const folderAccessExclusionsRelations = relations(folderAccessExclusions, ({ one }) => ({
+  folder: one(folders, { fields: [folderAccessExclusions.folderId], references: [folders.id] }),
+  teamMember: one(teamMembers, {
+    fields: [folderAccessExclusions.teamMemberId],
+    references: [teamMembers.id],
+  }),
 }));
 
 export const filesRelations = relations(files, ({ one }) => ({

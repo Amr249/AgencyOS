@@ -50,8 +50,6 @@ import {
   createFolder,
   renameFolder,
   deleteFolder,
-  getFolderAccess,
-  setFolderAccess,
   setFolderPublicSharing,
   moveFolder,
   type FolderRow,
@@ -67,6 +65,8 @@ import { FileGrid } from "@/components/modules/files/file-grid";
 import { FileListView } from "@/components/modules/files/file-list-view";
 import { CreateFolderDialog } from "@/components/modules/files/create-folder-dialog";
 import { RenameFolderDialog } from "@/components/modules/files/rename-folder-dialog";
+import { FolderAccessDialog } from "@/components/modules/files/folder-access-dialog";
+import { getFolderAccessDirectCountsByFolderId } from "@/actions/folder-access";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -238,6 +238,8 @@ export type FileManagerProps = {
   allowStandaloneRoot?: boolean;
   /** Agency drive only: lightweight per-folder counts from DB (see getDriveFolderDirectFileStats). */
   initialDriveFolderDirectStats?: DriveFolderDirectFileStat[];
+  /** When false, hide folder ACL UI (e.g. member drive). */
+  canManageFolderAccess?: boolean;
 };
 
 export function FileManager({
@@ -254,6 +256,7 @@ export function FileManager({
   availableTeamMembers = [],
   allowStandaloneRoot = true,
   initialDriveFolderDirectStats,
+  canManageFolderAccess = true,
 }: FileManagerProps) {
   const locale = useLocale();
   const isArabic = locale === "ar";
@@ -284,8 +287,9 @@ export function FileManager({
   const [dropTargetFolderId, setDropTargetFolderId] = React.useState<string | null>(null);
   const [extractingLabel, setExtractingLabel] = React.useState<string | null>(null);
   const [accessFolder, setAccessFolder] = React.useState<FolderRow | null>(null);
-  const [accessMemberIds, setAccessMemberIds] = React.useState<string[]>([]);
-  const [accessBusy, setAccessBusy] = React.useState(false);
+  const [folderAccessCounts, setFolderAccessCounts] = React.useState<ReadonlyMap<string, number>>(
+    () => new Map()
+  );
   const [shareFolder, setShareFolder] = React.useState<FolderRow | null>(null);
   const [shareBusy, setShareBusy] = React.useState(false);
   const [renameFolderTarget, setRenameFolderTarget] = React.useState<FolderRow | null>(null);
@@ -314,6 +318,16 @@ export function FileManager({
   React.useEffect(() => {
     setDriveDirectStats(initialDriveFolderDirectStats ?? []);
   }, [initialDriveFolderDirectStats]);
+
+  const refreshFolderAccessCounts = React.useCallback(async () => {
+    if (!isAgencyStandaloneDrive || !canManageFolderAccess) return;
+    const res = await getFolderAccessDirectCountsByFolderId();
+    if (res.ok) setFolderAccessCounts(new Map(Object.entries(res.data)));
+  }, [isAgencyStandaloneDrive, canManageFolderAccess]);
+
+  React.useEffect(() => {
+    void refreshFolderAccessCounts();
+  }, [refreshFolderAccessCounts]);
 
   const refreshDriveFolderStats = React.useCallback(async () => {
     if (!isAgencyStandaloneDrive) return;
@@ -1332,25 +1346,10 @@ export function FileManager({
     return false;
   };
 
-  const openFolderAccessFlow = React.useCallback(
-    (folder: FolderRow) => {
-      if (!folder.projectId) {
-        toast.info(
-          isArabic ? "صلاحيات الوصول مخصصة لمجلدات المشاريع." : "Access control is for project folders."
-        );
-        return;
-      }
-      void (async () => {
-        setAccessBusy(true);
-        setAccessFolder(folder);
-        const res = await getFolderAccess(folder.id);
-        if (res.ok) setAccessMemberIds(res.data);
-        else setAccessMemberIds([]);
-        setAccessBusy(false);
-      })();
-    },
-    [isArabic]
-  );
+  const openFolderAccessFlow = React.useCallback((folder: FolderRow) => {
+    if (!canManageFolderAccess) return;
+    setAccessFolder(folder);
+  }, [canManageFolderAccess]);
 
   const empty =
     childFoldersFiltered.length === 0 && filesInScope.length === 0 && uploadQueue.length === 0;
@@ -1398,6 +1397,13 @@ export function FileManager({
             setDraggingFolderId(null);
             setDropTargetFolderId(null);
           }}
+          showFolderUploadMenu={effectiveCanUpload}
+          onUploadIntoFolder={(id) => {
+            navigateToFolder(id);
+            queueMicrotask(() => inputRef.current?.click());
+          }}
+          canManageFolderAccess={canManageFolderAccess}
+          folderAccessCountByFolderId={folderAccessCounts}
           sidebarFooter={sidebarFooter}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
@@ -1649,6 +1655,7 @@ export function FileManager({
                 }}
                 formatSize={formatSize}
                 formatDate={formatDateSafe}
+                canManageFolderAccess={canManageFolderAccess}
               />
             ) : (
               <FileListView
@@ -1703,6 +1710,7 @@ export function FileManager({
                 }}
                 formatSize={formatSize}
                 formatDate={formatDateSafe}
+                canManageFolderAccess={canManageFolderAccess}
               />
             )}
           </div>
@@ -1776,60 +1784,17 @@ export function FileManager({
         }}
       />
 
-      <Dialog open={!!accessFolder} onOpenChange={(open) => !open && setAccessFolder(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{isArabic ? "إدارة صلاحيات المجلد" : "Manage folder access"}</DialogTitle>
-            <DialogDescription className="truncate">
-              {accessFolder?.name}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-64 space-y-2 overflow-y-auto py-1">
-            {availableTeamMembers.map((m) => {
-              const checked = accessMemberIds.includes(m.id);
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-start text-sm ${checked ? "border-primary bg-primary/5" : ""}`}
-                  onClick={() =>
-                    setAccessMemberIds((prev) =>
-                      prev.includes(m.id) ? prev.filter((id) => id !== m.id) : [...prev, m.id]
-                    )
-                  }
-                  disabled={accessBusy}
-                >
-                  <span className="truncate">{m.name}</span>
-                  <span className="text-xs">{checked ? (isArabic ? "مسموح" : "Allowed") : (isArabic ? "غير مسموح" : "Blocked")}</span>
-                </button>
-              );
-            })}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              onClick={() => void (async () => {
-                if (!accessFolder) return;
-                setAccessBusy(true);
-                const res = await setFolderAccess(accessFolder.id, accessMemberIds);
-                setAccessBusy(false);
-                if (!res.ok) {
-                  const raw = res.error?._form?.[0];
-                  toast.error(
-                    raw ? formatDriveActionError(raw) : isArabic ? "تعذر حفظ الصلاحيات." : "Could not save access."
-                  );
-                  return;
-                }
-                toast.success(isArabic ? "تم تحديث الصلاحيات." : "Access updated.");
-                setAccessFolder(null);
-              })()}
-              disabled={accessBusy}
-            >
-              {accessBusy ? (isArabic ? "جاري الحفظ..." : "Saving...") : (isArabic ? "حفظ" : "Save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <FolderAccessDialog
+        open={!!accessFolder}
+        onOpenChange={(open) => {
+          if (!open) setAccessFolder(null);
+        }}
+        folder={accessFolder}
+        teamMembers={availableTeamMembers}
+        isArabic={isArabic}
+        formatError={formatDriveActionError}
+        onAccessMutated={refreshFolderAccessCounts}
+      />
 
       <Dialog open={!!shareFolder} onOpenChange={(open) => !open && setShareFolder(null)}>
         <DialogContent className="max-w-md">

@@ -39,7 +39,6 @@ export default async function SharedFolderPage({ params, searchParams }: Props) 
   }
 
   const [settingsRow] = await db.select().from(settings).where(eq(settings.id, 1)).limit(1);
-  const agencyName = settingsRow?.agencyName?.trim() || "AgencyOS";
   const logoUrl = settingsRow?.agencyLogoUrl?.trim() || null;
 
   if (!browse.ok) {
@@ -54,7 +53,7 @@ export default async function SharedFolderPage({ params, searchParams }: Props) 
               A
             </div>
           )}
-          <span className="font-semibold">{agencyName}</span>
+          <span className="font-semibold">AgencyOS Drive</span>
         </div>
         <p className="text-muted-foreground max-w-md text-lg">
           {browse.reason === "expired"
@@ -76,7 +75,6 @@ export default async function SharedFolderPage({ params, searchParams }: Props) 
   return (
     <SharedFolderBrowser
       token={token}
-      agencyName={agencyName}
       logoUrl={logoUrl}
       shareExpiresAtIso={shareExpiresAtIso}
       rootFolderName={d.root.name}

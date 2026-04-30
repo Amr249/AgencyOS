@@ -13,8 +13,9 @@ import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
-import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
+import { getMemberDriveVisibleFolderIdsForUser, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 import { notifyFolderAccessGranted } from "@/actions/notifications";
+import { isRootSystemDriveFolder } from "@/lib/drive-folder-permissions";
 
 export type FolderRow = typeof folders.$inferSelect;
 const nanoidLower = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
@@ -44,7 +45,7 @@ function sanitizePathSegment(name: string): string {
   return name.trim().replace(/\//g, "-").replace(/\s+/g, " ").slice(0, 200) || "untitled";
 }
 
-async function collectSubtreeFolderIds(rootId: string): Promise<string[]> {
+export async function collectSubtreeFolderIds(rootId: string): Promise<string[]> {
   const out: string[] = [];
   let frontier: string[] = [rootId];
   while (frontier.length) {
@@ -474,13 +475,8 @@ export async function getDriveFolders() {
     const personalOrSystemTree = or(standalonePersonalTree, agencySystemDriveTree);
     const scopeCond =
       projectIds.length > 0
-        ? or(
-            role === "member" ? sql`false` : personalOrSystemTree,
-            inArray(folders.projectId, projectIds)
-          )
-        : role === "member"
-          ? sql`false`
-          : personalOrSystemTree;
+        ? or(personalOrSystemTree, inArray(folders.projectId, projectIds))
+        : personalOrSystemTree;
 
     const rows = await db
       .select()
@@ -495,8 +491,8 @@ export async function getDriveFolders() {
       return { ok: true as const, data: rows };
     }
 
-    const accessible = await getMemberAccessibleProjectFolderIds(uid);
-    const filtered = rows.filter((f) => f.projectId != null && accessible.has(f.id));
+    const visible = await getMemberDriveVisibleFolderIdsForUser(uid);
+    const filtered = rows.filter((f) => visible.has(f.id));
     return { ok: true as const, data: filtered };
   } catch (e) {
     console.error("getDriveFolders", e);
@@ -521,7 +517,7 @@ export async function setFolderPublicSharing(folderId: string, enabled: boolean)
   try {
     const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
-    if (existing.path.startsWith("/drive/system/")) {
+    if (isRootSystemDriveFolder(existing)) {
       return { ok: false as const, error: { _form: ["systemFolderNoShare"] } };
     }
     if (role === "member") {
@@ -575,7 +571,9 @@ export async function setFolderAccess(folderId: string, teamMemberIds: string[])
   try {
     const [folder] = await db.select().from(folders).where(eq(folders.id, parsed.data.folderId)).limit(1);
     if (!folder) return { ok: false as const, error: { _form: ["Folder not found"] } };
-    if (!folder.projectId) return { ok: false as const, error: { _form: ["Access list is only for project folders"] } };
+    if (role === "member" && !folder.projectId) {
+      return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
     if (role === "member") {
       const allowed = await memberHasAccessToProjectFolder(userId, folder.id);
       if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
