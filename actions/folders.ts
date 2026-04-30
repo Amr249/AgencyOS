@@ -15,7 +15,7 @@ import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/li
 import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
 import { getMemberDriveVisibleFolderIdsForUser, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 import { notifyFolderAccessGranted } from "@/actions/notifications";
-import { isRootSystemDriveFolder } from "@/lib/drive-folder-permissions";
+import { isDriveFolderProtectedFromUserEdits, isRootSystemDriveFolder } from "@/lib/drive-folder-permissions";
 
 export type FolderRow = typeof folders.$inferSelect;
 const nanoidLower = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
@@ -155,6 +155,8 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
         projectId: resolvedProjectId,
         path,
         createdBy: userId,
+        isSystem: false,
+        systemType: null,
       })
       .returning();
 
@@ -241,13 +243,13 @@ export async function renameFolder(id: string, name: string) {
   try {
     const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data.id)).limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
-    if (existing.isSystem) {
+    if (isDriveFolderProtectedFromUserEdits(existing)) {
       return { ok: false as const, error: { _form: ["systemFolderReadOnly"] } };
     }
     if (!existing.clientId && !existing.projectId) {
       const okPersonal = existing.path.startsWith(`/drive/user/${session.user.id}/`);
       const okSystemTreeUserFolder =
-        existing.path.startsWith("/drive/system/") && !existing.isSystem;
+        existing.path.startsWith("/drive/system/") && !isDriveFolderProtectedFromUserEdits(existing);
       if (!okPersonal && !okSystemTreeUserFolder) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
       }
@@ -286,13 +288,13 @@ export async function deleteFolder(id: string) {
 
   const [root] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
   if (!root) return { ok: false as const, error: "Folder not found" };
-  if (root.isSystem) {
+  if (isDriveFolderProtectedFromUserEdits(root)) {
     return { ok: false as const, error: "systemFolderReadOnly" };
   }
 
   if (!root.clientId && !root.projectId) {
     const okPersonal = root.path.startsWith(`/drive/user/${uid}/`);
-    const okSystemTreeUserFolder = root.path.startsWith("/drive/system/") && !root.isSystem;
+    const okSystemTreeUserFolder = root.path.startsWith("/drive/system/") && !isDriveFolderProtectedFromUserEdits(root);
     if (!okPersonal && !okSystemTreeUserFolder) {
       return { ok: false as const, error: "Forbidden" };
     }
@@ -746,7 +748,7 @@ export async function moveFolder(folderId: string, newParentId: string | null) {
   try {
     const [moving] = await db.select().from(folders).where(eq(folders.id, parsed.data.folderId)).limit(1);
     if (!moving) return { ok: false as const, error: { _form: ["Folder not found"] } };
-    if (moving.isSystem) {
+    if (isDriveFolderProtectedFromUserEdits(moving)) {
       return { ok: false as const, error: { _form: ["systemFolderReadOnly"] } };
     }
 
