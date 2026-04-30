@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
 import { cn } from "@/lib/utils";
+import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 
 type FileListViewProps = {
   childFolders: FolderRow[];
@@ -35,6 +36,12 @@ type FileListViewProps = {
   onShareFile?: (file: FileRow) => void;
   onDragFileStart?: (file: FileRow, e: React.DragEvent) => void;
   onDragFileEnd?: () => void;
+  onDragFolderStart?: (folder: FolderRow, e: React.DragEvent) => void;
+  onDragFolderEnd?: () => void;
+  dropTargetFolderId?: string | null;
+  onDropTargetChange?: (folderId: string | null) => void;
+  onFileDropToFolder?: (targetFolderId: string, fileId: string) => void;
+  onFolderDropToFolder?: (targetFolderId: string, draggedFolderId: string) => void;
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
@@ -82,6 +89,12 @@ export function FileListView({
   onShareFile,
   onDragFileStart,
   onDragFileEnd,
+  onDragFolderStart,
+  onDragFolderEnd,
+  dropTargetFolderId,
+  onDropTargetChange,
+  onFileDropToFolder,
+  onFolderDropToFolder,
   formatSize,
   formatDate,
   className,
@@ -113,8 +126,35 @@ export function FileListView({
             return (
               <TableRow
                 key={f.id}
-                className="cursor-pointer"
+                className={cn(
+                  "cursor-pointer",
+                  dropTargetFolderId === f.id && "bg-primary/5 ring-1 ring-primary/30"
+                )}
+                draggable={!!onDragFolderStart}
+                onDragStart={(e) => onDragFolderStart?.(f, e)}
+                onDragEnd={() => onDragFolderEnd?.()}
                 onClick={() => onOpenFolder(f.id)}
+                onDragOver={(e) => {
+                  if (!onFileDropToFolder && !onFolderDropToFolder) return;
+                  if (dataTransferHasDriveFile(e.dataTransfer.types) || dataTransferHasDriveFolder(e.dataTransfer.types)) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    onDropTargetChange?.(f.id);
+                  }
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) onDropTargetChange?.(null);
+                }}
+                onDrop={(e) => {
+                  const fileId = e.dataTransfer.getData(DRIVE_FILE_DRAG_MIME);
+                  const draggedFolderId = e.dataTransfer.getData(DRIVE_FOLDER_DRAG_MIME);
+                  if (!fileId && !draggedFolderId) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (fileId) onFileDropToFolder?.(f.id, fileId);
+                  else if (draggedFolderId) onFolderDropToFolder?.(f.id, draggedFolderId);
+                  onDropTargetChange?.(null);
+                }}
               >
                 <TableCell>
                   <div className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 flex size-9 items-center justify-center rounded-md">
@@ -137,6 +177,7 @@ export function FileListView({
                       type="button"
                       size="icon"
                       variant="ghost"
+                      draggable={false}
                       className="size-8 shrink-0"
                       aria-label={isArabic ? "مشاركة" : "Share"}
                       onClick={(e) => {
@@ -150,6 +191,7 @@ export function FileListView({
                       type="button"
                       size="icon"
                       variant="ghost"
+                      draggable={false}
                       className="size-8 shrink-0"
                       aria-label={isArabic ? "صلاحيات" : "Access"}
                       onClick={(e) => {
@@ -163,6 +205,7 @@ export function FileListView({
                       type="button"
                       size="icon"
                       variant="ghost"
+                      draggable={false}
                       className="size-8 shrink-0"
                       aria-label={isArabic ? "إعادة تسمية" : "Rename"}
                       onClick={(e) => {
@@ -176,6 +219,7 @@ export function FileListView({
                       type="button"
                       size="icon"
                       variant="ghost"
+                      draggable={false}
                       className="text-destructive size-8 shrink-0"
                       aria-label={isArabic ? "حذف" : "Delete"}
                       onClick={(e) => {

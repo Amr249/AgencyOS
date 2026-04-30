@@ -24,6 +24,12 @@ type FileGridProps = {
   onShareFile?: (file: FileRow) => void;
   onDragFileStart?: (file: FileRow, e: React.DragEvent) => void;
   onDragFileEnd?: () => void;
+  onDragFolderStart?: (folder: FolderRow, e: React.DragEvent) => void;
+  onDragFolderEnd?: () => void;
+  dropTargetFolderId?: string | null;
+  onDropTargetChange?: (folderId: string | null) => void;
+  onFileDropToFolder?: (targetFolderId: string, fileId: string) => void;
+  onFolderDropToFolder?: (targetFolderId: string, draggedFolderId: string) => void;
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
@@ -47,6 +53,12 @@ export function FileGrid({
   onShareFile,
   onDragFileStart,
   onDragFileEnd,
+  onDragFolderStart,
+  onDragFolderEnd,
+  dropTargetFolderId,
+  onDropTargetChange,
+  onFileDropToFolder,
+  onFolderDropToFolder,
   formatSize,
   formatDate,
   className,
@@ -72,6 +84,16 @@ export function FileGrid({
           onDelete={onDeleteFolder}
           onShare={onShareFolder}
           onAccess={onAccessFolder}
+          onDragFolderStart={onDragFolderStart}
+          onDragFolderEnd={onDragFolderEnd}
+          isDropTarget={dropTargetFolderId === f.id}
+          onFileDropToThisFolder={
+            onFileDropToFolder ? (fileId) => onFileDropToFolder(f.id, fileId) : undefined
+          }
+          onFolderDropToThisFolder={
+            onFolderDropToFolder ? (draggedId) => onFolderDropToFolder(f.id, draggedId) : undefined
+          }
+          onDropTargetChange={onDropTargetChange}
           formatSize={formatSize}
           formatDate={formatDate}
         />

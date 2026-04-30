@@ -16,6 +16,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME, dataTransferHasDriveFile, dataTransferHasDriveFolder } from "@/lib/drive-dnd";
 
 function buildChildrenMap(rows: FolderRow[]): Map<string | null, FolderRow[]> {
   const map = new Map<string | null, FolderRow[]>();
@@ -49,8 +50,12 @@ type TreeBranchProps = {
   onAccessRequest: (folder: FolderRow) => void;
   onShareRequest: (folder: FolderRow) => void;
   onFileDrop: (targetFolderId: string, draggedFileId: string) => void;
+  onFolderDrop: (targetFolderId: string, draggedFolderId: string) => void;
   dropTargetFolderId: string | null;
   onDropTargetChange: (folderId: string | null) => void;
+  draggingFolderId: string | null;
+  onDragFolderStart: (folder: FolderRow, e: React.DragEvent) => void;
+  onDragFolderEnd: () => void;
   isArabic: boolean;
 };
 
@@ -68,8 +73,12 @@ function TreeBranch({
   onAccessRequest,
   onShareRequest,
   onFileDrop,
+  onFolderDrop,
   dropTargetFolderId,
   onDropTargetChange,
+  draggingFolderId,
+  onDragFolderStart,
+  onDragFolderEnd,
   isArabic,
 }: TreeBranchProps) {
   const children = childrenMap.get(folder.id) ?? [];
@@ -77,18 +86,23 @@ function TreeBranch({
   const isActive = currentFolderId === folder.id;
   const count = countFilesInFolder(folder.id, files);
   const isDropTarget = dropTargetFolderId === folder.id;
+  const isDraggingThisFolder = draggingFolderId === folder.id;
 
   return (
     <div className="select-none">
       <div
+        draggable
+        onDragStart={(e) => onDragFolderStart(folder, e)}
+        onDragEnd={onDragFolderEnd}
         className={cn(
           "group flex items-center gap-1 rounded-md py-1 pe-1 ps-1 hover:bg-muted/80",
           isActive && "bg-muted",
-          isDropTarget && "bg-primary/10 ring-1 ring-primary/40"
+          isDropTarget && "bg-primary/10 ring-1 ring-primary/40",
+          isDraggingThisFolder && "opacity-50"
         )}
         style={{ paddingInlineStart: 8 + depth * 12 }}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("application/x-drive-file-id")) {
+          if (dataTransferHasDriveFile(e.dataTransfer.types) || dataTransferHasDriveFolder(e.dataTransfer.types)) {
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
             onDropTargetChange(folder.id);
@@ -96,17 +110,20 @@ function TreeBranch({
         }}
         onDragLeave={() => onDropTargetChange(null)}
         onDrop={(e) => {
-          const fileId = e.dataTransfer.getData("application/x-drive-file-id");
-          if (!fileId) return;
+          const fileId = e.dataTransfer.getData(DRIVE_FILE_DRAG_MIME);
+          const draggedFolderId = e.dataTransfer.getData(DRIVE_FOLDER_DRAG_MIME);
+          if (!fileId && !draggedFolderId) return;
           e.preventDefault();
           e.stopPropagation();
-          onFileDrop(folder.id, fileId);
+          if (fileId) onFileDrop(folder.id, fileId);
+          else if (draggedFolderId) onFolderDrop(folder.id, draggedFolderId);
           onDropTargetChange(null);
         }}
       >
         {children.length > 0 ? (
           <button
             type="button"
+            draggable={false}
             className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 items-center justify-center rounded"
             aria-expanded={isOpen}
             onClick={(e) => {
@@ -121,6 +138,7 @@ function TreeBranch({
         )}
         <button
           type="button"
+          draggable={false}
           className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-0.5 text-start text-sm"
           onClick={() => onSelectFolder(folder.id)}
         >
@@ -133,6 +151,7 @@ function TreeBranch({
             type="button"
             variant="ghost"
             size="icon"
+            draggable={false}
             className="size-7 shrink-0"
             aria-label={isArabic ? "مشاركة" : "Share"}
             onClick={(e) => {
@@ -146,6 +165,7 @@ function TreeBranch({
             type="button"
             variant="ghost"
             size="icon"
+            draggable={false}
             className="size-7 shrink-0"
             aria-label={isArabic ? "صلاحيات" : "Access"}
             onClick={(e) => {
@@ -159,6 +179,7 @@ function TreeBranch({
             type="button"
             variant="ghost"
             size="icon"
+            draggable={false}
             className="size-7 shrink-0"
             aria-label={isArabic ? "إعادة تسمية" : "Rename"}
             onClick={(e) => {
@@ -172,6 +193,7 @@ function TreeBranch({
             type="button"
             variant="ghost"
             size="icon"
+            draggable={false}
             className="text-destructive hover:text-destructive size-7 shrink-0"
             aria-label={isArabic ? "حذف" : "Delete"}
             onClick={(e) => {
@@ -201,8 +223,12 @@ function TreeBranch({
               onAccessRequest={onAccessRequest}
               onShareRequest={onShareRequest}
               onFileDrop={onFileDrop}
+              onFolderDrop={onFolderDrop}
               dropTargetFolderId={dropTargetFolderId}
               onDropTargetChange={onDropTargetChange}
+              draggingFolderId={draggingFolderId}
+              onDragFolderStart={onDragFolderStart}
+              onDragFolderEnd={onDragFolderEnd}
               isArabic={isArabic}
             />
           ))}
@@ -224,8 +250,12 @@ type FolderTreeProps = {
   onFolderAccessRequest: (folder: FolderRow) => void;
   onFolderShareRequest: (folder: FolderRow) => void;
   onFileDropToFolder: (targetFolderId: string, draggedFileId: string) => void;
+  onFolderDropToFolder: (targetFolderId: string, draggedFolderId: string) => void;
   dropTargetFolderId: string | null;
   onDropTargetChange: (folderId: string | null) => void;
+  draggingFolderId: string | null;
+  onDragFolderStart: (folder: FolderRow, e: React.DragEvent) => void;
+  onDragFolderEnd: () => void;
   sidebarFooter?: React.ReactNode;
   /** Desktop: collapse inner sidebar */
   collapsed?: boolean;
@@ -245,8 +275,12 @@ export function FolderTree({
   onFolderAccessRequest,
   onFolderShareRequest,
   onFileDropToFolder,
+  onFolderDropToFolder,
   dropTargetFolderId,
   onDropTargetChange,
+  draggingFolderId,
+  onDragFolderStart,
+  onDragFolderEnd,
   sidebarFooter,
   collapsed = false,
   onCollapsedChange,
@@ -322,8 +356,12 @@ export function FolderTree({
               onAccessRequest={onFolderAccessRequest}
               onShareRequest={onFolderShareRequest}
               onFileDrop={onFileDropToFolder}
+              onFolderDrop={onFolderDropToFolder}
               dropTargetFolderId={dropTargetFolderId}
               onDropTargetChange={onDropTargetChange}
+              draggingFolderId={draggingFolderId}
+              onDragFolderStart={onDragFolderStart}
+              onDragFolderEnd={onDragFolderEnd}
               isArabic={isArabic}
             />
           ))}

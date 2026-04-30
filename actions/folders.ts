@@ -450,7 +450,11 @@ export async function getDriveFolders() {
   }
 }
 
-export async function toggleFolderPublic(folderId: string) {
+/**
+ * Set folder public sharing to an explicit state (avoids flip/toggle bugs with the UI switch).
+ * When enabling, always ensures a `shareToken` exists.
+ */
+export async function setFolderPublicSharing(folderId: string, enabled: boolean) {
   const parsed = z.string().uuid().safeParse(folderId);
   if (!parsed.success) return { ok: false as const, error: { _form: ["Invalid folder id"] } };
   const session = await getServerSession(authOptions);
@@ -466,21 +470,40 @@ export async function toggleFolderPublic(folderId: string) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
       }
     }
-    const nextPublic = !existing.isPublic;
-    const token = nextPublic ? (existing.shareToken ?? nanoid(20)) : null;
+    if (existing.isPublic === enabled && (!enabled || (existing.shareToken?.trim() ?? "").length > 0)) {
+      return { ok: true as const, data: existing };
+    }
+    const token = enabled ? (existing.shareToken?.trim() || nanoid(20)) : null;
     const [row] = await db
       .update(folders)
-      .set({ isPublic: nextPublic, shareToken: token, shareExpiresAt: nextPublic ? existing.shareExpiresAt : null })
+      .set({
+        isPublic: enabled,
+        shareToken: token,
+        shareExpiresAt: enabled ? existing.shareExpiresAt : null,
+      })
       .where(eq(folders.id, parsed.data))
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["Folder not found"] } };
     revalidatePath("/dashboard/drive");
+    revalidatePath("/dashboard/member-drive");
+    if (enabled && row.shareToken) {
+      revalidatePath(`/share/folder/${row.shareToken}`);
+    }
     return { ok: true as const, data: row };
   } catch (e) {
-    console.error("toggleFolderPublic", e);
+    console.error("setFolderPublicSharing", e);
     if (isDbConnectionError(e)) return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
     return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
   }
+}
+
+/** @deprecated Use setFolderPublicSharing; kept for any external callers. */
+export async function toggleFolderPublic(folderId: string) {
+  const parsed = z.string().uuid().safeParse(folderId);
+  if (!parsed.success) return { ok: false as const, error: { _form: ["Invalid folder id"] } };
+  const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
+  if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
+  return setFolderPublicSharing(folderId, !existing.isPublic);
 }
 
 export async function setFolderAccess(folderId: string, teamMemberIds: string[]) {
@@ -647,7 +670,12 @@ export async function moveFolder(folderId: string, newParentId: string | null) {
       } else if (moving.projectId) {
         newPath = `/project/${moving.projectId}/${sanitizePathSegment(moving.name)}`;
       } else {
-        return { ok: false as const, error: { _form: ["Folder has no client or project scope"] } };
+        const uid = session.user.id;
+        const prefix = `/drive/user/${uid}/`;
+        if (!moving.path.startsWith(prefix)) {
+          return { ok: false as const, error: { _form: ["Invalid personal folder"] } };
+        }
+        newPath = `${prefix}${sanitizePathSegment(moving.name)}`;
       }
     }
 
@@ -676,6 +704,10 @@ export async function moveFolder(folderId: string, newParentId: string | null) {
     const [updated] = await db.select().from(folders).where(eq(folders.id, moving.id)).limit(1);
     if (updated?.clientId) revalidatePath(`/dashboard/clients/${updated.clientId}`);
     if (updated?.projectId) revalidatePath(`/dashboard/projects/${updated.projectId}`);
+    if (!updated?.clientId && !updated?.projectId) {
+      revalidatePath("/dashboard/drive");
+      revalidatePath("/dashboard/member-drive");
+    }
 
     return { ok: true as const, data: updated! };
   } catch (e) {

@@ -8,6 +8,8 @@ import { getSharedFolderBrowse } from "@/lib/shared-folder-access";
 import { SharedFolderBrowser } from "@/components/guest/shared-folder-browser";
 import { Button } from "@/components/ui/button";
 
+export const dynamic = "force-dynamic";
+
 type Props = {
   params: Promise<{ token: string }>;
   searchParams: Promise<{ folder?: string }>;

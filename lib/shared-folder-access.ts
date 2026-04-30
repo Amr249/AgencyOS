@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
+import { unstable_noStore as noStore } from "next/cache";
 import { z } from "zod";
 import { db, files, folders } from "@/lib/db";
 
@@ -7,6 +8,7 @@ export type SharedFolderRootResult =
   | { ok: false; reason: "invalid" | "not_found" | "forbidden" | "expired" };
 
 export async function resolveSharedFolderRoot(token: string): Promise<SharedFolderRootResult> {
+  noStore();
   const t = token.trim();
   if (!t || t.length < 8) return { ok: false, reason: "invalid" };
   const [root] = await db.select().from(folders).where(eq(folders.shareToken, t)).limit(1);

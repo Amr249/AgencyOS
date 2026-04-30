@@ -43,9 +43,11 @@ import {
   deleteFolder,
   getFolderAccess,
   setFolderAccess,
-  toggleFolderPublic,
+  setFolderPublicSharing,
+  moveFolder,
   type FolderRow,
 } from "@/actions/folders";
+import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME } from "@/lib/drive-dnd";
 import type { FileRow } from "@/lib/file-types";
 import { driveEntityPathFromFolder } from "@/lib/drive-upload-path";
 import { folderSharePageUrl } from "@/lib/public-app-url";
@@ -195,6 +197,7 @@ export function FileManager({
   const [isDeletingFolder, setIsDeletingFolder] = React.useState(false);
   const [dragDepth, setDragDepth] = React.useState(0);
   const [draggingFileId, setDraggingFileId] = React.useState<string | null>(null);
+  const [draggingFolderId, setDraggingFolderId] = React.useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = React.useState<string | null>(null);
   const [extractingLabel, setExtractingLabel] = React.useState<string | null>(null);
   const [accessFolder, setAccessFolder] = React.useState<FolderRow | null>(null);
@@ -916,7 +919,8 @@ export function FileManager({
 
   const isExternalFileDrag = (e: React.DragEvent) => {
     const types = Array.from(e.dataTransfer.types ?? []);
-    if (types.includes("application/x-drive-file-id")) return false;
+    if (types.includes(DRIVE_FILE_DRAG_MIME)) return false;
+    if (types.includes(DRIVE_FOLDER_DRAG_MIME)) return false;
     return types.includes("Files") || types.includes("application/x-moz-file");
   };
 
@@ -1041,6 +1045,37 @@ export function FileManager({
     [files, isArabic, router]
   );
 
+  const handleMoveFolderToFolder = React.useCallback(
+    async (targetFolderId: string, draggedFolderId: string) => {
+      if (targetFolderId === draggedFolderId) return;
+      const moving = folders.find((f) => f.id === draggedFolderId);
+      if (!moving) return;
+      if (moving.parentId === targetFolderId) return;
+      const subtree = collectSubtreeFolderIds(draggedFolderId, folders);
+      if (subtree.has(targetFolderId)) {
+        toast.error(
+          isArabic ? "لا يمكن نقل المجلد إلى داخل نفسه." : "Cannot move a folder into itself or its children."
+        );
+        return;
+      }
+      const res = await moveFolder(draggedFolderId, targetFolderId);
+      if (!res.ok) {
+        const msg =
+          "_form" in res.error && Array.isArray(res.error._form)
+            ? res.error._form[0]
+            : isArabic
+              ? "تعذر نقل المجلد."
+              : "Could not move folder.";
+        toast.error(msg);
+        return;
+      }
+      toast.success(isArabic ? "تم نقل المجلد." : "Folder moved.");
+      refreshFolders();
+      router.refresh();
+    },
+    [folders, isArabic, router, refreshFolders]
+  );
+
   const handleCreateFolder = async (input: { name: string; scope: "standalone" | "project"; projectId?: string; accessTeamMemberIds?: string[] }) => {
     const res = standalone
       ? await createFolder({
@@ -1132,8 +1167,25 @@ export function FileManager({
               setDropTargetFolderId(null);
             });
           }}
+          onFolderDropToFolder={(targetFolderId, draggedFolderId) => {
+            setDropTargetFolderId(targetFolderId);
+            void handleMoveFolderToFolder(targetFolderId, draggedFolderId).finally(() => {
+              setDraggingFolderId(null);
+              setDropTargetFolderId(null);
+            });
+          }}
           dropTargetFolderId={dropTargetFolderId}
           onDropTargetChange={setDropTargetFolderId}
+          draggingFolderId={draggingFolderId}
+          onDragFolderStart={(folder, e) => {
+            setDraggingFolderId(folder.id);
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData(DRIVE_FOLDER_DRAG_MIME, folder.id);
+          }}
+          onDragFolderEnd={() => {
+            setDraggingFolderId(null);
+            setDropTargetFolderId(null);
+          }}
           sidebarFooter={sidebarFooter}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
@@ -1345,11 +1397,36 @@ export function FileManager({
                 onDragFileStart={(file, e) => {
                   setDraggingFileId(file.id);
                   e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("application/x-drive-file-id", file.id);
+                  e.dataTransfer.setData(DRIVE_FILE_DRAG_MIME, file.id);
                 }}
                 onDragFileEnd={() => {
                   setDraggingFileId(null);
                   setDropTargetFolderId(null);
+                }}
+                onDragFolderStart={(folder, e) => {
+                  setDraggingFolderId(folder.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData(DRIVE_FOLDER_DRAG_MIME, folder.id);
+                }}
+                onDragFolderEnd={() => {
+                  setDraggingFolderId(null);
+                  setDropTargetFolderId(null);
+                }}
+                dropTargetFolderId={dropTargetFolderId}
+                onDropTargetChange={setDropTargetFolderId}
+                onFileDropToFolder={(targetId, fileId) => {
+                  setDropTargetFolderId(targetId);
+                  void handleMoveFileToFolder(targetId, fileId).finally(() => {
+                    setDraggingFileId(null);
+                    setDropTargetFolderId(null);
+                  });
+                }}
+                onFolderDropToFolder={(targetId, draggedId) => {
+                  setDropTargetFolderId(targetId);
+                  void handleMoveFolderToFolder(targetId, draggedId).finally(() => {
+                    setDraggingFolderId(null);
+                    setDropTargetFolderId(null);
+                  });
                 }}
                 formatSize={formatSize}
                 formatDate={formatDateSafe}
@@ -1374,11 +1451,36 @@ export function FileManager({
                 onDragFileStart={(file, e) => {
                   setDraggingFileId(file.id);
                   e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("application/x-drive-file-id", file.id);
+                  e.dataTransfer.setData(DRIVE_FILE_DRAG_MIME, file.id);
                 }}
                 onDragFileEnd={() => {
                   setDraggingFileId(null);
                   setDropTargetFolderId(null);
+                }}
+                onDragFolderStart={(folder, e) => {
+                  setDraggingFolderId(folder.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData(DRIVE_FOLDER_DRAG_MIME, folder.id);
+                }}
+                onDragFolderEnd={() => {
+                  setDraggingFolderId(null);
+                  setDropTargetFolderId(null);
+                }}
+                dropTargetFolderId={dropTargetFolderId}
+                onDropTargetChange={setDropTargetFolderId}
+                onFileDropToFolder={(targetId, fileId) => {
+                  setDropTargetFolderId(targetId);
+                  void handleMoveFileToFolder(targetId, fileId).finally(() => {
+                    setDraggingFileId(null);
+                    setDropTargetFolderId(null);
+                  });
+                }}
+                onFolderDropToFolder={(targetId, draggedId) => {
+                  setDropTargetFolderId(targetId);
+                  void handleMoveFolderToFolder(targetId, draggedId).finally(() => {
+                    setDraggingFolderId(null);
+                    setDropTargetFolderId(null);
+                  });
                 }}
                 formatSize={formatSize}
                 formatDate={formatDateSafe}
@@ -1387,10 +1489,16 @@ export function FileManager({
           </div>
         </div>
       </div>
-      {draggingFileId ? (
+      {draggingFileId || draggingFolderId ? (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center pt-20">
           <div className="rounded-md border bg-background/95 px-3 py-2 text-sm shadow">
-            {isArabic ? "أفلِت الملف فوق مجلد لنقله" : "Drop the file on a folder to move it"}
+            {draggingFolderId
+              ? isArabic
+                ? "أفلِت المجلد فوق مجلد آخر لنقله"
+                : "Drop the folder on another folder to move it"
+              : isArabic
+                ? "أفلِت الملف فوق مجلد لنقله"
+                : "Drop the file on a folder to move it"}
           </div>
         </div>
       ) : null}
@@ -1516,11 +1624,11 @@ export function FileManager({
                 </p>
               </div>
               <Switch
-                checked={Boolean(shareFolder?.isPublic && shareFolder?.shareToken)}
-                onCheckedChange={() => void (async () => {
+                checked={Boolean(shareFolder?.isPublic)}
+                onCheckedChange={(enabled) => void (async () => {
                   if (!shareFolder) return;
                   setShareBusy(true);
-                  const res = await toggleFolderPublic(shareFolder.id);
+                  const res = await setFolderPublicSharing(shareFolder.id, enabled);
                   setShareBusy(false);
                   if (!res.ok) {
                     toast.error(res.error?._form?.[0] ?? (isArabic ? "تعذر تحديث المشاركة." : "Could not update sharing."));
@@ -1541,7 +1649,10 @@ export function FileManager({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => void navigator.clipboard.writeText(folderSharePageUrl(shareFolder.shareToken!))}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(folderSharePageUrl(shareFolder.shareToken!));
+                    toast.success(isArabic ? "تم نسخ الرابط." : "Link copied to clipboard.");
+                  }}
                 >
                   {isArabic ? "نسخ الرابط" : "Copy link"}
                 </Button>
