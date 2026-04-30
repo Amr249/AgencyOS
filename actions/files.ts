@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { files, folders, projects, invoices, teamMembers, folderAccess } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { logActivityWithActor } from "@/actions/activity-log";
-import { deleteFromR2 } from "@/lib/r2";
+import { deleteFromR2, getPublicUrl } from "@/lib/r2";
 import { FILE_DOCUMENT_TYPES, type FileRow, type FileDocumentType } from "@/lib/file-types";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
@@ -20,6 +20,16 @@ function fileStorageKey(row: { r2Key: string | null; filePath?: string | null })
   if (k && k.length > 0) return k;
   const fp = row.filePath?.trim();
   return fp && fp.length > 0 ? fp : null;
+}
+
+function filePublicUrlFromKey(r2Key: string | null): string {
+  const key = r2Key?.trim();
+  if (!key) return "";
+  try {
+    return getPublicUrl(key);
+  } catch {
+    return "";
+  }
 }
 
 async function withDbReadRetry<T>(label: string, run: () => Promise<T>, retries = 1): Promise<T> {
@@ -272,9 +282,6 @@ export async function getFiles(params: {
         .select({
           id: files.id,
           name: files.name,
-          imagekitFileId: files.imagekitFileId,
-          imagekitUrl: files.imagekitUrl,
-          filePath: files.filePath,
           mimeType: files.mimeType,
           sizeBytes: files.sizeBytes,
           clientId: files.clientId,
@@ -303,9 +310,9 @@ export async function getFiles(params: {
     const data: FileRow[] = rows.map((r) => ({
       id: r.id,
       name: r.name,
-      imagekitFileId: r.imagekitFileId,
-      imagekitUrl: r.imagekitUrl,
-      filePath: r.filePath,
+      imagekitFileId: r.r2Key ?? r.id,
+      imagekitUrl: filePublicUrlFromKey(r.r2Key),
+      filePath: r.r2Key ?? "",
       mimeType: r.mimeType,
       sizeBytes: r.sizeBytes,
       clientId: r.clientId,
@@ -907,7 +914,7 @@ export async function getFileByShareToken(
       .select({
         id: files.id,
         name: files.name,
-        imagekitUrl: files.imagekitUrl,
+        r2Key: files.r2Key,
         mimeType: files.mimeType,
         sizeBytes: files.sizeBytes,
         isPublic: files.isPublic,
@@ -939,7 +946,7 @@ export async function getFileByShareToken(
       data: {
         id: row.id,
         name: row.name,
-        imagekitUrl: row.imagekitUrl,
+        imagekitUrl: filePublicUrlFromKey(row.r2Key),
         mimeType: row.mimeType,
         sizeBytes: row.sizeBytes,
         shareExpiresAt: row.shareExpiresAt,
@@ -954,9 +961,6 @@ export async function getFileByShareToken(
 function mapFileRowFromJoin(r: {
   id: string;
   name: string;
-  imagekitFileId: string;
-  imagekitUrl: string;
-  filePath: string;
   mimeType: string | null;
   sizeBytes: number | null;
   clientId: string | null;
@@ -979,9 +983,9 @@ function mapFileRowFromJoin(r: {
   return {
     id: r.id,
     name: r.name,
-    imagekitFileId: r.imagekitFileId,
-    imagekitUrl: r.imagekitUrl,
-    filePath: r.filePath,
+    imagekitFileId: r.r2Key ?? r.id,
+    imagekitUrl: filePublicUrlFromKey(r.r2Key),
+    filePath: r.r2Key ?? "",
     mimeType: r.mimeType,
     sizeBytes: r.sizeBytes,
     clientId: r.clientId,
@@ -1015,9 +1019,6 @@ export async function getRecentUploadsForDashboard(limit = 10) {
       .select({
         id: files.id,
         name: files.name,
-        imagekitFileId: files.imagekitFileId,
-        imagekitUrl: files.imagekitUrl,
-        filePath: files.filePath,
         mimeType: files.mimeType,
         sizeBytes: files.sizeBytes,
         clientId: files.clientId,
