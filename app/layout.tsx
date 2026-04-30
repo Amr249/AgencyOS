@@ -22,10 +22,11 @@ const ibmPlexSans = IBM_Plex_Sans({
 /** Production site URL for metadata and absolute asset resolution (Vercel sets VERCEL_URL). */
 const siteUrl =
   process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
+  process.env.APP_URL?.trim().replace(/\/$/, "") ||
   (process.env.VERCEL_URL?.trim()
     ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}`
     : "") ||
-  "http://localhost:3000";
+  "https://agencyos.pixlesa.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(`${siteUrl.replace(/\/$/, "")}/`),
@@ -36,8 +37,8 @@ export const metadata: Metadata = {
   description: "OnePixle Agency Operations Dashboard",
   manifest: "/manifest.json",
   icons: {
-    icon: "/logo-512.png",
-    apple: "/logo-512.png",
+    icon: "/Logo1.png",
+    apple: "/Logo1.png",
   },
   appleWebApp: {
     capable: true,

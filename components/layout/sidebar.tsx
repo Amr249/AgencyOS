@@ -51,7 +51,7 @@ export default function Sidebar() {
                 return (
                   <Fragment key={item.title}>
                     {item.items?.length ? (
-                      <Collapsible className="group !block transition-all hover:data-[state=open]:bg-transparent">
+                      <Collapsible className="group block! transition-all hover:data-[state=open]:bg-transparent">
                         <CollapsibleTrigger className="flex w-full items-center gap-3">
                           {item.icon && <Icon name={item.icon} className="h-4 w-4" />}
                           {item.title}
@@ -77,23 +77,23 @@ export default function Sidebar() {
         <div className="sticky bottom-0 mt-10">
           <Card>
             <CardHeader>
-              <CardTitle>Get Shadcn UI Kit Pro</CardTitle>
+              <CardTitle>AgencyOS</CardTitle>
               <CardDescription>
-                Need more pages and components? Then you can get the pro.
+                Manage your agency operations from one place.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               <Button
                 size="sm"
-                className="w-full items-center bg-gradient-to-r from-indigo-700 via-purple-500 to-pink-700 hover:opacity-90"
+                className="w-full items-center bg-linear-to-r from-indigo-700 via-purple-500 to-pink-700 hover:opacity-90"
                 asChild>
-                <Link href="https://shadcnuikit.com/pricing" target="_blank">
-                  <LockIcon className="me-2 h-4 w-4" /> Get Pro
+                <Link href="https://agencyos.pixlesa.com/" target="_blank">
+                  <LockIcon className="me-2 h-4 w-4" /> Open AgencyOS
                 </Link>
               </Button>
               <Button size="sm" className="w-full" variant="outline" asChild>
-                <Link href="https://shadcnuikit.com/" target="_blank">
-                  Learn More
+                <Link href="https://agencyos.pixlesa.com/" target="_blank">
+                  Visit Website
                 </Link>
               </Button>
             </CardContent>
