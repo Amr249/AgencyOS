@@ -11,6 +11,7 @@ import { authOptions } from "@/lib/auth";
 import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/lib/member-context";
+import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
 
 export type FolderRow = typeof folders.$inferSelect;
 
@@ -544,15 +545,12 @@ export async function getFolderAccess(folderId: string) {
 }
 
 export async function getFolderByShareToken(token: string) {
-  const t = token.trim();
-  if (!t || t.length < 8) return { ok: false as const, reason: "invalid" as const };
   try {
-    const [folder] = await db.select().from(folders).where(eq(folders.shareToken, t)).limit(1);
-    if (!folder) return { ok: false as const, reason: "not_found" as const };
-    if (!folder.isPublic) return { ok: false as const, reason: "forbidden" as const };
-    if (folder.shareExpiresAt && new Date(folder.shareExpiresAt).getTime() <= Date.now()) {
-      return { ok: false as const, reason: "expired" as const };
+    const rootRes = await resolveSharedFolderRoot(token);
+    if (!rootRes.ok) {
+      return { ok: false as const, reason: rootRes.reason };
     }
+    const folder = rootRes.root;
     const prefix = folder.path.endsWith("/") ? folder.path : `${folder.path}/`;
     const childFolders = await db
       .select({ id: folders.id, name: folders.name, path: folders.path })
