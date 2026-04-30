@@ -14,9 +14,9 @@ import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/li
 
 export type FolderRow = typeof folders.$inferSelect;
 
-function storageKeyForFile(row: { r2Key: string | null; filePath: string }): string {
+function storageKeyForFile(row: { r2Key: string | null }): string | null {
   const k = row.r2Key?.trim();
-  return k && k.length > 0 ? k : row.filePath;
+  return k && k.length > 0 ? k : null;
 }
 
 async function withDbReadRetry<T>(label: string, run: () => Promise<T>, retries = 1): Promise<T> {
@@ -218,13 +218,15 @@ export async function deleteFolder(id: string) {
   try {
     const subtreeIds = await collectSubtreeFolderIds(parsed.data);
     const fileRows = await db
-      .select({ id: files.id, r2Key: files.r2Key, filePath: files.filePath })
+      .select({ id: files.id, r2Key: files.r2Key })
       .from(files)
       .where(and(inArray(files.folderId, subtreeIds), isNull(files.deletedAt)));
 
     for (const f of fileRows) {
+      const key = storageKeyForFile(f);
+      if (!key) continue;
       try {
-        await deleteFromR2(storageKeyForFile(f));
+        await deleteFromR2(key);
       } catch (e) {
         console.error("deleteFolder R2", f.id, e);
         return {
