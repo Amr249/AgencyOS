@@ -3,7 +3,8 @@
 import * as React from "react";
 import JSZip from "jszip";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { isDriveActionErrorKey } from "@/lib/drive-action-error-keys";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Grid3x3, List, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -295,6 +296,14 @@ export function FileManager({
   const dropZoneRef = React.useRef<HTMLDivElement>(null);
 
   const canUpload = Boolean(clientId || projectId || standalone);
+  const tDriveErrors = useTranslations("driveActionErrors");
+  const formatDriveActionError = React.useCallback(
+    (msg: string) => (isDriveActionErrorKey(msg) ? tDriveErrors(msg) : msg),
+    [tDriveErrors]
+  );
+  /** Member aggregate drive: uploads only inside an opened folder. */
+  const effectiveCanUpload =
+    canUpload && !(standalone && !allowStandaloneRoot && currentFolderId == null);
   const isAgencyStandaloneDrive = standalone && !clientId && !projectId;
 
   const [driveDirectStats, setDriveDirectStats] = React.useState<DriveFolderDirectFileStat[]>(
@@ -566,6 +575,10 @@ export function FileManager({
 
   const createFolderInScope = React.useCallback(
     async (name: string, parentId: string | null): Promise<FolderRow | null> => {
+      if (standalone && !parentId && !allowStandaloneRoot) {
+        toast.error(formatDriveActionError("memberDriveFolderRequired"));
+        return null;
+      }
       const res = standalone
         ? await createFolder({
             name,
@@ -583,7 +596,7 @@ export function FileManager({
       if (!res.ok || !res.data) return null;
       return res.data;
     },
-    [standalone, clientId, projectId]
+    [standalone, allowStandaloneRoot, clientId, projectId, formatDriveActionError]
   );
 
   const uploadOne = React.useCallback(
@@ -594,6 +607,10 @@ export function FileManager({
       options?: UploadOneOptions
     ): Promise<FileRow | null> => {
       if (!canUpload) return null;
+      if (standalone && !allowStandaloneRoot && !targetFolderId) {
+        toast.error(formatDriveActionError("memberDriveFolderRequired"));
+        return null;
+      }
       const quiet = options?.quiet ?? false;
       const onFraction = options?.onFraction;
       setUploadProgress((prev) => ({ ...prev, [key]: 0 }));
@@ -707,8 +724,11 @@ export function FileManager({
             ? createResult.error._form[0]
             : null;
         toast.error(
-          createError ??
-            (isArabic ? "تعذر حفظ الملف في قاعدة البيانات." : "Could not save file in database.")
+          createError
+            ? formatDriveActionError(createError)
+            : isArabic
+              ? "تعذر حفظ الملف في قاعدة البيانات."
+              : "Could not save file in database."
         );
         return null;
       } catch {
@@ -721,14 +741,25 @@ export function FileManager({
         return null;
       }
     },
-    [canUpload, clientId, projectId, folders, currentFolder, standalone, driveUploadPathPrefix, isArabic]
+    [
+      canUpload,
+      allowStandaloneRoot,
+      formatDriveActionError,
+      clientId,
+      projectId,
+      folders,
+      currentFolder,
+      standalone,
+      driveUploadPathPrefix,
+      isArabic,
+    ]
   );
 
   type UploadEntry = { file: globalThis.File; relativePath: string };
 
   const uploadEntries = React.useCallback(
     async (entries: UploadEntry[], rootFolderId: string | null) => {
-      if (!canUpload || entries.length === 0) return;
+      if (!effectiveCanUpload || entries.length === 0) return;
       const hasNested = entries.some((e) => e.relativePath.includes("/"));
       const isBatch = entries.length > 1 || hasNested;
 
@@ -934,12 +965,21 @@ export function FileManager({
         }
       }
     },
-    [canUpload, folders, createFolderInScope, uploadOne, router, isArabic, isAgencyStandaloneDrive, refreshDriveFolderStats]
+    [
+      effectiveCanUpload,
+      folders,
+      createFolderInScope,
+      uploadOne,
+      router,
+      isArabic,
+      isAgencyStandaloneDrive,
+      refreshDriveFolderStats,
+    ]
   );
 
   const uploadFiles = React.useCallback(
     async (fileList: globalThis.File[]) => {
-      if (!canUpload || fileList.length === 0) return;
+      if (!effectiveCanUpload || fileList.length === 0) return;
       await uploadEntries(
         fileList.map((f) => ({
           file: f,
@@ -948,19 +988,19 @@ export function FileManager({
         currentFolderId
       );
     },
-    [canUpload, uploadEntries, currentFolderId]
+    [effectiveCanUpload, uploadEntries, currentFolderId]
   );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files;
-    if (!selected?.length || !canUpload) return;
+    if (!selected?.length || !effectiveCanUpload) return;
     void uploadFiles(Array.from(selected));
     e.target.value = "";
   };
 
   const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files;
-    if (!selected?.length || !canUpload) return;
+    if (!selected?.length || !effectiveCanUpload) return;
     void uploadFiles(Array.from(selected));
     e.target.value = "";
   };
@@ -986,7 +1026,7 @@ export function FileManager({
 
   const handleZipSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
-    if (!selected || !canUpload) return;
+    if (!selected || !effectiveCanUpload) return;
     void (async () => {
       try {
         setExtractingLabel(isArabic ? "جاري استخراج ملف ZIP..." : "Extracting your ZIP...");
@@ -1142,7 +1182,7 @@ export function FileManager({
 
   const onDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!canUpload) return;
+    if (!effectiveCanUpload) return;
     if (!isExternalFileDrag(e)) return;
     setDragDepth((d) => d + 1);
   };
@@ -1155,7 +1195,7 @@ export function FileManager({
     if (!isExternalFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (canUpload) {
+    if (effectiveCanUpload) {
       e.dataTransfer.dropEffect = "copy";
     } else {
       e.dataTransfer.dropEffect = "none";
@@ -1165,7 +1205,7 @@ export function FileManager({
     e.preventDefault();
     e.stopPropagation();
     setDragDepth(0);
-    if (!canUpload) return;
+    if (!effectiveCanUpload) return;
     if (!isExternalFileDrag(e)) return;
     void (async () => {
       const dropped = await collectDroppedEntries(e.dataTransfer);
@@ -1193,7 +1233,7 @@ export function FileManager({
       if (!res.ok) {
         const msg =
           "_form" in res.error && Array.isArray(res.error._form)
-            ? res.error._form[0]
+            ? formatDriveActionError(res.error._form[0]!)
             : isArabic
               ? "تعذر نقل الملف."
               : "Could not move file.";
@@ -1205,7 +1245,7 @@ export function FileManager({
       router.refresh();
       if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
     },
-    [files, isArabic, router, isAgencyStandaloneDrive, refreshDriveFolderStats]
+    [files, isArabic, router, isAgencyStandaloneDrive, refreshDriveFolderStats, formatDriveActionError]
   );
 
   const handleMoveFolderToFolder = React.useCallback(
@@ -1225,7 +1265,7 @@ export function FileManager({
       if (!res.ok) {
         const msg =
           "_form" in res.error && Array.isArray(res.error._form)
-            ? res.error._form[0]
+            ? formatDriveActionError(res.error._form[0]!)
             : isArabic
               ? "تعذر نقل المجلد."
               : "Could not move folder.";
@@ -1237,7 +1277,15 @@ export function FileManager({
       router.refresh();
       if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
     },
-    [folders, isArabic, router, refreshFolders, isAgencyStandaloneDrive, refreshDriveFolderStats]
+    [
+      folders,
+      isArabic,
+      router,
+      refreshFolders,
+      isAgencyStandaloneDrive,
+      refreshDriveFolderStats,
+      formatDriveActionError,
+    ]
   );
 
   const handleCreateFolder = async (input: { name: string; scope: "standalone" | "project"; projectId?: string; accessTeamMemberIds?: string[] }) => {
@@ -1267,8 +1315,10 @@ export function FileManager({
     } else if (!res.ok) {
       const msg =
         "_form" in res.error && Array.isArray(res.error._form)
-          ? res.error._form.join(", ")
-          : isArabic ? "فشل إنشاء المجلد." : "Create folder failed.";
+          ? res.error._form.map(formatDriveActionError).join(", ")
+          : isArabic
+            ? "فشل إنشاء المجلد."
+            : "Create folder failed.";
       toast.error(msg);
     }
   };
@@ -1447,7 +1497,7 @@ export function FileManager({
               <Button
                 type="button"
                 className="gap-2"
-                disabled={!canUpload}
+                disabled={!effectiveCanUpload}
                 onClick={() => inputRef.current?.click()}
               >
                 <Upload className="size-4" />
@@ -1457,7 +1507,7 @@ export function FileManager({
                 type="button"
                 variant="outline"
                 className="gap-2"
-                disabled={!canUpload}
+                disabled={!effectiveCanUpload}
                 onClick={() => folderInputRef.current?.click()}
               >
                 {isArabic ? "رفع مجلد" : "Upload folder"}
@@ -1466,7 +1516,7 @@ export function FileManager({
                 type="button"
                 variant="outline"
                 className="gap-2"
-                disabled={!canUpload}
+                disabled={!effectiveCanUpload}
                 onClick={() => zipInputRef.current?.click()}
               >
                 {isArabic ? "رفع ZIP" : "Upload ZIP"}
@@ -1506,7 +1556,7 @@ export function FileManager({
             onDragOver={onDragOver}
             onDrop={onDrop}
           >
-            {dragDepth > 0 && canUpload ? (
+            {dragDepth > 0 && effectiveCanUpload ? (
               <div className="bg-primary/10 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-primary border-dashed">
                 <p className="text-primary font-medium">
                   {isArabic ? "أفلت الملفات أو المجلدات للرفع" : "Drop files or folders to upload"}
@@ -1542,7 +1592,7 @@ export function FileManager({
             {empty ? (
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                 <p className="text-muted-foreground text-sm">{isArabic ? "لا توجد ملفات أو مجلدات هنا." : "No files or folders here."}</p>
-                {canUpload ? (
+                {effectiveCanUpload ? (
                   <Button type="button" variant="outline" onClick={() => inputRef.current?.click()}>
                     <Upload className="me-2 size-4" />
                     {isArabic ? "رفع ملف" : "Upload file"}
@@ -1767,7 +1817,10 @@ export function FileManager({
                 const res = await setFolderAccess(accessFolder.id, accessMemberIds);
                 setAccessBusy(false);
                 if (!res.ok) {
-                  toast.error(res.error?._form?.[0] ?? (isArabic ? "تعذر حفظ الصلاحيات." : "Could not save access."));
+                  const raw = res.error?._form?.[0];
+                  toast.error(
+                    raw ? formatDriveActionError(raw) : isArabic ? "تعذر حفظ الصلاحيات." : "Could not save access."
+                  );
                   return;
                 }
                 toast.success(isArabic ? "تم تحديث الصلاحيات." : "Access updated.");
@@ -1803,7 +1856,10 @@ export function FileManager({
                   const res = await setFolderPublicSharing(shareFolder.id, enabled);
                   setShareBusy(false);
                   if (!res.ok) {
-                    toast.error(res.error?._form?.[0] ?? (isArabic ? "تعذر تحديث المشاركة." : "Could not update sharing."));
+                    const raw = res.error?._form?.[0];
+                    toast.error(
+                      raw ? formatDriveActionError(raw) : isArabic ? "تعذر تحديث المشاركة." : "Could not update sharing."
+                    );
                     return;
                   }
                   setFolders((prev) => prev.map((f) => (f.id === res.data.id ? res.data : f)));

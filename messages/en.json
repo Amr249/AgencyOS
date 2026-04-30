@@ -647,6 +647,15 @@
     "storageTitle": "Storage",
     "storageHint": "Accessible (estimated)"
   },
+  "driveActionErrors": {
+    "memberDriveFolderRequired": "Open a shared project folder first, then upload or create folders here.",
+    "memberCannotCreateStandaloneFolders": "Personal drive folders are not available for your role.",
+    "memberCanOnlyCreateProjectFolders": "You can only create folders inside project drives.",
+    "memberCanOnlyUploadToProjectFolders": "You can only upload files into project folders.",
+    "forbidden": "You do not have permission to do this.",
+    "notAuthorized": "You are not signed in.",
+    "parentFolderNotFound": "The parent folder could not be found."
+  },
   "clientPortal": {
     "agencyOs": "AgencyOS",
     "brandName": "Client portal",

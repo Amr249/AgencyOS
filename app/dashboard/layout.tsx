@@ -37,14 +37,16 @@ export default async function DashboardLayout({
   const locale = isMember ? "ar" : await getLocale();
   const sidebarSide = locale === "ar" ? "right" : "left";
 
+  const mainContentClassName = isMember
+    ? "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto md:gap-6 px-4 py-4 md:px-6 md:py-6"
+    : "flex min-h-0 flex-1 flex-col gap-4 md:gap-6 px-4 py-4 md:px-6 md:py-6";
+
   const inner = (
     <>
       <SiteHeader hideGlobalSearch={isMember} hideLanguageToggle={isMember} />
       <div className="flex min-h-0 flex-1 flex-col pb-20 md:pb-0">
         <div className="@container/main flex min-h-0 flex-1 flex-col gap-2">
-          <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6 px-4 py-4 md:px-6 md:py-6">
-            {children}
-          </div>
+          <div className={mainContentClassName}>{children}</div>
         </div>
       </div>
       <MobileBottomNav userRole={userRole} />
@@ -61,9 +63,19 @@ export default async function DashboardLayout({
       }
     >
       <AppSidebar variant="inset" side={sidebarSide} userRole={userRole} />
-      <SidebarInset className="min-h-0">
+      <SidebarInset
+        className={
+          isMember
+            ? "min-h-0 h-svh max-h-svh overflow-hidden"
+            : "min-h-0"
+        }
+      >
         {isMember ? (
-          <div dir="rtl" lang="ar">
+          <div
+            dir="rtl"
+            lang="ar"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
             <MemberDashboardLocaleShell>{inner}</MemberDashboardLocaleShell>
           </div>
         ) : (

@@ -10,7 +10,7 @@ import { deleteFromR2 } from "@/lib/r2";
 import { authOptions } from "@/lib/auth";
 import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { getMemberProjectIdsForUser } from "@/lib/member-context";
+import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
 import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 
@@ -88,14 +88,14 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
 
     if (parentId) {
       const [parent] = await db.select().from(folders).where(eq(folders.id, parentId)).limit(1);
-      if (!parent) return { ok: false as const, error: { _form: ["Parent folder not found"] } };
+      if (!parent) return { ok: false as const, error: { _form: ["parentFolderNotFound"] } };
       if (!parent.clientId && !parent.projectId && !parent.path.startsWith(`/drive/user/${userId}/`)) {
         return { ok: false as const, error: { _form: ["Invalid parent folder"] } };
       }
       resolvedClientId = parent.clientId;
       resolvedProjectId = parent.projectId;
       if (role === "member" && !resolvedProjectId) {
-        return { ok: false as const, error: { _form: ["Members can only create project folders"] } };
+        return { ok: false as const, error: { _form: ["memberCanOnlyCreateProjectFolders"] } };
       }
       if (role === "member" && resolvedProjectId) {
         const allowedProjects = await getMemberProjectIdsForUser(userId);
@@ -112,7 +112,7 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
     } else {
       if (standaloneRoot) {
         if (role === "member") {
-          return { ok: false as const, error: { _form: ["Members cannot create standalone folders"] } };
+          return { ok: false as const, error: { _form: ["memberCannotCreateStandaloneFolders"] } };
         }
         if (!userId) return { ok: false as const, error: { _form: ["Not authorized"] } };
         path = `/drive/user/${userId}/${segment}`;
@@ -121,7 +121,10 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
       } else if (resolvedClientId) path = `/client/${resolvedClientId}/${segment}`;
       else if (resolvedProjectId) {
         if (role === "member") {
-          return { ok: false as const, error: { _form: ["Members must create folders inside a shared folder"] } };
+          const allowedProjects = await getMemberProjectIdsForUser(userId);
+          if (!allowedProjects.includes(resolvedProjectId)) {
+            return { ok: false as const, error: { _form: ["forbidden"] } };
+          }
         }
         path = `/project/${resolvedProjectId}/${segment}`;
       }
@@ -155,6 +158,29 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
         const pgCode = findPostgresErrorCode(e);
         if (pgCode !== "23505") throw e;
       }
+    }
+
+    if (role === "member" && row.projectId) {
+      const creatorTeamIds = await getTeamMemberIdsForSessionUser(userId);
+      if (creatorTeamIds.length > 0) {
+        const existingAccess = await db
+          .select({ teamMemberId: folderAccess.teamMemberId })
+          .from(folderAccess)
+          .where(eq(folderAccess.folderId, row.id));
+        const have = new Set(existingAccess.map((r) => r.teamMemberId));
+        const toAdd = creatorTeamIds.filter((id) => !have.has(id));
+        if (toAdd.length > 0) {
+          try {
+            await db.insert(folderAccess).values(
+              toAdd.map((teamMemberId) => ({ folderId: row.id, teamMemberId }))
+            );
+          } catch (e) {
+            const pgCode = findPostgresErrorCode(e);
+            if (pgCode !== "23505") throw e;
+          }
+        }
+      }
+      revalidatePath("/dashboard/member-drive");
     }
 
     if (row.clientId) revalidatePath(`/dashboard/clients/${row.clientId}`);

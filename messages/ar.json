@@ -647,6 +647,15 @@
     "storageTitle": "التخزين",
     "storageHint": "المساحة المستخدمة (تقديري)"
   },
+  "driveActionErrors": {
+    "memberDriveFolderRequired": "افتح مجلد مشروع مُشارك أولاً، ثم ارفع الملفات أو أنشئ المجلدات من هناك.",
+    "memberCannotCreateStandaloneFolders": "مجلدات التخزين الشخصي غير متاحة لدورك.",
+    "memberCanOnlyCreateProjectFolders": "يمكنك إنشاء المجلدات فقط ضمن ملفات المشاريع.",
+    "memberCanOnlyUploadToProjectFolders": "يمكنك رفع الملفات فقط داخل مجلدات المشاريع.",
+    "forbidden": "ليس لديك صلاحية لتنفيذ هذا الإجراء.",
+    "notAuthorized": "يجب تسجيل الدخول.",
+    "parentFolderNotFound": "تعذّر العثور على المجلد الأب."
+  },
   "clientPortal": {
     "agencyOs": "AgencyOS",
     "brandName": "بوابة العميل",

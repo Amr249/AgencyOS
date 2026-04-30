@@ -398,12 +398,12 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
     const role = sessionUserRole(session);
     if (d.taskId) {
       if (!userId) {
-        return { ok: false as const, error: { _form: ["Not authorized"] } };
+        return { ok: false as const, error: { _form: ["notAuthorized"] } };
       }
       if (role === "member") {
         const allowed = await memberIsAssignedToTask(d.taskId, userId);
         if (!allowed) {
-          return { ok: false as const, error: { _form: ["Forbidden"] } };
+          return { ok: false as const, error: { _form: ["forbidden"] } };
         }
       }
     }
@@ -431,11 +431,11 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       (folder?.projectId || d.projectId)
     ) {
       if (!d.folderId || !userId) {
-        return { ok: false as const, error: { _form: ["Forbidden"] } };
+        return { ok: false as const, error: { _form: ["forbidden"] } };
       }
       const allowedFolder = await memberHasAccessToProjectFolder(userId, d.folderId);
       if (!allowedFolder) {
-        return { ok: false as const, error: { _form: ["Forbidden"] } };
+        return { ok: false as const, error: { _form: ["forbidden"] } };
       }
     }
 
@@ -447,15 +447,15 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       d.expenseId == null;
     if (role === "member" && isPersonalDriveFile) {
       if (!d.folderId) {
-        return { ok: false as const, error: { _form: ["Members cannot upload standalone drive files"] } };
+        return { ok: false as const, error: { _form: ["memberDriveFolderRequired"] } };
       }
       const [targetFolder] = await db.select().from(folders).where(eq(folders.id, d.folderId)).limit(1);
       if (!targetFolder?.projectId) {
-        return { ok: false as const, error: { _form: ["Members can only upload to project folders"] } };
+        return { ok: false as const, error: { _form: ["memberCanOnlyUploadToProjectFolders"] } };
       }
       const allowedProjects = await getMemberProjectIdsForUser(userId ?? "");
       if (!allowedProjects.includes(targetFolder.projectId)) {
-        return { ok: false as const, error: { _form: ["Forbidden"] } };
+        return { ok: false as const, error: { _form: ["forbidden"] } };
       }
       d.projectId = targetFolder.projectId;
     }
