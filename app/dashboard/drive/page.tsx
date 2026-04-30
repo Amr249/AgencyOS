@@ -5,19 +5,22 @@ import { getServerSession } from "next-auth";
 import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { getFiles, getRecentUploadsForDashboard, getTotalFilesStorageBytes } from "@/actions/files";
-import { getAllStandaloneFolders } from "@/actions/folders";
+import { getFiles, getTotalFilesStorageBytes } from "@/actions/files";
+import { getDriveFolders } from "@/actions/folders";
+import { getProjects } from "@/actions/projects";
+import { getTeamMembers } from "@/actions/team-members";
 import { FileManager } from "@/components/modules/files/file-manager";
-import { DriveQuickUploads } from "@/components/modules/drive/drive-quick-uploads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const FOLDER_ID_PARAM_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("nav");
+  const driveLabel = t("drive");
   return {
-    title: "الملفات | AgencyOS",
-    description: "إدارة الملفات والمجلدات الشخصية",
+    title: `${driveLabel} | AgencyOS`,
+    description: "Agency-level personal file management",
   };
 }
 
@@ -45,56 +48,68 @@ export default async function DrivePage({ searchParams }: Props) {
   const t = await getTranslations("nav");
   const currentFolderId =
     typeof sp.folder === "string" && FOLDER_ID_PARAM_RE.test(sp.folder) ? sp.folder : undefined;
+  const isArabic = t("drive") !== "Drive";
 
   const userId = session.user.id;
+  const role = sessionUserRole(session);
+  const isMember = role === "member";
   const driveUploadPathPrefix = `drive/user/${userId}`;
 
-  const [filesRes, foldersRes, recentRes, totalRes] = await Promise.all([
-    getFiles({ standaloneDrive: true }),
-    getAllStandaloneFolders(),
-    getRecentUploadsForDashboard(10),
-    getTotalFilesStorageBytes(),
+  const [filesRes, foldersRes, totalRes, projectsRes, teamRes] = await Promise.all([
+    getFiles({ driveView: true }),
+    getDriveFolders(),
+    getTotalFilesStorageBytes({ driveView: true }),
+    getProjects(),
+    getTeamMembers(),
   ]);
 
   const initialFiles = filesRes.ok ? filesRes.data : [];
   const initialFolders = foldersRes.ok ? foldersRes.data : [];
-  const recentFiles = recentRes.ok ? recentRes.data : [];
   const usedBytes = totalRes.ok ? totalRes.total : 0;
+  const availableProjects = projectsRes.ok
+    ? projectsRes.data.map((p) => ({ id: p.id, name: p.name, iconUrl: p.coverImageUrl ?? null }))
+    : [];
+  const availableTeamMembers = teamRes.ok ? teamRes.data : [];
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-[calc(100vh-5.5rem)] flex-col gap-3">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t("drive")}</h1>
-        <p className="text-muted-foreground text-sm">ملفاتك الشخصية على مستوى الوكالة</p>
+        <p className="text-muted-foreground text-sm">
+          {isArabic ? "ملفاتك الشخصية على مستوى الوكالة" : "Your personal files across the agency"}
+        </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-start">
-        <DriveQuickUploads files={recentFiles} />
-        <Card className="md:w-52 shrink-0">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">التخزين</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground text-xs">المستخدم (تقديري)</p>
-            <p className="text-lg font-semibold tabular-nums">{formatUsedMb(usedBytes)}</p>
-          </CardContent>
-        </Card>
+      <div className="min-h-0 flex-1">
+        <Suspense
+          fallback={
+            <div className="bg-muted/40 h-48 animate-pulse rounded-lg border border-dashed" aria-hidden />
+          }
+        >
+          <FileManager
+            standalone
+            folderRouteBase="/dashboard/drive"
+            driveUploadPathPrefix={driveUploadPathPrefix}
+            initialFiles={initialFiles}
+            initialFolders={initialFolders}
+            currentFolderId={currentFolderId}
+            availableProjects={availableProjects}
+            availableTeamMembers={availableTeamMembers}
+            allowStandaloneRoot={!isMember}
+            sidebarFooter={
+              <Card className="w-full">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">{isArabic ? "التخزين" : "Storage"}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground text-xs">{isArabic ? "المستخدم (تقديري)" : "User (estimated)"}</p>
+                  <p className="text-lg font-semibold tabular-nums">{formatUsedMb(usedBytes)}</p>
+                </CardContent>
+              </Card>
+            }
+          />
+        </Suspense>
       </div>
-
-      <Suspense
-        fallback={
-          <div className="bg-muted/40 h-48 animate-pulse rounded-lg border border-dashed" aria-hidden />
-        }
-      >
-        <FileManager
-          standalone
-          folderRouteBase="/dashboard/drive"
-          driveUploadPathPrefix={driveUploadPathPrefix}
-          initialFiles={initialFiles}
-          initialFolders={initialFolders}
-          currentFolderId={currentFolderId}
-        />
-      </Suspense>
     </div>
   );
 }

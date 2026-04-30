@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { IBM_Plex_Sans, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
@@ -66,6 +67,15 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} dir={isRTL ? "rtl" : "ltr"} suppressHydrationWarning>
+      <head>
+        <Script
+          id="strip-fdprocessedid"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `(function(){function strip(root){if(!root||!root.querySelectorAll)return;var nodes=root.querySelectorAll('[fdprocessedid]');for(var i=0;i<nodes.length;i++){nodes[i].removeAttribute('fdprocessedid');}}strip(document);var mo=new MutationObserver(function(muts){for(var i=0;i<muts.length;i++){var m=muts[i];if(m.type==='attributes'&&m.attributeName==='fdprocessedid'&&m.target&&m.target.removeAttribute){m.target.removeAttribute('fdprocessedid');continue;}if(m.type==='childList'&&m.addedNodes){for(var j=0;j<m.addedNodes.length;j++){var n=m.addedNodes[j];if(n&&n.nodeType===1){if(n.hasAttribute&&n.hasAttribute('fdprocessedid')){n.removeAttribute('fdprocessedid');}strip(n);}}}}});mo.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['fdprocessedid']});})();`,
+          }}
+        />
+      </head>
       <body
         className={cn(fontClass, "min-h-screen bg-background antialiased")}
         dir={isRTL ? "rtl" : "ltr"}

@@ -6,18 +6,34 @@ import { eq, isNull, isNotNull, and, desc, or, inArray, sql } from "drizzle-orm"
 import { nanoid } from "nanoid";
 import { getServerSession } from "next-auth";
 import { db } from "@/lib/db";
-import { files, folders, projects, invoices, teamMembers } from "@/lib/db";
+import { files, folders, projects, invoices, teamMembers, folderAccess } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { logActivityWithActor } from "@/actions/activity-log";
 import { deleteFromR2 } from "@/lib/r2";
 import { FILE_DOCUMENT_TYPES, type FileRow, type FileDocumentType } from "@/lib/file-types";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { memberIsAssignedToTask } from "@/lib/member-context";
+import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser, memberIsAssignedToTask } from "@/lib/member-context";
 
 function fileStorageKey(row: { r2Key: string | null; filePath: string }): string {
   const k = row.r2Key?.trim();
   return k && k.length > 0 ? k : row.filePath;
+}
+
+async function withDbReadRetry<T>(label: string, run: () => Promise<T>, retries = 1): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await run();
+    } catch (e) {
+      lastError = e;
+      const canRetry = attempt < retries && isDbConnectionError(e);
+      if (!canRetry) throw e;
+      console.warn(`${label}: transient DB connection error, retrying (${attempt + 1}/${retries})`);
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 const createFileSchema = z.object({
@@ -48,12 +64,18 @@ const getFilesSchema = z
     folderId: z.string().uuid().optional(),
     /** Personal drive on `/dashboard/drive` (scoped by session user via folder paths). */
     standaloneDrive: z.boolean().optional(),
+    /** All files uploaded by current user across all scopes (drive aggregate view). */
+    allForUser: z.boolean().optional(),
+    /** Drive page full view (admin: all files, member: permitted project files). */
+    driveView: z.boolean().optional(),
     /** When `clientId` is set: `general` = Files tab (no document type); `documents` = Documents tab. */
     clientFileScope: z.enum(["general", "documents"]).optional(),
   })
   .refine(
     (d) =>
       d.standaloneDrive === true ||
+      d.allForUser === true ||
+      d.driveView === true ||
       d.clientId != null ||
       d.projectId != null ||
       d.taskId != null ||
@@ -62,7 +84,7 @@ const getFilesSchema = z
       d.folderId != null,
     {
       message:
-        "Provide standaloneDrive, clientId, projectId, taskId, invoiceId, expenseId, or folderId",
+        "Provide standaloneDrive, allForUser, driveView, clientId, projectId, taskId, invoiceId, expenseId, or folderId",
     }
   )
   .refine((d) => d.clientFileScope == null || d.clientId != null, {
@@ -70,6 +92,18 @@ const getFilesSchema = z
   })
   .refine((d) => !(d.standaloneDrive && d.clientFileScope != null), {
     message: "clientFileScope is not valid with standaloneDrive",
+  })
+  .refine((d) => !(d.allForUser && d.clientFileScope != null), {
+    message: "clientFileScope is not valid with allForUser",
+  })
+  .refine((d) => !(d.standaloneDrive && d.allForUser), {
+    message: "standaloneDrive and allForUser cannot both be true",
+  })
+  .refine((d) => !(d.driveView && d.clientFileScope != null), {
+    message: "clientFileScope is not valid with driveView",
+  })
+  .refine((d) => !((d.standaloneDrive || d.allForUser) && d.driveView), {
+    message: "driveView cannot be combined with standaloneDrive/allForUser",
   });
 
 export async function getFiles(params: {
@@ -81,13 +115,15 @@ export async function getFiles(params: {
   folderId?: string;
   clientFileScope?: "general" | "documents";
   standaloneDrive?: boolean;
+  allForUser?: boolean;
+  driveView?: boolean;
 }) {
   const parsed = getFilesSchema.safeParse(params);
   if (!parsed.success) {
     return {
       ok: false as const,
       error:
-        "Invalid params: provide standaloneDrive, clientId, projectId, taskId, invoiceId, expenseId, or folderId",
+        "Invalid params: provide standaloneDrive, allForUser, driveView, clientId, projectId, taskId, invoiceId, expenseId, or folderId",
       data: [] as FileRow[],
     };
   }
@@ -100,11 +136,69 @@ export async function getFiles(params: {
     folderId,
     clientFileScope,
     standaloneDrive,
+    allForUser,
+    driveView,
   } = parsed.data;
   try {
     const conditions = [isNull(files.deletedAt)];
 
-    if (standaloneDrive) {
+    if (driveView) {
+      const session = await getServerSession(authOptions);
+      const uid = session?.user?.id ?? null;
+      if (!uid) return { ok: false as const, error: "Not authorized", data: [] as FileRow[] };
+      const role = sessionUserRole(session);
+      if (role === "member") {
+        const projectIds = await getMemberProjectIdsForUser(uid);
+        if (projectIds.length === 0) {
+          return { ok: true as const, data: [] as FileRow[] };
+        }
+        const memberIds = await getTeamMemberIdsForSessionUser(uid);
+        const driveFolders = await withDbReadRetry("getFiles.driveFolders", () =>
+          db.select({ id: folders.id }).from(folders).where(inArray(folders.projectId, projectIds))
+        );
+        const folderIds = driveFolders.map((f) => f.id);
+        if (folderIds.length === 0) {
+          conditions.push(inArray(files.projectId, projectIds));
+        } else {
+          const acl = await withDbReadRetry("getFiles.folderAcl", () =>
+            db
+              .select({ folderId: folderAccess.folderId, teamMemberId: folderAccess.teamMemberId })
+              .from(folderAccess)
+              .where(inArray(folderAccess.folderId, folderIds))
+          );
+          const aclMap = new Map<string, string[]>();
+          for (const a of acl) {
+            const list = aclMap.get(a.folderId) ?? [];
+            list.push(a.teamMemberId);
+            aclMap.set(a.folderId, list);
+          }
+          const allowedFolderIds = folderIds.filter((id) => {
+            const row = aclMap.get(id);
+            if (!row || row.length === 0) return true;
+            return row.some((x) => memberIds.includes(x));
+          });
+          const driveCond =
+            allowedFolderIds.length > 0
+              ? or(
+                  inArray(files.projectId, projectIds),
+                  inArray(files.folderId, allowedFolderIds)
+                )
+              : inArray(files.projectId, projectIds);
+          if (driveCond) conditions.push(driveCond);
+        }
+      }
+      if (folderId != null) conditions.push(eq(files.folderId, folderId));
+    } else if (allForUser) {
+      const session = await getServerSession(authOptions);
+      const uid = session?.user?.id ?? null;
+      if (!uid) {
+        return { ok: false as const, error: "Not authorized", data: [] as FileRow[] };
+      }
+      conditions.push(eq(files.uploadedBy, uid));
+      if (folderId != null) {
+        conditions.push(eq(files.folderId, folderId));
+      }
+    } else if (standaloneDrive) {
       const session = await getServerSession(authOptions);
       const uid = session?.user?.id ?? null;
       if (!uid) {
@@ -130,16 +224,18 @@ export async function getFiles(params: {
         }
         conditions.push(eq(files.folderId, folderId));
       } else {
-        const folderRows = await db
-          .select({ id: folders.id })
-          .from(folders)
-          .where(
-            and(
-              isNull(folders.clientId),
-              isNull(folders.projectId),
-              sql`${folders.path} like ${userPrefix + "/%"}`
+        const folderRows = await withDbReadRetry("getFiles.folderRows", () =>
+          db
+            .select({ id: folders.id })
+            .from(folders)
+            .where(
+              and(
+                isNull(folders.clientId),
+                isNull(folders.projectId),
+                sql`${folders.path} like ${userPrefix + "/%"}`
+              )
             )
-          );
+        );
         const ids = folderRows.map((r) => r.id);
         const scopeCond =
           ids.length > 0
@@ -169,36 +265,38 @@ export async function getFiles(params: {
       if (expenseId != null) conditions.push(eq(files.expenseId, expenseId));
     }
 
-    const rows = await db
-      .select({
-        id: files.id,
-        name: files.name,
-        imagekitFileId: files.imagekitFileId,
-        imagekitUrl: files.imagekitUrl,
-        filePath: files.filePath,
-        mimeType: files.mimeType,
-        sizeBytes: files.sizeBytes,
-        clientId: files.clientId,
-        projectId: files.projectId,
-        taskId: files.taskId,
-        invoiceId: files.invoiceId,
-        expenseId: files.expenseId,
-        documentType: files.documentType,
-        description: files.description,
-        uploadedBy: files.uploadedBy,
-        folderId: files.folderId,
-        r2Key: files.r2Key,
-        isPublic: files.isPublic,
-        shareToken: files.shareToken,
-        shareExpiresAt: files.shareExpiresAt,
-        uploadedByName: teamMembers.name,
-        uploadedByAvatarUrl: teamMembers.avatarUrl,
-        createdAt: files.createdAt,
-      })
-      .from(files)
-      .leftJoin(teamMembers, eq(teamMembers.userId, files.uploadedBy))
-      .where(and(...conditions))
-      .orderBy(desc(files.createdAt));
+    const rows = await withDbReadRetry("getFiles.rows", () =>
+      db
+        .select({
+          id: files.id,
+          name: files.name,
+          imagekitFileId: files.imagekitFileId,
+          imagekitUrl: files.imagekitUrl,
+          filePath: files.filePath,
+          mimeType: files.mimeType,
+          sizeBytes: files.sizeBytes,
+          clientId: files.clientId,
+          projectId: files.projectId,
+          taskId: files.taskId,
+          invoiceId: files.invoiceId,
+          expenseId: files.expenseId,
+          documentType: files.documentType,
+          description: files.description,
+          uploadedBy: files.uploadedBy,
+          folderId: files.folderId,
+          r2Key: files.r2Key,
+          isPublic: files.isPublic,
+          shareToken: files.shareToken,
+          shareExpiresAt: files.shareExpiresAt,
+          uploadedByName: teamMembers.name,
+          uploadedByAvatarUrl: teamMembers.avatarUrl,
+          createdAt: files.createdAt,
+        })
+        .from(files)
+        .leftJoin(teamMembers, eq(teamMembers.userId, files.uploadedBy))
+        .where(and(...conditions))
+        .orderBy(desc(files.createdAt))
+    );
 
     const data: FileRow[] = rows.map((r) => ({
       id: r.id,
@@ -263,6 +361,21 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       d.taskId == null &&
       d.invoiceId == null &&
       d.expenseId == null;
+    const role = sessionUserRole(session);
+    if (role === "member" && isPersonalDriveFile) {
+      if (!d.folderId) {
+        return { ok: false as const, error: { _form: ["Members cannot upload standalone drive files"] } };
+      }
+      const [targetFolder] = await db.select().from(folders).where(eq(folders.id, d.folderId)).limit(1);
+      if (!targetFolder?.projectId) {
+        return { ok: false as const, error: { _form: ["Members can only upload to project folders"] } };
+      }
+      const allowedProjects = await getMemberProjectIdsForUser(userId ?? "");
+      if (!allowedProjects.includes(targetFolder.projectId)) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+      d.projectId = targetFolder.projectId;
+    }
     if (isPersonalDriveFile && d.folderId != null && userId) {
       const [fol] = await db.select().from(folders).where(eq(folders.id, d.folderId)).limit(1);
       if (
@@ -892,18 +1005,33 @@ export async function getRecentUploadsForDashboard(limit = 10) {
 }
 
 /** Total storage used by non-deleted file rows (informational). */
-export async function getTotalFilesStorageBytes() {
+export async function getTotalFilesStorageBytes(input?: { standaloneDrive?: boolean; allForUser?: boolean; driveView?: boolean }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return { ok: false as const, error: "Not authorized", total: 0 };
   }
   try {
-    const [row] = await db
-      .select({
-        total: sql<number>`coalesce(sum(${files.sizeBytes}), 0)::double precision`,
-      })
-      .from(files)
-      .where(isNull(files.deletedAt));
+    const conditions = [isNull(files.deletedAt)];
+    if (input?.driveView) {
+      if (sessionUserRole(session) === "member") {
+        const projectIds = await getMemberProjectIdsForUser(session.user.id);
+        if (projectIds.length === 0) {
+          return { ok: true as const, total: 0 };
+        }
+        conditions.push(inArray(files.projectId, projectIds));
+      }
+    } else if (input?.standaloneDrive || input?.allForUser) {
+      conditions.push(eq(files.uploadedBy, session.user.id));
+    }
+
+    const [row] = await withDbReadRetry("getTotalFilesStorageBytes.total", () =>
+      db
+        .select({
+          total: sql<number>`coalesce(sum(${files.sizeBytes}), 0)::double precision`,
+        })
+        .from(files)
+        .where(and(...conditions))
+    );
     return { ok: true as const, total: Number(row?.total ?? 0) };
   } catch (e) {
     console.error("getTotalFilesStorageBytes", e);

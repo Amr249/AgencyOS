@@ -1,19 +1,38 @@
 "use server";
 
 import { z } from "zod";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
-import { db, folders, files } from "@/lib/db";
+import { nanoid } from "nanoid";
+import { db, folders, files, projects, folderAccess, teamMembers } from "@/lib/db";
 import { deleteFromR2 } from "@/lib/r2";
 import { authOptions } from "@/lib/auth";
-import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { sessionUserRole } from "@/lib/auth-helpers";
+import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 
 export type FolderRow = typeof folders.$inferSelect;
 
 function storageKeyForFile(row: { r2Key: string | null; filePath: string }): string {
   const k = row.r2Key?.trim();
   return k && k.length > 0 ? k : row.filePath;
+}
+
+async function withDbReadRetry<T>(label: string, run: () => Promise<T>, retries = 1): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await run();
+    } catch (e) {
+      lastError = e;
+      const canRetry = attempt < retries && isDbConnectionError(e);
+      if (!canRetry) throw e;
+      console.warn(`${label}: transient DB connection error, retrying (${attempt + 1}/${retries})`);
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 function sanitizePathSegment(name: string): string {
@@ -37,6 +56,7 @@ const createFolderSchema = z
     parentId: z.string().uuid().nullable().optional(),
     clientId: z.string().uuid().nullable().optional(),
     projectId: z.string().uuid().nullable().optional(),
+    accessTeamMemberIds: z.array(z.string().uuid()).optional(),
     /** Root folder under `/dashboard/drive` (requires session user). */
     standaloneRoot: z.boolean().optional(),
   })
@@ -52,10 +72,11 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   }
-  const { name, parentId, clientId, projectId, standaloneRoot } = parsed.data;
+  const { name, parentId, clientId, projectId, accessTeamMemberIds, standaloneRoot } = parsed.data;
   const session = await getServerSession(authOptions);
   const userId = session?.user?.id ?? null;
   if (!userId) return { ok: false as const, error: { _form: ["Not authorized"] } };
+  const role = sessionUserRole(session);
 
   const segment = sanitizePathSegment(name);
   try {
@@ -71,16 +92,36 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
       }
       resolvedClientId = parent.clientId;
       resolvedProjectId = parent.projectId;
+      if (role === "member" && !resolvedProjectId) {
+        return { ok: false as const, error: { _form: ["Members can only create project folders"] } };
+      }
+      if (role === "member" && resolvedProjectId) {
+        const allowedProjects = await getMemberProjectIdsForUser(userId);
+        if (!allowedProjects.includes(resolvedProjectId)) {
+          return { ok: false as const, error: { _form: ["Forbidden"] } };
+        }
+      }
       const base = parent.path.endsWith("/") ? parent.path.slice(0, -1) : parent.path;
       path = `${base}/${segment}`;
     } else {
       if (standaloneRoot) {
+        if (role === "member") {
+          return { ok: false as const, error: { _form: ["Members cannot create standalone folders"] } };
+        }
         if (!userId) return { ok: false as const, error: { _form: ["Not authorized"] } };
         path = `/drive/user/${userId}/${segment}`;
         resolvedClientId = null;
         resolvedProjectId = null;
       } else if (resolvedClientId) path = `/client/${resolvedClientId}/${segment}`;
-      else if (resolvedProjectId) path = `/project/${resolvedProjectId}/${segment}`;
+      else if (resolvedProjectId) {
+        if (role === "member") {
+          const allowedProjects = await getMemberProjectIdsForUser(userId);
+          if (!allowedProjects.includes(resolvedProjectId)) {
+            return { ok: false as const, error: { _form: ["Forbidden"] } };
+          }
+        }
+        path = `/project/${resolvedProjectId}/${segment}`;
+      }
       else return { ok: false as const, error: { _form: ["clientId or projectId required for root folder"] } };
     }
 
@@ -97,6 +138,21 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
       .returning();
 
     if (!row) return { ok: false as const, error: { _form: ["Failed to create folder"] } };
+
+    if (row.projectId && accessTeamMemberIds && accessTeamMemberIds.length > 0) {
+      const dedup = Array.from(new Set(accessTeamMemberIds));
+      try {
+        await db.insert(folderAccess).values(
+          dedup.map((teamMemberId) => ({
+            folderId: row.id,
+            teamMemberId,
+          }))
+        );
+      } catch (e) {
+        const pgCode = findPostgresErrorCode(e);
+        if (pgCode !== "23505") throw e;
+      }
+    }
 
     if (row.clientId) revalidatePath(`/dashboard/clients/${row.clientId}`);
     if (row.projectId) revalidatePath(`/dashboard/projects/${row.projectId}`);
@@ -285,13 +341,15 @@ export async function getAllStandaloneFolders() {
   }
   const prefix = `/drive/user/${uid}/`;
   try {
-    const rows = await db
-      .select()
-      .from(folders)
-      .where(
-        and(isNull(folders.clientId), isNull(folders.projectId), sql`${folders.path} like ${prefix + "%"}`)
-      )
-      .orderBy(asc(folders.path));
+    const rows = await withDbReadRetry("getAllStandaloneFolders.rows", () =>
+      db
+        .select()
+        .from(folders)
+        .where(
+          and(isNull(folders.clientId), isNull(folders.projectId), sql`${folders.path} like ${prefix + "%"}`)
+        )
+        .orderBy(asc(folders.path))
+    );
     return { ok: true as const, data: rows };
   } catch (e) {
     console.error("getAllStandaloneFolders", e);
@@ -299,6 +357,193 @@ export async function getAllStandaloneFolders() {
       return { ok: false as const, error: getDbErrorKey(e), data: [] as FolderRow[] };
     }
     return { ok: false as const, error: "Failed to load folders", data: [] as FolderRow[] };
+  }
+}
+
+/**
+ * Drive tree folders for current user:
+ * - personal standalone folders (`/drive/user/{uid}/...`)
+ * - project folders (`/project/{projectId}/...`) for accessible projects
+ */
+export async function getDriveFolders() {
+  const session = await getServerSession(authOptions);
+  const uid = session?.user?.id;
+  if (!uid) {
+    return { ok: false as const, error: "Not authorized", data: [] as FolderRow[] };
+  }
+  try {
+    const role = sessionUserRole(session);
+    let projectIds: string[] = [];
+    let memberIds: string[] = [];
+    if (role === "member") {
+      projectIds = await getMemberProjectIdsForUser(uid);
+      memberIds = await getTeamMemberIdsForSessionUser(uid);
+    } else {
+      const rows = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(isNull(projects.deletedAt));
+      projectIds = rows.map((r) => r.id);
+    }
+
+    const standalonePrefix = `/drive/user/${uid}/`;
+    const scopeCond =
+      projectIds.length > 0
+        ? or(
+            role === "member"
+              ? sql`false`
+              : and(
+                  isNull(folders.clientId),
+                  isNull(folders.projectId),
+                  sql`${folders.path} like ${standalonePrefix + "%"}`
+                ),
+            inArray(folders.projectId, projectIds)
+          )
+        : role === "member"
+          ? sql`false`
+          : and(
+              isNull(folders.clientId),
+              isNull(folders.projectId),
+              sql`${folders.path} like ${standalonePrefix + "%"}`
+            );
+
+    const rows = await db
+      .select()
+      .from(folders)
+      .where(scopeCond)
+      .orderBy(asc(folders.path));
+
+    if (role !== "member") {
+      return { ok: true as const, data: rows };
+    }
+    if (rows.length === 0) {
+      return { ok: true as const, data: rows };
+    }
+
+    const aclRows = await db
+      .select({ folderId: folderAccess.folderId, teamMemberId: folderAccess.teamMemberId })
+      .from(folderAccess)
+      .where(inArray(folderAccess.folderId, rows.map((r) => r.id)));
+    const aclMap = new Map<string, string[]>();
+    for (const a of aclRows) {
+      const list = aclMap.get(a.folderId) ?? [];
+      list.push(a.teamMemberId);
+      aclMap.set(a.folderId, list);
+    }
+
+    const filtered = rows.filter((f) => {
+      if (!f.projectId) return false;
+      const acl = aclMap.get(f.id);
+      if (!acl || acl.length === 0) return true;
+      return acl.some((id) => memberIds.includes(id));
+    });
+    return { ok: true as const, data: filtered };
+  } catch (e) {
+    console.error("getDriveFolders", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false as const, error: getDbErrorKey(e), data: [] as FolderRow[] };
+    }
+    return { ok: false as const, error: "Failed to load drive folders", data: [] as FolderRow[] };
+  }
+}
+
+export async function toggleFolderPublic(folderId: string) {
+  const parsed = z.string().uuid().safeParse(folderId);
+  if (!parsed.success) return { ok: false as const, error: { _form: ["Invalid folder id"] } };
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false as const, error: { _form: ["Not authorized"] } };
+  const role = sessionUserRole(session);
+  try {
+    const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
+    if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
+    if (role === "member") {
+      const projectsAllowed = await getMemberProjectIdsForUser(userId);
+      if (!existing.projectId || !projectsAllowed.includes(existing.projectId)) {
+        return { ok: false as const, error: { _form: ["Forbidden"] } };
+      }
+    }
+    const nextPublic = !existing.isPublic;
+    const token = nextPublic ? (existing.shareToken ?? nanoid(20)) : null;
+    const [row] = await db
+      .update(folders)
+      .set({ isPublic: nextPublic, shareToken: token, shareExpiresAt: nextPublic ? existing.shareExpiresAt : null })
+      .where(eq(folders.id, parsed.data))
+      .returning();
+    if (!row) return { ok: false as const, error: { _form: ["Folder not found"] } };
+    revalidatePath("/dashboard/drive");
+    return { ok: true as const, data: row };
+  } catch (e) {
+    console.error("toggleFolderPublic", e);
+    if (isDbConnectionError(e)) return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+export async function setFolderAccess(folderId: string, teamMemberIds: string[]) {
+  const parsed = z.object({ folderId: z.string().uuid(), teamMemberIds: z.array(z.string().uuid()) }).safeParse({ folderId, teamMemberIds });
+  if (!parsed.success) return { ok: false as const, error: { _form: ["Invalid input"] } };
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false as const, error: { _form: ["Not authorized"] } };
+  const role = sessionUserRole(session);
+  try {
+    const [folder] = await db.select().from(folders).where(eq(folders.id, parsed.data.folderId)).limit(1);
+    if (!folder) return { ok: false as const, error: { _form: ["Folder not found"] } };
+    if (!folder.projectId) return { ok: false as const, error: { _form: ["Access list is only for project folders"] } };
+    if (role === "member") {
+      const allowed = await getMemberProjectIdsForUser(userId);
+      if (!allowed.includes(folder.projectId)) return { ok: false as const, error: { _form: ["Forbidden"] } };
+    }
+    await db.delete(folderAccess).where(eq(folderAccess.folderId, folder.id));
+    const dedup = Array.from(new Set(parsed.data.teamMemberIds));
+    if (dedup.length > 0) {
+      await db.insert(folderAccess).values(
+        dedup.map((teamMemberId) => ({ folderId: folder.id, teamMemberId }))
+      );
+    }
+    revalidatePath("/dashboard/drive");
+    return { ok: true as const };
+  } catch (e) {
+    console.error("setFolderAccess", e);
+    if (isDbConnectionError(e)) return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
+    return { ok: false as const, error: { _form: [e instanceof Error ? e.message : "Failed"] } };
+  }
+}
+
+export async function getFolderByShareToken(token: string) {
+  const t = token.trim();
+  if (!t || t.length < 8) return { ok: false as const, reason: "invalid" as const };
+  try {
+    const [folder] = await db.select().from(folders).where(eq(folders.shareToken, t)).limit(1);
+    if (!folder) return { ok: false as const, reason: "not_found" as const };
+    if (!folder.isPublic) return { ok: false as const, reason: "forbidden" as const };
+    if (folder.shareExpiresAt && new Date(folder.shareExpiresAt).getTime() <= Date.now()) {
+      return { ok: false as const, reason: "expired" as const };
+    }
+    const prefix = folder.path.endsWith("/") ? folder.path : `${folder.path}/`;
+    const childFolders = await db
+      .select({ id: folders.id, name: folders.name, path: folders.path })
+      .from(folders)
+      .where(sql`${folders.path} like ${prefix + "%"}`)
+      .orderBy(asc(folders.path));
+    const childFiles = await db
+      .select({
+        id: files.id,
+        name: files.name,
+        imagekitUrl: files.imagekitUrl,
+        mimeType: files.mimeType,
+        sizeBytes: files.sizeBytes,
+        folderId: files.folderId,
+        createdAt: files.createdAt,
+      })
+      .from(files)
+      .where(and(isNull(files.deletedAt), sql`${files.folderId} in (select id from folders where path like ${prefix + "%"})`))
+      .orderBy(asc(files.name));
+    return { ok: true as const, data: { folder, childFolders, childFiles } };
+  } catch (e) {
+    console.error("getFolderByShareToken", e);
+    return { ok: false as const, reason: "failed" as const };
   }
 }
 

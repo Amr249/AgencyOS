@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useLocale } from "next-intl";
 import { toast } from "sonner";
 import { ChevronRight, Grid3x3, List, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,13 +32,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { getFiles, createFile, deleteFile } from "@/actions/files";
+import { getFiles, createFile, deleteFile, moveFile } from "@/actions/files";
 import {
   getAllFoldersForScope,
   getAllStandaloneFolders,
   createFolder,
   renameFolder,
   deleteFolder,
+  toggleFolderPublic,
   type FolderRow,
 } from "@/actions/folders";
 import type { FileRow } from "@/lib/file-types";
@@ -129,6 +131,10 @@ export type FileManagerProps = {
   folderRouteBase?: string;
   /** R2 path prefix without slashes, e.g. `drive/user/{userId}` for standalone uploads at root. */
   driveUploadPathPrefix?: string;
+  sidebarFooter?: React.ReactNode;
+  availableProjects?: { id: string; name: string; iconUrl?: string | null }[];
+  availableTeamMembers?: { id: string; name: string; avatarUrl?: string | null }[];
+  allowStandaloneRoot?: boolean;
 };
 
 export function FileManager({
@@ -140,7 +146,13 @@ export function FileManager({
   standalone = false,
   folderRouteBase,
   driveUploadPathPrefix,
+  sidebarFooter,
+  availableProjects = [],
+  availableTeamMembers = [],
+  allowStandaloneRoot = true,
 }: FileManagerProps) {
+  const locale = useLocale();
+  const isArabic = locale === "ar";
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = React.useTransition();
@@ -163,6 +175,8 @@ export function FileManager({
   const [isDeletingFile, setIsDeletingFile] = React.useState(false);
   const [isDeletingFolder, setIsDeletingFolder] = React.useState(false);
   const [dragDepth, setDragDepth] = React.useState(0);
+  const [draggingFileId, setDraggingFileId] = React.useState<string | null>(null);
+  const [dropTargetFolderId, setDropTargetFolderId] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const dropZoneRef = React.useRef<HTMLDivElement>(null);
 
@@ -332,7 +346,7 @@ export function FileManager({
         });
 
         if (res.error || !res.url || !res.key) {
-          toast.error(res.error ?? "فشل الرفع");
+          toast.error(res.error ?? (isArabic ? "فشل الرفع" : "Upload failed"));
           return null;
         }
 
@@ -355,10 +369,10 @@ export function FileManager({
             ...row,
             sizeBytes: row.sizeBytes != null ? Number(row.sizeBytes) : null,
           };
-          toast.success("تم رفع الملف.");
+          toast.success(isArabic ? "تم رفع الملف." : "File uploaded.");
           return newFile;
         }
-        toast.error("تعذر حفظ الملف في قاعدة البيانات.");
+        toast.error(isArabic ? "تعذر حفظ الملف في قاعدة البيانات." : "Could not save file in database.");
         return null;
       } catch {
         setUploadProgress((p) => {
@@ -366,7 +380,7 @@ export function FileManager({
           delete n[key];
           return n;
         });
-        toast.error("فشل الرفع.");
+        toast.error(isArabic ? "فشل الرفع." : "Upload failed.");
         return null;
       }
     },
@@ -407,10 +421,10 @@ export function FileManager({
     setDeleteFileTarget(null);
     if (result.ok) {
       setFiles((prev) => prev.filter((f) => f.id !== id));
-      toast.success("تم حذف الملف.");
+      toast.success(isArabic ? "تم حذف الملف." : "File deleted.");
       router.refresh();
     } else {
-      toast.error(result.error ?? "فشل الحذف.");
+      toast.error(result.error ?? (isArabic ? "فشل الحذف." : "Delete failed."));
     }
   };
 
@@ -428,20 +442,20 @@ export function FileManager({
       if (currentFolderId && subtree.has(currentFolderId)) {
         navigateToFolder(null);
       }
-      toast.success("تم حذف المجلد.");
+      toast.success(isArabic ? "تم حذف المجلد." : "Folder deleted.");
       refreshFolders();
       router.refresh();
     } else {
-      toast.error(result.error ?? "فشل حذف المجلد.");
+      toast.error(result.error ?? (isArabic ? "فشل حذف المجلد." : "Delete folder failed."));
     }
   };
 
   const handleCopyLink = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("تم نسخ الرابط.");
+      toast.success(isArabic ? "تم نسخ الرابط." : "Link copied.");
     } catch {
-      toast.error("تعذر نسخ الرابط.");
+      toast.error(isArabic ? "تعذر نسخ الرابط." : "Could not copy link.");
     }
   };
 
@@ -469,48 +483,86 @@ export function FileManager({
     setShareFile(f);
   }, []);
 
+  const isExternalFileDrag = (e: React.DragEvent) => {
+    const types = Array.from(e.dataTransfer.types ?? []);
+    return types.includes("Files") && !types.includes("application/x-drive-file-id");
+  };
+
   const onDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     if (!canUpload) return;
+    if (!isExternalFileDrag(e)) return;
     setDragDepth((d) => d + 1);
   };
   const onDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
+    if (!isExternalFileDrag(e)) return;
     setDragDepth((d) => Math.max(0, d - 1));
   };
   const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
+    if (isExternalFileDrag(e)) e.preventDefault();
   };
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragDepth(0);
     if (!canUpload) return;
+    if (!isExternalFileDrag(e)) return;
     const items = e.dataTransfer.files;
     if (items?.length) void uploadFiles(Array.from(items));
   };
 
-  const handleCreateFolder = async (name: string) => {
+  const handleMoveFileToFolder = React.useCallback(
+    async (targetFolderId: string, fileId: string) => {
+      const file = files.find((f) => f.id === fileId);
+      if (!file) return;
+      if (file.folderId === targetFolderId) return;
+      const res = await moveFile(fileId, targetFolderId);
+      if (!res.ok) {
+        const msg =
+          "_form" in res.error && Array.isArray(res.error._form)
+            ? res.error._form[0]
+            : isArabic
+              ? "تعذر نقل الملف."
+              : "Could not move file.";
+        toast.error(msg);
+        return;
+      }
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, folderId: targetFolderId } : f)));
+      toast.success(isArabic ? "تم نقل الملف." : "File moved.");
+      router.refresh();
+    },
+    [files, isArabic, router]
+  );
+
+  const handleCreateFolder = async (input: { name: string; scope: "standalone" | "project"; projectId?: string; accessTeamMemberIds?: string[] }) => {
     const res = standalone
       ? await createFolder({
-          name,
+          name: input.name,
           parentId: currentFolderId,
-          ...(currentFolderId ? {} : { standaloneRoot: true as const }),
+          ...(currentFolderId
+            ? {}
+            : input.scope === "project" && input.projectId
+              ? { projectId: input.projectId }
+              : { standaloneRoot: true as const }),
+          ...(input.accessTeamMemberIds && input.accessTeamMemberIds.length > 0
+            ? { accessTeamMemberIds: input.accessTeamMemberIds }
+            : {}),
         })
       : await createFolder({
-          name,
+          name: input.name,
           parentId: currentFolderId,
           clientId: clientId ?? undefined,
           projectId: projectId ?? undefined,
         });
     if (res.ok && res.data) {
       setFolders((prev) => [...prev, res.data]);
-      toast.success("تم إنشاء المجلد.");
+      toast.success(isArabic ? "تم إنشاء المجلد." : "Folder created.");
       router.refresh();
     } else if (!res.ok) {
       const msg =
         "_form" in res.error && Array.isArray(res.error._form)
           ? res.error._form.join(", ")
-          : "فشل إنشاء المجلد.";
+          : isArabic ? "فشل إنشاء المجلد." : "Create folder failed.";
       toast.error(msg);
     }
   };
@@ -519,10 +571,10 @@ export function FileManager({
     const res = await renameFolder(id, name);
     if (res.ok && res.data) {
       setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name: res.data!.name } : f)));
-      toast.success("تم تحديث الاسم.");
+      toast.success(isArabic ? "تم تحديث الاسم." : "Name updated.");
       router.refresh();
     } else {
-      toast.error("فشلت إعادة التسمية.");
+      toast.error(isArabic ? "فشلت إعادة التسمية." : "Rename failed.");
     }
   };
 
@@ -530,8 +582,8 @@ export function FileManager({
     childFoldersFiltered.length === 0 && filesInScope.length === 0 && uploadQueue.length === 0;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+    <div className="flex min-h-full flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:items-stretch">
         <FolderTree
           folders={folders}
           files={files}
@@ -541,11 +593,49 @@ export function FileManager({
           onCreateFolder={() => setCreateFolderOpen(true)}
           onRenameFolder={handleRenameFolder}
           onDeleteFolderRequest={(f) => setDeleteFolderTarget(f)}
+          onFolderAccessRequest={(folder) => {
+            if (!folder.projectId) {
+              toast.info(isArabic ? "صلاحيات الوصول مخصصة لمجلدات المشاريع." : "Access control is for project folders.");
+              return;
+            }
+            toast.info(isArabic ? "حدد صلاحيات الوصول أثناء إنشاء المجلد." : "Set access while creating the folder.");
+          }}
+          onFolderShareRequest={async (folder) => {
+            const shareToken = folder.shareToken;
+            if (folder.isPublic && shareToken) {
+              const url = `${window.location.origin}/share/folder/${shareToken}`;
+              await navigator.clipboard.writeText(url);
+              toast.success(isArabic ? "تم نسخ رابط مشاركة المجلد." : "Folder share link copied.");
+              return;
+            }
+            const res = await toggleFolderPublic(folder.id);
+            if (!res.ok) {
+              toast.error(
+                res.error?._form?.[0] ??
+                  (isArabic ? "تعذر تفعيل مشاركة المجلد." : "Could not enable folder sharing.")
+              );
+              return;
+            }
+            setFolders((prev) => prev.map((f) => (f.id === folder.id ? res.data : f)));
+            const url = `${window.location.origin}/share/folder/${res.data.shareToken}`;
+            await navigator.clipboard.writeText(url);
+            toast.success(isArabic ? "تم إنشاء الرابط ونسخه." : "Share link created and copied.");
+          }}
+          onFileDropToFolder={(targetFolderId, fileId) => {
+            setDropTargetFolderId(targetFolderId);
+            void handleMoveFileToFolder(targetFolderId, fileId).finally(() => {
+              setDraggingFileId(null);
+              setDropTargetFolderId(null);
+            });
+          }}
+          dropTargetFolderId={dropTargetFolderId}
+          onDropTargetChange={setDropTargetFolderId}
+          sidebarFooter={sidebarFooter}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
         />
 
-        <div className="min-w-0 flex-1 space-y-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList className="flex-wrap">
@@ -556,7 +646,7 @@ export function FileManager({
                       className="hover:underline"
                       onClick={() => navigateToFolder(null)}
                     >
-                      جميع الملفات
+                      {isArabic ? "جميع الملفات" : "All files"}
                     </button>
                   </BreadcrumbLink>
                 </BreadcrumbItem>
@@ -587,11 +677,11 @@ export function FileManager({
 
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-[140px] flex-1 sm:max-w-xs">
-                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2 size-4 -translate-y-1/2" />
+                <Search className="text-muted-foreground pointer-events-none absolute inset-s-2 top-1/2 size-4 -translate-y-1/2" />
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="بحث في الأسماء…"
+                  placeholder={isArabic ? "بحث في الأسماء…" : "Search names..."}
                   className="ps-8"
                 />
               </div>
@@ -601,7 +691,7 @@ export function FileManager({
                   variant={viewMode === "grid" ? "secondary" : "ghost"}
                   size="icon"
                   className="size-8"
-                  aria-label="شبكة"
+                  aria-label={isArabic ? "شبكة" : "Grid"}
                   onClick={() => setViewMode("grid")}
                 >
                   <Grid3x3 className="size-4" />
@@ -611,7 +701,7 @@ export function FileManager({
                   variant={viewMode === "list" ? "secondary" : "ghost"}
                   size="icon"
                   className="size-8"
-                  aria-label="قائمة"
+                  aria-label={isArabic ? "قائمة" : "List"}
                   onClick={() => setViewMode("list")}
                 >
                   <List className="size-4" />
@@ -620,13 +710,13 @@ export function FileManager({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" variant="outline" size="sm" disabled={isPending}>
-                    ترتيب
+                    {isArabic ? "ترتيب" : "Sort"}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setSortKey("name")}>حسب الاسم</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortKey("date")}>حسب التاريخ</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortKey("size")}>حسب الحجم</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortKey("name")}>{isArabic ? "حسب الاسم" : "By name"}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortKey("date")}>{isArabic ? "حسب التاريخ" : "By date"}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortKey("size")}>{isArabic ? "حسب الحجم" : "By size"}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
@@ -636,7 +726,7 @@ export function FileManager({
                 onClick={() => inputRef.current?.click()}
               >
                 <Upload className="size-4" />
-                رفع ملف +
+                {isArabic ? "رفع ملف +" : "Upload file +"}
               </Button>
             </div>
           </div>
@@ -652,7 +742,7 @@ export function FileManager({
 
           <div
             ref={dropZoneRef}
-            className="relative min-h-[240px] rounded-lg border border-dashed bg-muted/10 p-3 sm:p-4"
+            className="relative min-h-[480px] flex-1 rounded-lg border border-dashed bg-muted/10 p-3 sm:p-4"
             onDragEnter={onDragEnter}
             onDragLeave={onDragLeave}
             onDragOver={onDragOver}
@@ -660,7 +750,7 @@ export function FileManager({
           >
             {dragDepth > 0 && canUpload ? (
               <div className="bg-primary/10 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-primary border-dashed">
-                <p className="text-primary font-medium">أفلت الملفات للرفع</p>
+                <p className="text-primary font-medium">{isArabic ? "أفلت الملفات للرفع" : "Drop files to upload"}</p>
               </div>
             ) : null}
 
@@ -677,11 +767,11 @@ export function FileManager({
 
             {empty ? (
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                <p className="text-muted-foreground text-sm">لا توجد ملفات أو مجلدات هنا.</p>
+                <p className="text-muted-foreground text-sm">{isArabic ? "لا توجد ملفات أو مجلدات هنا." : "No files or folders here."}</p>
                 {canUpload ? (
                   <Button type="button" variant="outline" onClick={() => inputRef.current?.click()}>
                     <Upload className="me-2 size-4" />
-                    رفع ملف
+                    {isArabic ? "رفع ملف" : "Upload file"}
                   </Button>
                 ) : null}
               </div>
@@ -696,6 +786,15 @@ export function FileManager({
                 onCopyLink={handleCopyLink}
                 onDeleteFile={(f) => setDeleteFileTarget({ id: f.id, name: f.name })}
                 onShareFile={openShareDialog}
+                onDragFileStart={(file, e) => {
+                  setDraggingFileId(file.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("application/x-drive-file-id", file.id);
+                }}
+                onDragFileEnd={() => {
+                  setDraggingFileId(null);
+                  setDropTargetFolderId(null);
+                }}
                 formatSize={formatSize}
                 formatDate={formatDateSafe}
               />
@@ -710,6 +809,15 @@ export function FileManager({
                 onCopyLink={handleCopyLink}
                 onDeleteFile={(f) => setDeleteFileTarget({ id: f.id, name: f.name })}
                 onShareFile={openShareDialog}
+                onDragFileStart={(file, e) => {
+                  setDraggingFileId(file.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("application/x-drive-file-id", file.id);
+                }}
+                onDragFileEnd={() => {
+                  setDraggingFileId(null);
+                  setDropTargetFolderId(null);
+                }}
                 formatSize={formatSize}
                 formatDate={formatDateSafe}
               />
@@ -717,6 +825,13 @@ export function FileManager({
           </div>
         </div>
       </div>
+      {draggingFileId ? (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center pt-20">
+          <div className="rounded-md border bg-background/95 px-3 py-2 text-sm shadow">
+            {isArabic ? "أفلِت الملف فوق مجلد لنقله" : "Drop the file on a folder to move it"}
+          </div>
+        </div>
+      ) : null}
 
       <FilePreviewModal
         file={previewFile}
@@ -747,15 +862,18 @@ export function FileManager({
         open={createFolderOpen}
         onOpenChange={setCreateFolderOpen}
         parentFolderId={currentFolderId}
+        availableProjects={availableProjects}
+        availableTeamMembers={availableTeamMembers}
+        allowStandaloneRoot={allowStandaloneRoot}
         onSubmit={handleCreateFolder}
       />
 
       <AlertDialog open={!!deleteFileTarget} onOpenChange={(open) => !open && setDeleteFileTarget(null)}>
         <AlertDialogContent className="w-[95vw] max-w-md sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>حذف ملف</AlertDialogTitle>
+            <AlertDialogTitle>{isArabic ? "حذف ملف" : "Delete file"}</AlertDialogTitle>
             <AlertDialogDescription>
-              هل تريد حذف هذا الملف؟ لا يمكن التراجع عن هذا الإجراء.
+              {isArabic ? "هل تريد حذف هذا الملف؟ لا يمكن التراجع عن هذا الإجراء." : "Delete this file? This action cannot be undone."}
               {deleteFileTarget ? (
                 <>
                   <br />
@@ -765,7 +883,7 @@ export function FileManager({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingFile}>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingFile}>{isArabic ? "إلغاء" : "Cancel"}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
@@ -774,7 +892,7 @@ export function FileManager({
               disabled={isDeletingFile}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeletingFile ? "جاري الحذف…" : "حذف"}
+              {isDeletingFile ? (isArabic ? "جاري الحذف…" : "Deleting...") : isArabic ? "حذف" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -783,9 +901,9 @@ export function FileManager({
       <AlertDialog open={!!deleteFolderTarget} onOpenChange={(open) => !open && setDeleteFolderTarget(null)}>
         <AlertDialogContent className="w-[95vw] max-w-md sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>حذف مجلد</AlertDialogTitle>
+            <AlertDialogTitle>{isArabic ? "حذف مجلد" : "Delete folder"}</AlertDialogTitle>
             <AlertDialogDescription>
-              هل تريد حذف هذا المجلد وجميع محتوياته؟ سيتم حذف الملفات المرتبطة نهائياً.
+              {isArabic ? "هل تريد حذف هذا المجلد وجميع محتوياته؟ سيتم حذف الملفات المرتبطة نهائياً." : "Delete this folder and all its contents? Related files will be permanently removed."}
               {deleteFolderTarget ? (
                 <>
                   <br />
@@ -795,7 +913,7 @@ export function FileManager({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingFolder}>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingFolder}>{isArabic ? "إلغاء" : "Cancel"}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
@@ -804,7 +922,7 @@ export function FileManager({
               disabled={isDeletingFolder}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeletingFolder ? "جاري الحذف…" : "حذف"}
+              {isDeletingFolder ? (isArabic ? "جاري الحذف…" : "Deleting...") : isArabic ? "حذف" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

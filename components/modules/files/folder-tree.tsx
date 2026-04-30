@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Folder, MoreHorizontal, PanelRightClose, PanelRightOpen, Plus } from "lucide-react";
+import { useLocale } from "next-intl";
 import type { FolderRow } from "@/actions/folders";
 import type { FileRow } from "@/lib/file-types";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,11 @@ type TreeBranchProps = {
   onSelectFolder: (id: string) => void;
   onRenameRequest: (folder: FolderRow) => void;
   onDeleteRequest: (folder: FolderRow) => void;
+  onAccessRequest: (folder: FolderRow) => void;
+  onShareRequest: (folder: FolderRow) => void;
+  onFileDrop: (targetFolderId: string, draggedFileId: string) => void;
+  dropTargetFolderId: string | null;
+  onDropTargetChange: (folderId: string | null) => void;
 };
 
 function TreeBranch({
@@ -72,20 +78,43 @@ function TreeBranch({
   onSelectFolder,
   onRenameRequest,
   onDeleteRequest,
+  onAccessRequest,
+  onShareRequest,
+  onFileDrop,
+  dropTargetFolderId,
+  onDropTargetChange,
 }: TreeBranchProps) {
   const children = childrenMap.get(folder.id) ?? [];
   const isOpen = expanded.has(folder.id);
   const isActive = currentFolderId === folder.id;
   const count = countFilesInFolder(folder.id, files);
+  const isDropTarget = dropTargetFolderId === folder.id;
 
   return (
     <div className="select-none">
       <div
         className={cn(
           "group flex items-center gap-1 rounded-md py-1 pe-1 ps-1 hover:bg-muted/80",
-          isActive && "bg-muted"
+          isActive && "bg-muted",
+          isDropTarget && "bg-primary/10 ring-1 ring-primary/40"
         )}
         style={{ paddingInlineStart: 8 + depth * 12 }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("application/x-drive-file-id")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            onDropTargetChange(folder.id);
+          }
+        }}
+        onDragLeave={() => onDropTargetChange(null)}
+        onDrop={(e) => {
+          const fileId = e.dataTransfer.getData("application/x-drive-file-id");
+          if (!fileId) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onFileDrop(folder.id, fileId);
+          onDropTargetChange(null);
+        }}
       >
         {children.length > 0 ? (
           <button
@@ -125,12 +154,14 @@ function TreeBranch({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onRenameRequest(folder)}>إعادة تسمية</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onRenameRequest(folder)}>Rename</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAccessRequest(folder)}>Manage access</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onShareRequest(folder)}>Share folder</DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onClick={() => onDeleteRequest(folder)}
             >
-              حذف
+              Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -150,6 +181,11 @@ function TreeBranch({
               onSelectFolder={onSelectFolder}
               onRenameRequest={onRenameRequest}
               onDeleteRequest={onDeleteRequest}
+              onAccessRequest={onAccessRequest}
+              onShareRequest={onShareRequest}
+              onFileDrop={onFileDrop}
+              dropTargetFolderId={dropTargetFolderId}
+              onDropTargetChange={onDropTargetChange}
             />
           ))}
         </div>
@@ -167,6 +203,12 @@ type FolderTreeProps = {
   onCreateFolder: () => void;
   onRenameFolder: (id: string, name: string) => Promise<void>;
   onDeleteFolderRequest: (folder: FolderRow) => void;
+  onFolderAccessRequest: (folder: FolderRow) => void;
+  onFolderShareRequest: (folder: FolderRow) => void;
+  onFileDropToFolder: (targetFolderId: string, draggedFileId: string) => void;
+  dropTargetFolderId: string | null;
+  onDropTargetChange: (folderId: string | null) => void;
+  sidebarFooter?: React.ReactNode;
   /** Desktop: collapse inner sidebar */
   collapsed?: boolean;
   onCollapsedChange?: (v: boolean) => void;
@@ -182,10 +224,17 @@ export function FolderTree({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolderRequest,
+  onFolderAccessRequest,
+  onFolderShareRequest,
+  onFileDropToFolder,
+  dropTargetFolderId,
+  onDropTargetChange,
+  sidebarFooter,
   collapsed = false,
   onCollapsedChange,
   className,
 }: FolderTreeProps) {
+  const isArabic = useLocale() === "ar";
   const childrenMap = React.useMemo(() => buildChildrenMap(folders), [folders]);
   const roots = childrenMap.get(null) ?? [];
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
@@ -251,7 +300,7 @@ export function FolderTree({
         )}
       >
         <Folder className="text-muted-foreground size-4 shrink-0" />
-        <span className="truncate">جميع الملفات</span>
+        <span className="truncate">{isArabic ? "جميع الملفات" : "All files"}</span>
       </button>
       <Separator className="my-2" />
       <ScrollArea className="min-h-0 flex-1">
@@ -272,6 +321,11 @@ export function FolderTree({
               }}
               onRenameRequest={openRename}
               onDeleteRequest={onDeleteFolderRequest}
+              onAccessRequest={onFolderAccessRequest}
+              onShareRequest={onFolderShareRequest}
+              onFileDrop={onFileDropToFolder}
+              dropTargetFolderId={dropTargetFolderId}
+              onDropTargetChange={onDropTargetChange}
             />
           ))}
         </div>
@@ -279,8 +333,14 @@ export function FolderTree({
       <Separator className="my-2 shrink-0" />
       <Button type="button" variant="outline" className="w-full shrink-0 gap-2" onClick={onCreateFolder}>
         <Plus className="size-4" />
-        مجلد جديد
+        {isArabic ? "مجلد جديد" : "New folder"}
       </Button>
+      {sidebarFooter ? (
+        <>
+          <Separator className="my-2 shrink-0" />
+          <div className="shrink-0">{sidebarFooter}</div>
+        </>
+      ) : null}
     </>
   );
 
@@ -291,12 +351,12 @@ export function FolderTree({
           <SheetTrigger asChild>
             <Button type="button" variant="outline" size="sm" className="gap-2">
               <Folder className="size-4" />
-              المجلدات
+              {isArabic ? "المجلدات" : "Folders"}
             </Button>
           </SheetTrigger>
           <SheetContent side="right" className="flex w-[min(100%,280px)] flex-col gap-3">
             <SheetHeader>
-              <SheetTitle>المجلدات</SheetTitle>
+              <SheetTitle>{isArabic ? "المجلدات" : "Folders"}</SheetTitle>
             </SheetHeader>
             <div className="flex min-h-0 flex-1 flex-col gap-2">{treeBody}</div>
           </SheetContent>
@@ -310,7 +370,7 @@ export function FolderTree({
               type="button"
               variant="outline"
               size="icon"
-              aria-label="إظهار المجلدات"
+              aria-label={isArabic ? "إظهار المجلدات" : "Show folders"}
               onClick={() => onCollapsedChange(false)}
             >
               <PanelRightOpen className="size-4" />
@@ -326,7 +386,7 @@ export function FolderTree({
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-              المجلدات
+              {isArabic ? "المجلدات" : "Folders"}
             </span>
             {onCollapsedChange ? (
               <Button
@@ -334,7 +394,7 @@ export function FolderTree({
                 variant="ghost"
                 size="icon"
                 className="size-8 shrink-0"
-                aria-label="طي الشريط الجانبي"
+                aria-label={isArabic ? "طي الشريط الجانبي" : "Collapse sidebar"}
                 onClick={() => onCollapsedChange(true)}
               >
                 <PanelRightClose className="size-4" />
@@ -348,15 +408,15 @@ export function FolderTree({
       <Dialog open={!!renameTarget} onOpenChange={(o) => !o && setRenameTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>إعادة تسمية المجلد</DialogTitle>
+            <DialogTitle>{isArabic ? "إعادة تسمية المجلد" : "Rename folder"}</DialogTitle>
           </DialogHeader>
           <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={renameBusy}>
-              إلغاء
+              {isArabic ? "إلغاء" : "Cancel"}
             </Button>
             <Button type="button" onClick={submitRename} disabled={renameBusy}>
-              {renameBusy ? "جاري الحفظ…" : "حفظ"}
+              {renameBusy ? (isArabic ? "جاري الحفظ…" : "Saving...") : isArabic ? "حفظ" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

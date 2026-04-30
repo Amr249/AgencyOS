@@ -1,6 +1,7 @@
 "use client";
 
 import { Folder } from "lucide-react";
+import { useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,7 @@ type FolderCardProps = {
 };
 
 export function FolderCard({ name, itemCount, onOpen, className }: FolderCardProps) {
+  const isArabic = useLocale() === "ar";
   return (
     <Card
       role="button"
@@ -31,7 +33,7 @@ export function FolderCard({ name, itemCount, onOpen, className }: FolderCardPro
           {name}
         </p>
         <p className="text-muted-foreground text-xs">
-          {itemCount} {itemCount === 1 ? "عنصر" : "عناصر"}
+          {itemCount} {isArabic ? (itemCount === 1 ? "عنصر" : "عناصر") : itemCount === 1 ? "item" : "items"}
         </p>
       </CardContent>
     </Card>

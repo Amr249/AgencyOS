@@ -16,6 +16,8 @@ type FileGridProps = {
   onCopyLink: (url: string) => void;
   onDeleteFile: (file: FileRow) => void;
   onShareFile?: (file: FileRow) => void;
+  onDragFileStart?: (file: FileRow, e: React.DragEvent) => void;
+  onDragFileEnd?: () => void;
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
@@ -31,6 +33,8 @@ export function FileGrid({
   onCopyLink,
   onDeleteFile,
   onShareFile,
+  onDragFileStart,
+  onDragFileEnd,
   formatSize,
   formatDate,
   className,
@@ -59,6 +63,8 @@ export function FileGrid({
           onCopyLink={onCopyLink}
           onDelete={onDeleteFile}
           onShare={onShareFile}
+          onDragStart={onDragFileStart}
+          onDragEnd={onDragFileEnd}
           formatSize={formatSize}
           formatDate={formatDate}
         />

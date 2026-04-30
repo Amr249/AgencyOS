@@ -60,6 +60,7 @@ export function AppSidebar({
                    children: [
             { title: t("projects"), url: "/dashboard/projects", icon: IconFolder },
             { title: t("workspace"), url: "/dashboard/workspace", icon: IconListDetails },
+            { title: t("drive"), url: "/dashboard/member-drive", icon: IconFolder },
             { title: t("payments"), url: "/dashboard/payments", icon: IconReceipt },
             { title: t("account"), url: "/dashboard/account", icon: IconUserCircle },
           ],

@@ -15,6 +15,7 @@ type DriveQuickUploadsProps = {
 
 export function DriveQuickUploads({ files }: DriveQuickUploadsProps) {
   const locale = useLocale();
+  const isArabic = locale === "ar";
   const dateLocale = locale === "ar" ? arSA : enUS;
   const [preview, setPreview] = React.useState<FileRow | null>(null);
 
@@ -22,7 +23,7 @@ export function DriveQuickUploads({ files }: DriveQuickUploadsProps) {
 
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold">رفع سريع</h2>
+      <h2 className="text-sm font-semibold">{isArabic ? "رفع سريع" : "Quick uploads"}</h2>
       <div className="flex gap-3 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {files.map((f) => {
           const kind = getFileVisualKind(f.name, f.mimeType);

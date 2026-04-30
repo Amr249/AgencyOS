@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, Link as LinkIcon, Share2, Trash2 } from "lucide-react";
+import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
@@ -14,6 +15,8 @@ type FileCardProps = {
   onCopyLink: (url: string) => void;
   onDelete: (file: FileRow) => void;
   onShare?: (file: FileRow) => void;
+  onDragStart?: (file: FileRow, e: React.DragEvent) => void;
+  onDragEnd?: () => void;
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
 };
@@ -25,9 +28,12 @@ export function FileCard({
   onCopyLink,
   onDelete,
   onShare,
+  onDragStart,
+  onDragEnd,
   formatSize,
   formatDate,
 }: FileCardProps) {
+  const isArabic = useLocale() === "ar";
   const kind = getFileVisualKind(file.name, file.mimeType);
   const thumb =
     kind === "image" && file.imagekitUrl ? (
@@ -58,14 +64,17 @@ export function FileCard({
     <Card
       role="button"
       tabIndex={0}
+      draggable={!!onDragStart}
       className="group relative cursor-pointer overflow-hidden transition-shadow hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring"
       onClick={handleCardClick}
       onKeyDown={(e) => e.key === "Enter" && handleCardClick()}
+      onDragStart={(e) => onDragStart?.(file, e)}
+      onDragEnd={() => onDragEnd?.()}
     >
       <CardContent className="p-0">
         <div className="relative mx-auto w-full max-w-[200px] overflow-hidden rounded-t-md border-b bg-muted">
           {file.isPublic && file.shareToken ? (
-            <div className="absolute end-1 top-1 z-[1] rounded-full bg-black/60 p-1 text-white" title="مشارك">
+            <div className="absolute inset-e-1 top-1 z-1 rounded-full bg-black/60 p-1 text-white" title={isArabic ? "مشارك" : "Shared"}>
               <LinkIcon className="size-3.5" />
             </div>
           ) : null}
@@ -77,7 +86,7 @@ export function FileCard({
                 size="icon"
                 variant="secondary"
                 className="size-8"
-                aria-label="مشاركة"
+                aria-label={isArabic ? "مشاركة" : "Share"}
                 onClick={(e) => {
                   e.stopPropagation();
                   onShare(file);
@@ -91,7 +100,7 @@ export function FileCard({
               size="icon"
               variant="secondary"
               className="size-8"
-              aria-label="تنزيل"
+              aria-label={isArabic ? "تنزيل" : "Download"}
               onClick={(e) => {
                 e.stopPropagation();
                 onDownload(file.imagekitUrl, file.name);
@@ -104,7 +113,7 @@ export function FileCard({
               size="icon"
               variant="secondary"
               className="size-8"
-              aria-label="نسخ الرابط"
+              aria-label={isArabic ? "نسخ الرابط" : "Copy link"}
               onClick={(e) => {
                 e.stopPropagation();
                 onCopyLink(file.imagekitUrl);
@@ -117,7 +126,7 @@ export function FileCard({
               size="icon"
               variant="destructive"
               className="size-8"
-              aria-label="حذف"
+              aria-label={isArabic ? "حذف" : "Delete"}
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(file);

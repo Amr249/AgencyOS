@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, Link as LinkIcon, Share2, Trash2 } from "lucide-react";
+import { useLocale } from "next-intl";
 import type { FileRow } from "@/lib/file-types";
 import type { FolderRow } from "@/actions/folders";
 import { Badge } from "@/components/ui/badge";
@@ -27,14 +28,16 @@ type FileListViewProps = {
   onCopyLink: (url: string) => void;
   onDeleteFile: (file: FileRow) => void;
   onShareFile?: (file: FileRow) => void;
+  onDragFileStart?: (file: FileRow, e: React.DragEvent) => void;
+  onDragFileEnd?: () => void;
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
 };
 
-function typeLabel(name: string, mime: string | null | undefined): string {
+function typeLabel(name: string, mime: string | null | undefined, isArabic: boolean): string {
   const k = getFileVisualKind(name, mime);
-  const map: Record<string, string> = {
+  const map: Record<string, string> = isArabic ? {
     image: "صورة",
     video: "فيديو",
     pdf: "PDF",
@@ -43,8 +46,17 @@ function typeLabel(name: string, mime: string | null | undefined): string {
     archive: "أرشيف",
     audio: "صوت",
     generic: "ملف",
+  } : {
+    image: "Image",
+    video: "Video",
+    pdf: "PDF",
+    design: "Design",
+    office: "Document",
+    archive: "Archive",
+    audio: "Audio",
+    generic: "File",
   };
-  return map[k] ?? "ملف";
+  return map[k] ?? (isArabic ? "ملف" : "File");
 }
 
 export function FileListView({
@@ -57,10 +69,13 @@ export function FileListView({
   onCopyLink,
   onDeleteFile,
   onShareFile,
+  onDragFileStart,
+  onDragFileEnd,
   formatSize,
   formatDate,
   className,
 }: FileListViewProps) {
+  const isArabic = useLocale() === "ar";
   const hasRows = childFolders.length > 0 || files.length > 0;
   if (!hasRows) return null;
 
@@ -70,11 +85,11 @@ export function FileListView({
         <TableHeader>
           <TableRow>
             <TableHead className="w-12" />
-            <TableHead>الاسم</TableHead>
-            <TableHead className="hidden sm:table-cell">الحجم</TableHead>
-            <TableHead className="hidden md:table-cell">التاريخ</TableHead>
-            <TableHead className="hidden lg:table-cell">النوع</TableHead>
-            <TableHead className="w-36 text-end">إجراءات</TableHead>
+            <TableHead>{isArabic ? "الاسم" : "Name"}</TableHead>
+            <TableHead className="hidden sm:table-cell">{isArabic ? "الحجم" : "Size"}</TableHead>
+            <TableHead className="hidden md:table-cell">{isArabic ? "التاريخ" : "Date"}</TableHead>
+            <TableHead className="hidden lg:table-cell">{isArabic ? "النوع" : "Type"}</TableHead>
+            <TableHead className="w-36 text-end">{isArabic ? "إجراءات" : "Actions"}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -93,11 +108,11 @@ export function FileListView({
               <TableCell className="text-muted-foreground hidden sm:table-cell">—</TableCell>
               <TableCell className="text-muted-foreground hidden md:table-cell">—</TableCell>
               <TableCell className="hidden lg:table-cell">
-                مجلد · {fileCountByFolderId.get(f.id) ?? 0}
+                {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
               </TableCell>
               <TableCell className="text-end">
                 <Button type="button" size="sm" variant="ghost" onClick={() => onOpenFolder(f.id)}>
-                  فتح
+                  {isArabic ? "فتح" : "Open"}
                 </Button>
               </TableCell>
             </TableRow>
@@ -106,6 +121,9 @@ export function FileListView({
             <TableRow
               key={file.id}
               className="cursor-pointer"
+              draggable={!!onDragFileStart}
+              onDragStart={(e) => onDragFileStart?.(file, e)}
+              onDragEnd={() => onDragFileEnd?.()}
               onClick={() => {
                 const k = getFileVisualKind(file.name, file.mimeType);
                 if (k === "pdf") {
@@ -126,7 +144,7 @@ export function FileListView({
                 <div className="flex min-w-0 items-center gap-2">
                   {file.isPublic && file.shareToken ? (
                     <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px] font-normal">
-                      مشارك
+                      {isArabic ? "مشارك" : "Shared"}
                     </Badge>
                   ) : null}
                   <span className="truncate">{file.name}</span>
@@ -139,7 +157,7 @@ export function FileListView({
                 {formatDate(file.createdAt)}
               </TableCell>
               <TableCell className="hidden lg:table-cell">
-                {typeLabel(file.name, file.mimeType)}
+                {typeLabel(file.name, file.mimeType, isArabic)}
               </TableCell>
               <TableCell className="text-end">
                 <div className="flex justify-end gap-0.5">

@@ -411,6 +411,9 @@ export const folders = pgTable(
     parentId: uuid("parent_id").references((): any => folders.id, { onDelete: "cascade" }),
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    isPublic: boolean("is_public").notNull().default(false),
+    shareToken: text("share_token"),
+    shareExpiresAt: timestamp("share_expires_at", { withTimezone: true }),
     path: text("path").notNull(),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -420,6 +423,29 @@ export const folders = pgTable(
     index("folders_client_id_idx").on(table.clientId),
     index("folders_project_id_idx").on(table.projectId),
     index("folders_path_idx").on(table.path),
+    index("folders_share_token_idx").on(table.shareToken),
+    uniqueIndex("folders_share_token_unique")
+      .on(table.shareToken)
+      .where(sql`${table.shareToken} IS NOT NULL`),
+  ]
+);
+
+export const folderAccess = pgTable(
+  "folder_access",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    folderId: uuid("folder_id")
+      .notNull()
+      .references(() => folders.id, { onDelete: "cascade" }),
+    teamMemberId: uuid("team_member_id")
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("folder_access_folder_member_unique").on(table.folderId, table.teamMemberId),
+    index("folder_access_folder_id_idx").on(table.folderId),
+    index("folder_access_team_member_id_idx").on(table.teamMemberId),
   ]
 );
 
@@ -1045,7 +1071,13 @@ export const foldersRelations = relations(folders, ({ one, many }) => ({
   client: one(clients, { fields: [folders.clientId], references: [clients.id] }),
   project: one(projects, { fields: [folders.projectId], references: [projects.id] }),
   files: many(files),
+  access: many(folderAccess),
   createdByUser: one(users, { fields: [folders.createdBy], references: [users.id] }),
+}));
+
+export const folderAccessRelations = relations(folderAccess, ({ one }) => ({
+  folder: one(folders, { fields: [folderAccess.folderId], references: [folders.id] }),
+  teamMember: one(teamMembers, { fields: [folderAccess.teamMemberId], references: [teamMembers.id] }),
 }));
 
 export const filesRelations = relations(files, ({ one }) => ({
