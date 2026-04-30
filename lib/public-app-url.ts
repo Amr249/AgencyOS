@@ -2,9 +2,11 @@
 export function publicAppBaseUrl(): string {
   const env = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (env) return env.replace(/\/+$/, "");
+  const appUrl = process.env.APP_URL?.trim();
+  if (appUrl) return appUrl.replace(/\/+$/, "");
   const vercel = process.env.VERCEL_URL?.trim();
   if (vercel) return `https://${vercel.replace(/\/+$/, "")}`;
-  return "http://localhost:3000";
+  return "https://agencyos.pixlesa.com";
 }
 
 export function sharePageUrl(token: string): string {
