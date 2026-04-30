@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
 import type { FileRow } from "@/lib/file-types";
-import { driveInlinePreviewUrl } from "@/lib/drive-inline-preview";
 import { cn } from "@/lib/utils";
 
 type FileCardProps = {
@@ -36,19 +35,13 @@ export function FileCard({
 }: FileCardProps) {
   const isArabic = useLocale() === "ar";
   const kind = getFileVisualKind(file.name, file.mimeType);
-  /** PDFs use same-origin proxy (`/api/drive-inline-file`) so R2 does not force download in iframes. */
+  /** Do not load PDF (or proxy) in grid thumbnails — each iframe hit was showing up as a browser download ("drive-inline-file"). Preview opens in the modal. */
   const thumb =
     kind === "image" && file.imagekitUrl ? (
       <img
         src={file.imagekitUrl}
         alt=""
         className="h-[150px] w-full object-cover"
-      />
-    ) : kind === "pdf" && file.imagekitUrl ? (
-      <iframe
-        src={driveInlinePreviewUrl(file.imagekitUrl)}
-        className="h-[150px] w-full border-0 bg-white"
-        title={file.name}
       />
     ) : (
       <div className="flex h-[150px] w-[200px] max-w-full items-center justify-center bg-muted">

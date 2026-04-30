@@ -54,8 +54,11 @@ export function FilePreviewModal({
   onShare,
 }: FilePreviewModalProps) {
   const [pdfLoadFailed, setPdfLoadFailed] = React.useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = React.useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = React.useState(false);
   const [imgScale, setImgScale] = React.useState(1);
   const imgWrapRef = React.useRef<HTMLDivElement>(null);
+  const pdfBlobUrlRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!open) {
@@ -67,6 +70,64 @@ export function FilePreviewModal({
   React.useEffect(() => {
     setImgScale(1);
   }, [file?.id]);
+
+  /** Fetch PDF via fetch+blob so the iframe uses a blob: URL — avoids Chrome listing each grid/modal navigation as "drive-inline-file" downloads. */
+  React.useEffect(() => {
+    if (!open || !file) {
+      if (pdfBlobUrlRef.current) {
+        URL.revokeObjectURL(pdfBlobUrlRef.current);
+        pdfBlobUrlRef.current = null;
+      }
+      setPdfBlobUrl(null);
+      setPdfLoading(false);
+      return;
+    }
+
+    const kind = getFileVisualKind(file.name, file.mimeType);
+    if (kind !== "pdf" || !file.imagekitUrl?.trim()) {
+      if (pdfBlobUrlRef.current) {
+        URL.revokeObjectURL(pdfBlobUrlRef.current);
+        pdfBlobUrlRef.current = null;
+      }
+      setPdfBlobUrl(null);
+      setPdfLoading(false);
+      return;
+    }
+
+    if (pdfBlobUrlRef.current) {
+      URL.revokeObjectURL(pdfBlobUrlRef.current);
+      pdfBlobUrlRef.current = null;
+    }
+    setPdfBlobUrl(null);
+
+    let cancelled = false;
+    setPdfLoadFailed(false);
+    setPdfLoading(true);
+
+    (async () => {
+      try {
+        const res = await fetch(driveInlinePreviewUrl(file.imagekitUrl), { credentials: "include" });
+        if (!res.ok) throw new Error("fetch failed");
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        pdfBlobUrlRef.current = url;
+        setPdfBlobUrl(url);
+      } catch {
+        if (!cancelled) setPdfLoadFailed(true);
+      } finally {
+        if (!cancelled) setPdfLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (pdfBlobUrlRef.current) {
+        URL.revokeObjectURL(pdfBlobUrlRef.current);
+        pdfBlobUrlRef.current = null;
+      }
+    };
+  }, [open, file?.id, file?.name, file?.mimeType, file?.imagekitUrl]);
 
   if (!file) return null;
 
@@ -189,12 +250,15 @@ export function FilePreviewModal({
                   </a>
                 </Button>
               </div>
-              <iframe
-                src={driveInlinePreviewUrl(file.imagekitUrl)}
-                title={file.name}
-                className="h-[min(70vh,600px)] w-full rounded border bg-muted"
-                onError={() => setPdfLoadFailed(true)}
-              />
+              {pdfLoading ? (
+                <p className="text-muted-foreground py-12 text-center text-sm">جاري تحميل المعاينة…</p>
+              ) : pdfBlobUrl ? (
+                <iframe
+                  src={pdfBlobUrl}
+                  title={file.name}
+                  className="h-[min(70vh,600px)] w-full rounded border bg-muted"
+                />
+              ) : null}
             </div>
           )}
 
