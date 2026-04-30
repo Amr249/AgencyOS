@@ -144,6 +144,19 @@ export async function getPresignedUrl(
   return getSignedUrl(getR2Client(), command, { expiresIn });
 }
 
+export async function getPresignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresIn: number = 900
+): Promise<string> {
+  const command = new PutObjectCommand({
+    Bucket: getBucket(),
+    Key: key,
+    ContentType: contentType,
+  });
+  return getSignedUrl(getR2Client(), command, { expiresIn });
+}
+
 export function getPublicUrl(key: string): string {
   const base = getPublicBase();
   return `${base}/${key}`;

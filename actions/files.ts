@@ -678,16 +678,20 @@ export async function moveFile(fileId: string, folderId: string | null) {
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
   try {
-    const [row] = await db
-      .update(files)
-      .set({ folderId: parsed.data.folderId })
-      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
-      .returning();
+    const updated = await db.execute(sql`
+      update files
+      set folder_id = ${parsed.data.folderId}
+      where id = ${parsed.data.fileId} and deleted_at is null
+      returning id, client_id, project_id, folder_id
+    `);
+    const row = updated.rows[0] as
+      | { id: string; client_id: string | null; project_id: string | null; folder_id: string | null }
+      | undefined;
     if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/projects");
-    if (row.clientId) revalidatePath(`/dashboard/clients/${row.clientId}`);
-    if (row.projectId) revalidatePath(`/dashboard/projects/${row.projectId}`);
+    if (row.client_id) revalidatePath(`/dashboard/clients/${row.client_id}`);
+    if (row.project_id) revalidatePath(`/dashboard/projects/${row.project_id}`);
     return { ok: true as const, data: row };
   } catch (e) {
     console.error("moveFile", e);

@@ -340,13 +340,16 @@ export function FileManager({
         driveUploadPathPrefix
       );
       const formData = new FormData();
-      formData.set("file", file);
+      formData.set("filename", file.name);
+      formData.set("sizeBytes", String(file.size ?? 0));
+      formData.set("mimeType", file.type || "application/octet-stream");
       formData.set("scope", "drive");
       formData.set("folderId", drivePath);
       formData.set("fileId", crypto.randomUUID());
 
       try {
         const res = await new Promise<{
+          uploadUrl?: string;
           url?: string;
           key?: string;
           name?: string;
@@ -373,8 +376,38 @@ export function FileManager({
             }
           });
           xhr.addEventListener("error", () => reject(new Error("Network error")));
-          xhr.open("POST", "/api/upload");
+          xhr.open("POST", "/api/upload/presign");
           xhr.send(formData);
+        });
+
+        if (res.error || !res.uploadUrl || !res.url || !res.key) {
+          setUploadProgress((p) => {
+            const n = { ...p };
+            delete n[key];
+            return n;
+          });
+          toast.error(res.error ?? (isArabic ? "فشل الرفع" : "Upload failed"));
+          return null;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener("progress", (ev) => {
+            if (ev.lengthComputable) {
+              setUploadProgress((p) => ({
+                ...p,
+                [key]: Math.round((ev.loaded / ev.total) * 100),
+              }));
+            }
+          });
+          xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error("Upload failed"));
+          });
+          xhr.addEventListener("error", () => reject(new Error("Network error")));
+          xhr.open("PUT", res.uploadUrl!);
+          xhr.setRequestHeader("Content-Type", res.mimeType || file.type || "application/octet-stream");
+          xhr.send(file);
         });
 
         setUploadProgress((p) => {
@@ -382,11 +415,6 @@ export function FileManager({
           delete n[key];
           return n;
         });
-
-        if (res.error || !res.url || !res.key) {
-          toast.error(res.error ?? (isArabic ? "فشل الرفع" : "Upload failed"));
-          return null;
-        }
 
         const createResult = await createFile({
           name: res.name ?? file.name,
