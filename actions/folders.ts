@@ -14,6 +14,7 @@ import { sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
 import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
+import { notifyFolderAccessGranted } from "@/actions/notifications";
 
 export type FolderRow = typeof folders.$inferSelect;
 const nanoidLower = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
@@ -171,6 +172,19 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
         const pgCode = findPostgresErrorCode(e);
         if (pgCode !== "23505") throw e;
       }
+      const [proj] = await db
+        .select({ name: projects.name })
+        .from(projects)
+        .where(eq(projects.id, row.projectId))
+        .limit(1);
+      await notifyFolderAccessGranted({
+        folderId: row.id,
+        folderName: row.name,
+        projectId: row.projectId,
+        projectName: proj?.name ?? null,
+        teamMemberIds: dedup,
+        actorUserId: userId,
+      });
     }
 
     if (role === "member" && row.projectId) {
@@ -428,6 +442,7 @@ export async function getAllStandaloneFolders() {
 /**
  * Drive tree folders for current user:
  * - personal standalone folders (`/drive/user/{uid}/...`)
+ * - agency system tree (`/drive/system/...`) including rows that set `clientId` / `projectId` for sync
  * - project folders (`/project/{projectId}/...`) for accessible projects
  */
 export async function getDriveFolders() {
@@ -450,11 +465,13 @@ export async function getDriveFolders() {
     }
 
     const standalonePrefix = `/drive/user/${uid}/`;
-    const personalOrSystemTree = and(
+    const standalonePersonalTree = and(
       isNull(folders.clientId),
       isNull(folders.projectId),
-      or(sql`${folders.path} like ${standalonePrefix + "%"}`, sql`${folders.path} like '/drive/system%'`)
+      sql`${folders.path} like ${standalonePrefix + "%"}`
     );
+    const agencySystemDriveTree = sql`${folders.path} like '/drive/system%'`;
+    const personalOrSystemTree = or(standalonePersonalTree, agencySystemDriveTree);
     const scopeCond =
       projectIds.length > 0
         ? or(
@@ -563,12 +580,34 @@ export async function setFolderAccess(folderId: string, teamMemberIds: string[])
       const allowed = await memberHasAccessToProjectFolder(userId, folder.id);
       if (!allowed) return { ok: false as const, error: { _form: ["Forbidden"] } };
     }
+    const previousRows = await db
+      .select({ teamMemberId: folderAccess.teamMemberId })
+      .from(folderAccess)
+      .where(eq(folderAccess.folderId, folder.id));
+    const previousSet = new Set(previousRows.map((r) => r.teamMemberId));
+
     await db.delete(folderAccess).where(eq(folderAccess.folderId, folder.id));
     const dedup = Array.from(new Set(parsed.data.teamMemberIds));
     if (dedup.length > 0) {
       await db.insert(folderAccess).values(
         dedup.map((teamMemberId) => ({ folderId: folder.id, teamMemberId }))
       );
+    }
+    const newlyGranted = dedup.filter((id) => !previousSet.has(id));
+    if (newlyGranted.length > 0 && folder.projectId) {
+      const [proj] = await db
+        .select({ name: projects.name })
+        .from(projects)
+        .where(eq(projects.id, folder.projectId))
+        .limit(1);
+      await notifyFolderAccessGranted({
+        folderId: folder.id,
+        folderName: folder.name,
+        projectId: folder.projectId,
+        projectName: proj?.name ?? null,
+        teamMemberIds: newlyGranted,
+        actorUserId: userId,
+      });
     }
     revalidatePath("/dashboard/drive");
     return { ok: true as const };

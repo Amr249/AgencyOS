@@ -92,6 +92,7 @@ function iconForType(type: string): {
   if (type.startsWith("profile.name")) return { Icon: UserCircle2, tone: "primary" };
   if (type.startsWith("profile")) return { Icon: UserCircle2, tone: "primary" };
   if (type.startsWith("task")) return { Icon: ListChecks, tone: "emerald" };
+  if (type.startsWith("drive.")) return { Icon: Folder, tone: "violet" };
   if (type.startsWith("project")) return { Icon: Folder, tone: "blue" };
   if (type.startsWith("payment") || type.startsWith("invoice"))
     return { Icon: CreditCard, tone: "amber" };

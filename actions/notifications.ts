@@ -196,6 +196,64 @@ export async function notifyUserAndAdmins(input: {
  *
  * Errors are swallowed so the caller's primary write is never blocked.
  */
+/**
+ * Notify team members (linked login users) that they were granted access to a project folder.
+ * Arabic copy; `linkUrl` opens member drive on that folder.
+ */
+export async function notifyFolderAccessGranted(input: {
+  folderId: string;
+  folderName: string;
+  projectId: string;
+  projectName: string | null;
+  teamMemberIds: string[];
+  actorUserId: string | null;
+}): Promise<void> {
+  try {
+    const ids = Array.from(new Set(input.teamMemberIds.filter(Boolean)));
+    if (ids.length === 0) return;
+
+    const linkUrl = `/dashboard/member-drive?folder=${encodeURIComponent(input.folderId)}`;
+    const folderLabel = input.folderName.trim() || "مجلد";
+    const projectLabel = input.projectName?.trim() || "مشروع";
+
+    let actorName: string | null = null;
+    if (input.actorUserId) {
+      const [actorRow] = await db
+        .select({ name: users.name })
+        .from(users)
+        .where(eq(users.id, input.actorUserId))
+        .limit(1);
+      actorName = actorRow?.name?.trim() || null;
+    }
+
+    const recipients: string[] = [];
+    for (const teamMemberId of ids) {
+      const recipientUserId = await resolveUserIdForTeamMember(teamMemberId);
+      if (!recipientUserId) continue;
+      if (input.actorUserId && recipientUserId === input.actorUserId) continue;
+      recipients.push(recipientUserId);
+    }
+    if (recipients.length === 0) return;
+
+    const bodyBase = actorName
+      ? `${actorName} منحك صلاحية الوصول إلى مجلد «${folderLabel}» ضمن مشروع «${projectLabel}».`
+      : `تم منحك صلاحية الوصول إلى مجلد «${folderLabel}» ضمن مشروع «${projectLabel}».`;
+    const body = `${bodyBase} اضغط «فتح الصفحة» للانتقال مباشرة إلى المجلد في الدرايف.`;
+
+    await createNotificationsForUsers({
+      userIds: recipients,
+      type: "drive.folder_access",
+      title: "صلاحية جديدة على مجلد في الدرايف",
+      body,
+      linkUrl,
+      actorId: input.actorUserId ?? null,
+    });
+    revalidatePath("/dashboard");
+  } catch (e) {
+    console.error("notifyFolderAccessGranted", e);
+  }
+}
+
 export async function notifyTaskAssigned(input: {
   taskId: string;
   teamMemberId: string;
