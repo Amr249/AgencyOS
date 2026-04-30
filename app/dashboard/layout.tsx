@@ -37,9 +37,8 @@ export default async function DashboardLayout({
   const locale = isMember ? "ar" : await getLocale();
   const sidebarSide = locale === "ar" ? "right" : "left";
 
-  const mainContentClassName = isMember
-    ? "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto md:gap-6 px-4 py-4 md:px-6 md:py-6"
-    : "flex min-h-0 flex-1 flex-col gap-4 md:gap-6 px-4 py-4 md:px-6 md:py-6";
+  const mainContentClassName =
+    "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto md:gap-6 px-4 py-4 md:px-6 md:py-6";
 
   const inner = (
     <>
@@ -67,7 +66,7 @@ export default async function DashboardLayout({
         className={
           isMember
             ? "min-h-0 h-svh max-h-svh overflow-hidden"
-            : "min-h-0"
+            : "min-h-0 h-svh max-h-svh overflow-hidden"
         }
       >
         {isMember ? (

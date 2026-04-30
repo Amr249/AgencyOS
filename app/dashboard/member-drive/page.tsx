@@ -48,7 +48,7 @@ export default async function MemberDrivePage({ searchParams }: PageProps) {
   const t = await getTranslations("memberDrive");
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
       <div className="shrink-0 text-start">
         <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
         <p className="text-muted-foreground text-sm">{t("subtitle")}</p>

@@ -1355,8 +1355,8 @@ export function FileManager({
     childFoldersFiltered.length === 0 && filesInScope.length === 0 && uploadQueue.length === 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden lg:flex-row lg:items-stretch">
+    <div className="flex h-full min-h-0 max-h-full flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden lg:max-h-full lg:flex-row lg:items-stretch">
         <FolderTree
           folders={folders}
           files={files}

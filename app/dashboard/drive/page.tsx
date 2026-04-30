@@ -74,7 +74,7 @@ export default async function DrivePage({ searchParams }: Props) {
   const availableTeamMembers = teamRes.ok ? teamRes.data : [];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
       <div className="shrink-0">
         <h1 className="text-2xl font-bold tracking-tight">{t("drive")}</h1>
         <p className="text-muted-foreground text-sm">

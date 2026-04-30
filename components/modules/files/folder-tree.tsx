@@ -446,7 +446,7 @@ export function FolderTree({
         <span className="truncate">{isArabic ? "جميع الملفات" : "All files"}</span>
       </button>
       <Separator className="my-2" />
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1 basis-0 overflow-hidden">
         <div className="pb-2 ps-2 pe-2" dir={treeDir}>
           {roots.map((f) => (
             <TreeBranch
@@ -541,7 +541,7 @@ export function FolderTree({
         <aside
           dir={treeDir}
           className={cn(
-            "border-border bg-card hidden min-w-0 w-[min(100%,280px)] max-w-[280px] shrink-0 flex-col gap-2 rounded-lg border p-3 lg:flex",
+            "border-border bg-card hidden h-full max-h-full min-h-0 min-w-0 w-[min(100%,280px)] max-w-[280px] shrink-0 flex-col gap-2 overflow-hidden rounded-lg border p-3 lg:flex",
             className
           )}
         >
