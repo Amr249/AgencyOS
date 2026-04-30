@@ -582,8 +582,8 @@ export function FileManager({
     childFoldersFiltered.length === 0 && filesInScope.length === 0 && uploadQueue.length === 0;
 
   return (
-    <div className="flex min-h-full flex-col gap-4">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:items-stretch">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden lg:flex-row lg:items-stretch">
         <FolderTree
           folders={folders}
           files={files}
@@ -635,7 +635,7 @@ export function FileManager({
           onCollapsedChange={setSidebarCollapsed}
         />
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList className="flex-wrap">
@@ -742,7 +742,7 @@ export function FileManager({
 
           <div
             ref={dropZoneRef}
-            className="relative min-h-[480px] flex-1 rounded-lg border border-dashed bg-muted/10 p-3 sm:p-4"
+            className="relative min-h-0 flex-1 overflow-y-auto rounded-lg border border-dashed bg-muted/10 p-3 sm:p-4"
             onDragEnter={onDragEnter}
             onDragLeave={onDragLeave}
             onDragOver={onDragOver}

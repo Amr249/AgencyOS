@@ -72,7 +72,7 @@ export default async function DrivePage({ searchParams }: Props) {
   const availableTeamMembers = teamRes.ok ? teamRes.data : [];
 
   return (
-    <div className="flex min-h-[calc(100vh-5.5rem)] flex-col gap-3">
+    <div className="flex h-[calc(100vh-5.5rem)] min-h-0 flex-col gap-3 overflow-hidden">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t("drive")}</h1>
         <p className="text-muted-foreground text-sm">
@@ -80,7 +80,7 @@ export default async function DrivePage({ searchParams }: Props) {
         </p>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-hidden">
         <Suspense
           fallback={
             <div className="bg-muted/40 h-48 animate-pulse rounded-lg border border-dashed" aria-hidden />
