@@ -52,10 +52,19 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Bad gateway", { status: 502 });
   }
 
-  const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
+  let ct = (upstream.headers.get("content-type") ?? "").split(";")[0].trim();
+  if (!ct || ct === "application/octet-stream" || ct === "binary/octet-stream") {
+    const pathLower = target.pathname.toLowerCase();
+    if (pathLower.endsWith(".pdf")) {
+      ct = "application/pdf";
+    } else {
+      ct = "application/octet-stream";
+    }
+  }
 
   const headers = new Headers();
   headers.set("Content-Type", ct);
+  /** `inline` only — avoid `filename=` which can make Chrome treat navigation as a download. */
   headers.set("Content-Disposition", "inline");
   headers.set("Cache-Control", "private, max-age=300");
   headers.set("X-Content-Type-Options", "nosniff");

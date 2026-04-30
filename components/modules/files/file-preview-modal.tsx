@@ -53,16 +53,11 @@ export function FilePreviewModal({
   onCopyLink,
   onShare,
 }: FilePreviewModalProps) {
-  const [pdfLoadFailed, setPdfLoadFailed] = React.useState(false);
-  const [pdfBlobUrl, setPdfBlobUrl] = React.useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = React.useState(false);
   const [imgScale, setImgScale] = React.useState(1);
   const imgWrapRef = React.useRef<HTMLDivElement>(null);
-  const pdfBlobUrlRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!open) {
-      setPdfLoadFailed(false);
       setImgScale(1);
     }
   }, [open]);
@@ -70,64 +65,6 @@ export function FilePreviewModal({
   React.useEffect(() => {
     setImgScale(1);
   }, [file?.id]);
-
-  /** Fetch PDF via fetch+blob so the iframe uses a blob: URL — avoids Chrome listing each grid/modal navigation as "drive-inline-file" downloads. */
-  React.useEffect(() => {
-    if (!open || !file) {
-      if (pdfBlobUrlRef.current) {
-        URL.revokeObjectURL(pdfBlobUrlRef.current);
-        pdfBlobUrlRef.current = null;
-      }
-      setPdfBlobUrl(null);
-      setPdfLoading(false);
-      return;
-    }
-
-    const kind = getFileVisualKind(file.name, file.mimeType);
-    if (kind !== "pdf" || !file.imagekitUrl?.trim()) {
-      if (pdfBlobUrlRef.current) {
-        URL.revokeObjectURL(pdfBlobUrlRef.current);
-        pdfBlobUrlRef.current = null;
-      }
-      setPdfBlobUrl(null);
-      setPdfLoading(false);
-      return;
-    }
-
-    if (pdfBlobUrlRef.current) {
-      URL.revokeObjectURL(pdfBlobUrlRef.current);
-      pdfBlobUrlRef.current = null;
-    }
-    setPdfBlobUrl(null);
-
-    let cancelled = false;
-    setPdfLoadFailed(false);
-    setPdfLoading(true);
-
-    (async () => {
-      try {
-        const res = await fetch(driveInlinePreviewUrl(file.imagekitUrl), { credentials: "include" });
-        if (!res.ok) throw new Error("fetch failed");
-        const blob = await res.blob();
-        if (cancelled) return;
-        const url = URL.createObjectURL(blob);
-        pdfBlobUrlRef.current = url;
-        setPdfBlobUrl(url);
-      } catch {
-        if (!cancelled) setPdfLoadFailed(true);
-      } finally {
-        if (!cancelled) setPdfLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (pdfBlobUrlRef.current) {
-        URL.revokeObjectURL(pdfBlobUrlRef.current);
-        pdfBlobUrlRef.current = null;
-      }
-    };
-  }, [open, file?.id, file?.name, file?.mimeType, file?.imagekitUrl]);
 
   if (!file) return null;
 
@@ -140,6 +77,8 @@ export function FilePreviewModal({
   const contentMaxWidth = hasRichPreview ? "sm:max-w-3xl" : "sm:max-w-md";
 
   const imageUrl = isImg ? file.imagekitUrl : null;
+  const pdfPreviewSrc =
+    isPdfType && file.imagekitUrl?.trim() ? driveInlinePreviewUrl(file.imagekitUrl) : null;
 
   const handleDownload = () => {
     onDownload(file.imagekitUrl, file.name);
@@ -240,25 +179,29 @@ export function FilePreviewModal({
             </div>
           )}
 
-          {isPdfType && !pdfLoadFailed && (
+          {isPdfType && pdfPreviewSrc && (
             <div className="flex flex-col gap-2 p-4">
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" asChild className="gap-1">
-                  <a href={file.imagekitUrl} target="_blank" rel="noopener noreferrer">
+                  <a href={pdfPreviewSrc} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="size-3.5" />
                     فتح في تبويب جديد
                   </a>
                 </Button>
               </div>
-              {pdfLoading ? (
-                <p className="text-muted-foreground py-12 text-center text-sm">جاري تحميل المعاينة…</p>
-              ) : pdfBlobUrl ? (
-                <iframe
-                  src={pdfBlobUrl}
-                  title={file.name}
-                  className="h-[min(70vh,600px)] w-full rounded border bg-muted"
-                />
-              ) : null}
+              {/*
+                Single same-origin iframe when the modal is open (grid cards do not embed PDFs).
+                Proxy sets Content-Disposition: inline and a correct PDF content-type.
+              */}
+              <iframe
+                key={file.id}
+                src={pdfPreviewSrc}
+                title={file.name}
+                className="h-[min(70vh,600px)] w-full rounded border bg-muted"
+              />
+              <p className="text-muted-foreground text-center text-xs">
+                إن لم تظهر المعاينة، استخدم «فتح في تبويب جديد» أو «تنزيل».
+              </p>
             </div>
           )}
 
@@ -277,21 +220,6 @@ export function FilePreviewModal({
                 title={file.name}
                 className="h-[min(70vh,600px)] w-full rounded border bg-muted"
               />
-            </div>
-          )}
-
-          {isPdfType && pdfLoadFailed && (
-            <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
-              <p className="text-muted-foreground">تعذر عرض الملف مباشرة</p>
-              <Button variant="outline" onClick={handleDownload} className="gap-2">
-                <Download className="h-4 w-4" />
-                تنزيل
-              </Button>
-              <Button variant="outline" asChild>
-                <a href={file.imagekitUrl} target="_blank" rel="noopener noreferrer">
-                  فتح في تبويب جديد
-                </a>
-              </Button>
             </div>
           )}
 
