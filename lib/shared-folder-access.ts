@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 import { z } from "zod";
 import { db, files, folders } from "@/lib/db";
@@ -7,17 +7,51 @@ export type SharedFolderRootResult =
   | { ok: true; root: typeof folders.$inferSelect }
   | { ok: false; reason: "invalid" | "not_found" | "forbidden" | "expired" };
 
+function normalizeShareToken(rawToken: string): string {
+  const trimmed = rawToken.trim();
+  if (!trimmed) return "";
+  try {
+    // Protect against double-encoded links copied from chats/email clients.
+    const decoded = decodeURIComponent(trimmed);
+    return decoded.trim();
+  } catch {
+    return trimmed;
+  }
+}
+
 export async function resolveSharedFolderRoot(token: string): Promise<SharedFolderRootResult> {
   noStore();
-  const t = token.trim();
+  const t = normalizeShareToken(token);
   if (!t || t.length < 8) return { ok: false, reason: "invalid" };
-  const [root] = await db.select().from(folders).where(eq(folders.shareToken, t)).limit(1);
-  if (!root) return { ok: false, reason: "not_found" };
-  if (!root.isPublic) return { ok: false, reason: "forbidden" };
-  if (root.shareExpiresAt && new Date(root.shareExpiresAt).getTime() <= Date.now()) {
-    return { ok: false, reason: "expired" };
+  try {
+    const [root] = await db
+      .select()
+      .from(folders)
+      .where(
+        or(
+          eq(folders.shareToken, t),
+          // Some edge proxies normalize URL path casing; keep links resilient.
+          sql`lower(${folders.shareToken}) = lower(${t})`
+        )
+      )
+      .limit(1);
+    if (!root) {
+      console.warn("resolveSharedFolderRoot:not_found", { token: t });
+      return { ok: false, reason: "not_found" };
+    }
+    if (!root.isPublic) {
+      console.warn("resolveSharedFolderRoot:not_public", { token: t, folderId: root.id });
+      return { ok: false, reason: "forbidden" };
+    }
+    if (root.shareExpiresAt && new Date(root.shareExpiresAt).getTime() <= Date.now()) {
+      console.warn("resolveSharedFolderRoot:expired", { token: t, folderId: root.id });
+      return { ok: false, reason: "expired" };
+    }
+    return { ok: true, root };
+  } catch (e) {
+    console.error("resolveSharedFolderRoot:failed", { token: t, error: e });
+    return { ok: false, reason: "not_found" };
   }
-  return { ok: true, root };
 }
 
 export function isFolderPathUnderSharedRoot(rootPath: string, candidatePath: string): boolean {

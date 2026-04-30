@@ -4,7 +4,7 @@ import { z } from "zod";
 import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
-import { nanoid } from "nanoid";
+import { customAlphabet } from "nanoid";
 import { db, folders, files, projects, folderAccess, teamMembers } from "@/lib/db";
 import { deleteFromR2 } from "@/lib/r2";
 import { authOptions } from "@/lib/auth";
@@ -15,6 +15,7 @@ import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
 import { getMemberAccessibleProjectFolderIds, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 
 export type FolderRow = typeof folders.$inferSelect;
+const nanoidLower = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 
 function storageKeyForFile(row: { r2Key: string | null }): string | null {
   const k = row.r2Key?.trim();
@@ -495,7 +496,13 @@ export async function setFolderPublicSharing(folderId: string, enabled: boolean)
     if (existing.isPublic === enabled && (!enabled || (existing.shareToken?.trim() ?? "").length > 0)) {
       return { ok: true as const, data: existing };
     }
-    const token = enabled ? (existing.shareToken?.trim() || nanoid(20)) : null;
+    const token = enabled ? (existing.shareToken?.trim() || nanoidLower()) : null;
+    console.log("setFolderPublicSharing", {
+      folderId: existing.id,
+      enabled,
+      token,
+      wasPublic: existing.isPublic,
+    });
     const [row] = await db
       .update(folders)
       .set({
