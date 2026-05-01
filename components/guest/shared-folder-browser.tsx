@@ -3,7 +3,7 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Download, FolderOpen, ChevronRight, Moon, Sun } from "lucide-react";
+import { Download, FolderOpen, ChevronRight, Moon, Sun, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -332,11 +332,21 @@ export function SharedFolderBrowser({
           className={cn(
             "flex max-h-[95vh] w-[95vw] max-w-[95vw] flex-col gap-0 overflow-hidden border-[var(--sfb-dlg-border)] bg-[var(--sfb-dlg-bg)] p-0 text-[var(--sfb-dlg-text)] sm:max-h-[90vh] sm:max-w-3xl"
           )}
-          showCloseButton
+          showCloseButton={false}
         >
           {preview ? (
             <>
-              <DialogHeader className="border-b border-[var(--sfb-dlg-border)] px-4 py-3 sm:px-6">
+              <DialogHeader className="relative border-b border-[var(--sfb-dlg-border)] px-4 py-3 pe-14 sm:px-6 sm:py-4 sm:pe-16">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-3 inset-e-4 z-10 shrink-0 rounded-full border-0 bg-red-500 shadow-md hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-black/25 sm:top-4"
+                  onClick={() => setPreview(null)}
+                  aria-label="إغلاق"
+                >
+                  <X className="size-4 shrink-0 stroke-black stroke-[2.75]" aria-hidden />
+                </Button>
                 <DialogTitle className="truncate text-start text-base">{preview.name}</DialogTitle>
                 <p className="text-start text-xs text-[var(--sfb-dlg-muted)]">
                   {formatSize(preview.sizeBytes)}

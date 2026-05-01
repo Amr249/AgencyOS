@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, Copy, Trash2, File, ZoomIn, ZoomOut, ExternalLink, Share2 } from "lucide-react";
+import { Download, Copy, Trash2, File, ZoomIn, ZoomOut, ExternalLink, Share2, X } from "lucide-react";
 import type { FileRow } from "@/lib/file-types";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
@@ -113,15 +113,16 @@ export function FilePreviewModal({
         <DialogHeader className="flex flex-row items-start justify-between gap-4 border-b px-4 py-3 sm:px-6 sm:py-4">
           <DialogTitle className="sr-only">{file.name}</DialogTitle>
           <Button
+            type="button"
             variant="ghost"
             size="icon"
-            className="absolute inset-s-4 top-4 h-8 w-8 shrink-0"
+            className="absolute top-4 inset-e-4 z-10 shrink-0 rounded-full border-0 bg-red-500 shadow-md hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-black/25"
             onClick={() => onOpenChange(false)}
             aria-label="إغلاق"
           >
-            <span className="text-lg leading-none">×</span>
+            <X className="size-4 shrink-0 stroke-black stroke-[2.75]" aria-hidden />
           </Button>
-          <div className="min-w-0 flex-1 ps-10 text-start">
+          <div className="min-w-0 flex-1 pe-12 text-start">
             <p className="truncate text-base font-bold" title={file.name}>
               {file.name}
             </p>
