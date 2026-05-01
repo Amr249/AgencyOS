@@ -160,6 +160,120 @@ function TreeBranch({
   const showUploadMenuItem = Boolean(showFolderUploadMenu && onUploadIntoFolder);
   const showMenu = hasFolderMenu || showUploadMenuItem;
 
+  const folderMenuSlot = showMenu ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          draggable={false}
+          className="size-7 shrink-0"
+          aria-label={isArabic ? "إجراءات المجلد" : "Folder actions"}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40" onClick={(e) => e.stopPropagation()}>
+        {showUploadMenuItem ? (
+          <DropdownMenuItem
+            onClick={() => {
+              onUploadIntoFolder?.(folder.id);
+            }}
+          >
+            <Upload className="size-4" />
+            {isArabic ? "رفع ملف" : "Upload file"}
+          </DropdownMenuItem>
+        ) : null}
+        {canShare ? (
+          <DropdownMenuItem
+            onClick={() => {
+              onShareRequest(folder);
+            }}
+          >
+            <Share2 className="size-4" />
+            {isArabic ? "مشاركة" : "Share"}
+          </DropdownMenuItem>
+        ) : null}
+        {canAccess ? (
+          <DropdownMenuItem
+            onClick={() => {
+              onAccessRequest(folder);
+            }}
+          >
+            <Users className="size-4" />
+            <span className="flex flex-1 items-center justify-between gap-2">
+              <span>{isArabic ? "إدارة الوصول" : "Manage access"}</span>
+              {accessCount > 0 ? (
+                <span className="text-muted-foreground bg-muted rounded px-1.5 py-0 text-[10px] font-medium tabular-nums">
+                  {accessCount}
+                </span>
+              ) : null}
+            </span>
+          </DropdownMenuItem>
+        ) : null}
+        {canRename ? (
+          <DropdownMenuItem
+            onClick={() => {
+              onRenameRequest(folder);
+            }}
+          >
+            <Pencil className="size-4" />
+            {isArabic ? "إعادة تسمية" : "Rename"}
+          </DropdownMenuItem>
+        ) : null}
+        {canDelete ? (
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => {
+              onDeleteRequest(folder);
+            }}
+          >
+            <Trash2 className="size-4" />
+            {isArabic ? "حذف" : "Delete"}
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : (
+    <span className="size-7 shrink-0" aria-hidden />
+  );
+
+  const expandSlot =
+    children.length > 0 ? (
+      <button
+        type="button"
+        draggable={false}
+        className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 items-center justify-center rounded"
+        aria-expanded={isOpen}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggle(folder.id);
+        }}
+      >
+        <span className="text-xs">{isOpen ? "▾" : isArabic ? "◂" : "▸"}</span>
+      </button>
+    ) : (
+      <span className="size-6 shrink-0" />
+    );
+
+  const labelSlot = (
+    <button
+      type="button"
+      draggable={false}
+      className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded px-0.5 py-0.5 text-start text-sm"
+      onClick={() => onSelectFolder(folder.id)}
+    >
+      <DriveFolderIcon systemType={folder.systemType} className="size-4 shrink-0" />
+      <span className="min-w-0 truncate font-medium">{folder.name}</span>
+      {showLock ? (
+        <Lock className="text-muted-foreground size-3.5 shrink-0 opacity-70" aria-hidden />
+      ) : null}
+      <span className="text-muted-foreground shrink-0 text-xs">({count})</span>
+    </button>
+  );
+
   return (
     <div className="min-w-0 select-none">
       <div
@@ -167,7 +281,7 @@ function TreeBranch({
         onDragStart={(e) => onDragFolderStart(folder, e)}
         onDragEnd={onDragFolderEnd}
         className={cn(
-          "group flex min-w-0 items-center gap-1 rounded-md py-1 pe-1 ps-1 hover:bg-muted/80",
+          "group flex min-w-0 items-center gap-0.5 rounded-md py-1 pe-0.5 ps-0.5 hover:bg-muted/80",
           isActive && "bg-muted",
           isDropTarget && "bg-primary/10 ring-1 ring-primary/40",
           isDraggingThisFolder && "opacity-50"
@@ -192,113 +306,18 @@ function TreeBranch({
           onDropTargetChange(null);
         }}
       >
-        {children.length > 0 ? (
-          <button
-            type="button"
-            draggable={false}
-            className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 items-center justify-center rounded"
-            aria-expanded={isOpen}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggle(folder.id);
-            }}
-          >
-            <span className="text-xs">{isOpen ? "▾" : isArabic ? "◂" : "▸"}</span>
-          </button>
+        {isArabic ? (
+          <>
+            {folderMenuSlot}
+            {labelSlot}
+            {expandSlot}
+          </>
         ) : (
-          <span className="size-6 shrink-0" />
-        )}
-        <button
-          type="button"
-          draggable={false}
-          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded px-1 py-0.5 text-start text-sm"
-          onClick={() => onSelectFolder(folder.id)}
-        >
-          <DriveFolderIcon systemType={folder.systemType} className="size-4 shrink-0" />
-          <span className="min-w-0 truncate font-medium">{folder.name}</span>
-          {showLock ? (
-            <Lock className="text-muted-foreground size-3.5 shrink-0 opacity-70" aria-hidden />
-          ) : null}
-          <span className="text-muted-foreground shrink-0 text-xs">({count})</span>
-        </button>
-        {showMenu ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                draggable={false}
-                className="size-7 shrink-0"
-                aria-label={isArabic ? "إجراءات المجلد" : "Folder actions"}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-40" onClick={(e) => e.stopPropagation()}>
-              {showUploadMenuItem ? (
-                <DropdownMenuItem
-                  onClick={() => {
-                    onUploadIntoFolder?.(folder.id);
-                  }}
-                >
-                  <Upload className="size-4" />
-                  {isArabic ? "رفع ملف" : "Upload file"}
-                </DropdownMenuItem>
-              ) : null}
-              {canShare ? (
-                <DropdownMenuItem
-                  onClick={() => {
-                    onShareRequest(folder);
-                  }}
-                >
-                  <Share2 className="size-4" />
-                  {isArabic ? "مشاركة" : "Share"}
-                </DropdownMenuItem>
-              ) : null}
-              {canAccess ? (
-                <DropdownMenuItem
-                  onClick={() => {
-                    onAccessRequest(folder);
-                  }}
-                >
-                  <Users className="size-4" />
-                  <span className="flex flex-1 items-center justify-between gap-2">
-                    <span>{isArabic ? "إدارة الوصول" : "Manage access"}</span>
-                    {accessCount > 0 ? (
-                      <span className="text-muted-foreground bg-muted rounded px-1.5 py-0 text-[10px] font-medium tabular-nums">
-                        {accessCount}
-                      </span>
-                    ) : null}
-                  </span>
-                </DropdownMenuItem>
-              ) : null}
-              {canRename ? (
-                <DropdownMenuItem
-                  onClick={() => {
-                    onRenameRequest(folder);
-                  }}
-                >
-                  <Pencil className="size-4" />
-                  {isArabic ? "إعادة تسمية" : "Rename"}
-                </DropdownMenuItem>
-              ) : null}
-              {canDelete ? (
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => {
-                    onDeleteRequest(folder);
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                  {isArabic ? "حذف" : "Delete"}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <span className="size-7 shrink-0" aria-hidden />
+          <>
+            {expandSlot}
+            {labelSlot}
+            {folderMenuSlot}
+          </>
         )}
       </div>
       {isOpen && children.length > 0 ? (
