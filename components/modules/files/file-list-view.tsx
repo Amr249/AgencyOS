@@ -147,28 +147,31 @@ export function FileListView({
           ? "indeterminate"
           : false;
 
+  const selectColClass = "w-10 min-w-10 max-w-10 px-1 align-middle";
+  const selectColInner = "flex h-9 min-h-9 items-center justify-center";
+
   return (
     <div className={cn("rounded-md border", className)}>
-      <Table>
+      <Table className="[&_th]:px-1.5 [&_td]:px-1.5">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-12">
+            <TableHead className={cn(selectColClass, "text-center")}>
               {showBulk ? (
-                <span className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                <div className={selectColInner} onClick={(e) => e.stopPropagation()}>
                   <Checkbox
                     checked={headerCheckboxState}
                     disabled={totalSelectableInView === 0}
                     onCheckedChange={(v) => onToggleSelectAllInView?.(v === true)}
                     aria-label={isArabic ? "تحديد الكل في هذا العرض" : "Select all in view"}
                   />
-                </span>
+                </div>
               ) : null}
             </TableHead>
-            <TableHead>{isArabic ? "الاسم" : "Name"}</TableHead>
+            <TableHead className="min-w-0">{isArabic ? "الاسم" : "Name"}</TableHead>
             <TableHead className="hidden sm:table-cell">{isArabic ? "الحجم" : "Size"}</TableHead>
             <TableHead className="hidden md:table-cell">{isArabic ? "التاريخ" : "Date"}</TableHead>
             <TableHead className="hidden lg:table-cell">{isArabic ? "النوع" : "Type"}</TableHead>
-            <TableHead className="w-44 min-w-44 text-end">
+            <TableHead className="w-auto min-w-0 max-w-44 text-end whitespace-normal px-1">
               {isArabic ? "إجراءات" : "Actions"}
             </TableHead>
           </TableRow>
@@ -219,29 +222,40 @@ export function FileListView({
                   if (!rel || !e.currentTarget.contains(rel)) onDropTargetChange?.(null);
                 }}
               >
-                <TableCell onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
-                  <div className="flex items-center gap-2">
+                <TableCell className={selectColClass} onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
+                  <div className={selectColInner}>
                     {showBulk && canDel ? (
-                      <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+                      <span onClick={(e) => e.stopPropagation()} className="inline-flex shrink-0">
                         <Checkbox
                           checked={selectedFolderIds.has(f.id)}
                           onCheckedChange={() => onToggleFolderSelect?.(f.id)}
                           aria-label={isArabic ? "تحديد المجلد" : "Select folder"}
                         />
                       </span>
-                    ) : null}
-                    <div
-                      className={cn(
-                        "flex size-9 shrink-0 items-center justify-center rounded-md",
-                        driveFolderPreviewSurfaceClass(f.systemType)
-                      )}
-                    >
-                      <DriveFolderIcon systemType={f.systemType} className="size-4" />
-                    </div>
+                    ) : (
+                      <div
+                        className={cn(
+                          "flex size-9 shrink-0 items-center justify-center rounded-md",
+                          driveFolderPreviewSurfaceClass(f.systemType)
+                        )}
+                      >
+                        <DriveFolderIcon systemType={f.systemType} className="size-4" />
+                      </div>
+                    )}
                   </div>
                 </TableCell>
-                <TableCell className="font-medium" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
-                  <div className="flex min-w-0 items-center gap-2">
+                <TableCell className="min-w-0 font-medium" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {showBulk && canDel ? (
+                      <div
+                        className={cn(
+                          "flex size-9 shrink-0 items-center justify-center rounded-md",
+                          driveFolderPreviewSurfaceClass(f.systemType)
+                        )}
+                      >
+                        <DriveFolderIcon systemType={f.systemType} className="size-4" />
+                      </div>
+                    ) : null}
                     {showDriveFolderLock(f) ? (
                       <Lock className="text-muted-foreground size-3.5 shrink-0 opacity-70" aria-hidden />
                     ) : null}
@@ -265,9 +279,9 @@ export function FileListView({
                 <TableCell className="hidden lg:table-cell" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
                   {isArabic ? "مجلد" : "Folder"} · {fileCountByFolderId.get(f.id) ?? 0}
                 </TableCell>
-                <TableCell className="text-end" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
+                <TableCell className="max-w-44 text-end" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
                   {hasFolderActions ? (
-                    <div className="flex flex-nowrap items-center justify-end gap-0.5">
+                    <div className="flex flex-nowrap items-center justify-end gap-0">
                       {canShr ? (
                         <Button
                           type="button"
@@ -387,29 +401,32 @@ export function FileListView({
               }}
             >
               <TableCell
+                className={selectColClass}
                 onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
                 onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
               >
-                <div className="flex items-center gap-2">
+                <div className={selectColInner}>
                   {showBulk ? (
-                    <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+                    <span onClick={(e) => e.stopPropagation()} className="inline-flex shrink-0">
                       <Checkbox
                         checked={selectedFileIds.has(file.id)}
                         onCheckedChange={() => onToggleFileSelect?.(file.id)}
                         aria-label={isArabic ? "تحديد الملف" : "Select file"}
                       />
                     </span>
-                  ) : null}
-                  <FileTypeIcon name={file.name} mimeType={file.mimeType} compact />
+                  ) : (
+                    <FileTypeIcon name={file.name} mimeType={file.mimeType} compact />
+                  )}
                 </div>
               </TableCell>
               <TableCell
-                className="max-w-[220px] font-medium"
+                className="max-w-[220px] min-w-0 font-medium"
                 title={file.name}
                 onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
                 onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
               >
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {showBulk ? <FileTypeIcon name={file.name} mimeType={file.mimeType} compact /> : null}
                   {file.isPublic && file.shareToken ? (
                     <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px] font-normal">
                       {isArabic ? "مشارك" : "Shared"}
@@ -440,11 +457,11 @@ export function FileListView({
                 {typeLabel(file.name, file.mimeType, isArabic)}
               </TableCell>
               <TableCell
-                className="text-end"
+                className="max-w-44 text-end"
                 onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
                 onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
               >
-                <div className="flex justify-end gap-0.5">
+                <div className="flex justify-end gap-0">
                   {onShareFile ? (
                     <Button
                       type="button"

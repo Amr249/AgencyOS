@@ -175,7 +175,7 @@ function TreeBranch({
           <MoreHorizontal className="size-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40" onClick={(e) => e.stopPropagation()}>
+      <DropdownMenuContent align={isArabic ? "start" : "end"} className="min-w-40" onClick={(e) => e.stopPropagation()}>
         {showUploadMenuItem ? (
           <DropdownMenuItem
             onClick={() => {
@@ -252,7 +252,7 @@ function TreeBranch({
           toggle(folder.id);
         }}
       >
-        <span className="text-xs">{isOpen ? "▾" : isArabic ? "◂" : "▸"}</span>
+        <span className="text-xs">{isOpen ? "▾" : "▸"}</span>
       </button>
     ) : (
       <span className="size-6 shrink-0" />
@@ -262,7 +262,7 @@ function TreeBranch({
     <button
       type="button"
       draggable={false}
-      className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded px-0.5 py-0.5 text-start text-sm"
+      className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded px-0 py-0.5 text-start text-sm"
       onClick={() => onSelectFolder(folder.id)}
     >
       <DriveFolderIcon systemType={folder.systemType} className="size-4 shrink-0" />
@@ -281,12 +281,12 @@ function TreeBranch({
         onDragStart={(e) => onDragFolderStart(folder, e)}
         onDragEnd={onDragFolderEnd}
         className={cn(
-          "group flex min-w-0 items-center gap-0.5 rounded-md py-1 pe-0.5 ps-0.5 hover:bg-muted/80",
+          "group flex min-w-0 items-center gap-0 rounded-md py-0.5 px-0 hover:bg-muted/80",
           isActive && "bg-muted",
           isDropTarget && "bg-primary/10 ring-1 ring-primary/40",
           isDraggingThisFolder && "opacity-50"
         )}
-        style={{ paddingInlineStart: 8 + depth * 12 }}
+        style={{ paddingInlineStart: 4 + depth * 8 }}
         onDragOver={(e) => {
           if (dataTransferHasDriveFile(e.dataTransfer.types) || dataTransferHasDriveFolder(e.dataTransfer.types)) {
             e.preventDefault();
@@ -306,19 +306,9 @@ function TreeBranch({
           onDropTargetChange(null);
         }}
       >
-        {isArabic ? (
-          <>
-            {folderMenuSlot}
-            {labelSlot}
-            {expandSlot}
-          </>
-        ) : (
-          <>
-            {expandSlot}
-            {labelSlot}
-            {folderMenuSlot}
-          </>
-        )}
+        {expandSlot}
+        {labelSlot}
+        {folderMenuSlot}
       </div>
       {isOpen && children.length > 0 ? (
         <div>
