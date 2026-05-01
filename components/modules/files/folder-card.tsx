@@ -4,6 +4,7 @@ import { Lock, Pencil, Share2, Trash2, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { FolderRow } from "@/actions/folders";
 import { DriveFolderIcon, driveFolderPreviewSurfaceClass } from "@/components/modules/files/drive-folder-icon";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,9 @@ type FolderCardProps = {
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
   canManageFolderAccess?: boolean;
+  bulkSelectEnabled?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 };
 
 export function FolderCard({
@@ -58,6 +62,9 @@ export function FolderCard({
   formatDate,
   className,
   canManageFolderAccess = true,
+  bulkSelectEnabled = false,
+  selected = false,
+  onToggleSelect,
 }: FolderCardProps) {
   const isArabic = useLocale() === "ar";
   const dateLabel = formatDate(new Date(displayDateMs));
@@ -108,6 +115,14 @@ export function FolderCard({
     >
       <CardContent className="flex flex-col items-center gap-2 p-4 text-center">
         <div className="relative mx-auto w-full max-w-[200px]">
+          {bulkSelectEnabled && onToggleSelect ? (
+            <div
+              className="absolute start-2 top-2 z-20 rounded-md bg-background/90 p-0.5 shadow-sm"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Checkbox checked={selected} onCheckedChange={() => onToggleSelect()} aria-label={isArabic ? "تحديد" : "Select"} />
+            </div>
+          ) : null}
           <div
             className={cn(
               "flex h-[120px] w-full items-center justify-center rounded-lg border-b",

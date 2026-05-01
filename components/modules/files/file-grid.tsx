@@ -5,6 +5,9 @@ import type { FolderRow } from "@/actions/folders";
 import { FolderCard } from "@/components/modules/files/folder-card";
 import { FileCard } from "@/components/modules/files/file-card";
 import { cn } from "@/lib/utils";
+import {
+  canDeleteDriveFolder,
+} from "@/lib/drive-folder-permissions";
 
 type FileGridProps = {
   childFolders: FolderRow[];
@@ -34,6 +37,11 @@ type FileGridProps = {
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
   canManageFolderAccess?: boolean;
+  bulkSelectEnabled?: boolean;
+  selectedFileIds?: ReadonlySet<string>;
+  selectedFolderIds?: ReadonlySet<string>;
+  onToggleFileSelect?: (fileId: string) => void;
+  onToggleFolderSelect?: (folderId: string) => void;
 };
 
 export function FileGrid({
@@ -64,6 +72,11 @@ export function FileGrid({
   formatDate,
   className,
   canManageFolderAccess = true,
+  bulkSelectEnabled = false,
+  selectedFileIds = new Set(),
+  selectedFolderIds = new Set(),
+  onToggleFileSelect,
+  onToggleFolderSelect,
 }: FileGridProps) {
   return (
     <div
@@ -99,6 +112,13 @@ export function FileGrid({
           formatSize={formatSize}
           formatDate={formatDate}
           canManageFolderAccess={canManageFolderAccess}
+          bulkSelectEnabled={bulkSelectEnabled && Boolean(onToggleFolderSelect) && canDeleteDriveFolder(f)}
+          selected={selectedFolderIds.has(f.id)}
+          onToggleSelect={
+            bulkSelectEnabled && onToggleFolderSelect && canDeleteDriveFolder(f)
+              ? () => onToggleFolderSelect(f.id)
+              : undefined
+          }
         />
       ))}
       {files.map((file) => (
@@ -114,6 +134,11 @@ export function FileGrid({
           onDragEnd={onDragFileEnd}
           formatSize={formatSize}
           formatDate={formatDate}
+          bulkSelectEnabled={bulkSelectEnabled && Boolean(onToggleFileSelect)}
+          selected={selectedFileIds.has(file.id)}
+          onToggleSelect={
+            bulkSelectEnabled && onToggleFileSelect ? () => onToggleFileSelect(file.id) : undefined
+          }
         />
       ))}
     </div>

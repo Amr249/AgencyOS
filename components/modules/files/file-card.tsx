@@ -4,6 +4,7 @@ import { Download, Link as LinkIcon, Share2, Trash2 } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FileTypeIcon, getFileVisualKind } from "@/components/modules/files/file-type-icon";
 import type { FileRow } from "@/lib/file-types";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,9 @@ type FileCardProps = {
   onDragEnd?: () => void;
   formatSize: (n: number | null | undefined) => string;
   formatDate: (d: Date | string | null | undefined) => string;
+  bulkSelectEnabled?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 };
 
 export function FileCard({
@@ -32,6 +36,9 @@ export function FileCard({
   onDragEnd,
   formatSize,
   formatDate,
+  bulkSelectEnabled = false,
+  selected = false,
+  onToggleSelect,
 }: FileCardProps) {
   const isArabic = useLocale() === "ar";
   const kind = getFileVisualKind(file.name, file.mimeType);
@@ -66,6 +73,14 @@ export function FileCard({
     >
       <CardContent className="p-0">
         <div className="relative mx-auto w-full max-w-[200px] overflow-hidden rounded-t-md border-b bg-muted">
+          {bulkSelectEnabled && onToggleSelect ? (
+            <div
+              className="absolute start-2 top-2 z-20 rounded-md bg-background/90 p-0.5 shadow-sm"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Checkbox checked={selected} onCheckedChange={() => onToggleSelect()} aria-label={isArabic ? "تحديد" : "Select"} />
+            </div>
+          ) : null}
           {file.isPublic && file.shareToken ? (
             <div className="absolute inset-e-1 top-1 z-1 rounded-full bg-black/60 p-1 text-white" title={isArabic ? "مشارك" : "Shared"}>
               <LinkIcon className="size-3.5" />

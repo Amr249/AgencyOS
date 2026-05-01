@@ -6,8 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { isDriveActionErrorKey } from "@/lib/drive-action-error-keys";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Grid3x3, List, Search, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, Grid3x3, List, Search, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -55,6 +56,7 @@ import {
   type FolderRow,
 } from "@/actions/folders";
 import { DRIVE_FILE_DRAG_MIME, DRIVE_FOLDER_DRAG_MIME } from "@/lib/drive-dnd";
+import { canDeleteDriveFolder } from "@/lib/drive-folder-permissions";
 import type { FileRow } from "@/lib/file-types";
 import { driveEntityPathFromFolder } from "@/lib/drive-upload-path";
 import { folderSharePageUrl } from "@/lib/public-app-url";
@@ -145,6 +147,20 @@ function collectSubtreeFolderIds(rootId: string, allFolders: FolderRow[]): Set<s
     frontier = children.map((c) => c.id);
   }
   return out;
+}
+
+/** For bulk delete: keep only folders that are not under another selected folder (path prefix). */
+function filterTopLevelSelectedFolders(selectedIds: ReadonlySet<string>, allFolders: FolderRow[]): FolderRow[] {
+  const rows = allFolders.filter((f) => selectedIds.has(f.id));
+  return rows.filter((f) => {
+    const fp = f.path ?? "";
+    for (const g of rows) {
+      if (g.id === f.id) continue;
+      const gp = g.path ?? "";
+      if (gp && fp.startsWith(`${gp}/`)) return false;
+    }
+    return true;
+  });
 }
 
 const FOLDER_ID_PARAM_RE =
@@ -281,6 +297,10 @@ export function FileManager({
   const [createFolderOpen, setCreateFolderOpen] = React.useState(false);
   const [isDeletingFile, setIsDeletingFile] = React.useState(false);
   const [isDeletingFolder, setIsDeletingFolder] = React.useState(false);
+  const [selectedFileIds, setSelectedFileIds] = React.useState(() => new Set<string>());
+  const [selectedFolderIds, setSelectedFolderIds] = React.useState(() => new Set<string>());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = React.useState(false);
   const [dragDepth, setDragDepth] = React.useState(0);
   const [draggingFileId, setDraggingFileId] = React.useState<string | null>(null);
   const [draggingFolderId, setDraggingFolderId] = React.useState<string | null>(null);
@@ -581,6 +601,88 @@ export function FileManager({
     folderSizeBytesByFolderId,
     folderDisplayDateMsByFolderId,
   ]);
+
+  const bulkActionsEnabled = Boolean(clientId || projectId || standalone);
+
+  const clearDriveSelection = React.useCallback(() => {
+    setSelectedFileIds(new Set());
+    setSelectedFolderIds(new Set());
+  }, []);
+
+  React.useEffect(() => {
+    clearDriveSelection();
+  }, [currentFolderId, clearDriveSelection]);
+
+  const selectableFolderIdsInView = React.useMemo(
+    () => childFoldersSorted.filter((f) => canDeleteDriveFolder(f)).map((f) => f.id),
+    [childFoldersSorted]
+  );
+  const selectableFileIdsInView = React.useMemo(() => filesInScope.map((f) => f.id), [filesInScope]);
+
+  const selectedInViewCount = React.useMemo(() => {
+    let n = 0;
+    for (const id of selectableFileIdsInView) {
+      if (selectedFileIds.has(id)) n++;
+    }
+    for (const id of selectableFolderIdsInView) {
+      if (selectedFolderIds.has(id)) n++;
+    }
+    return n;
+  }, [selectableFileIdsInView, selectableFolderIdsInView, selectedFileIds, selectedFolderIds]);
+
+  const totalSelectableInView = selectableFileIdsInView.length + selectableFolderIdsInView.length;
+
+  const selectAllInView = React.useCallback(() => {
+    setSelectedFileIds(new Set(selectableFileIdsInView));
+    setSelectedFolderIds(new Set(selectableFolderIdsInView));
+  }, [selectableFileIdsInView, selectableFolderIdsInView]);
+
+  const clearSelectionInViewOnly = React.useCallback(() => {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      for (const id of selectableFileIdsInView) next.delete(id);
+      return next;
+    });
+    setSelectedFolderIds((prev) => {
+      const next = new Set(prev);
+      for (const id of selectableFolderIdsInView) next.delete(id);
+      return next;
+    });
+  }, [selectableFileIdsInView, selectableFolderIdsInView]);
+
+  const toggleSelectAllInView = React.useCallback(
+    (checked: boolean) => {
+      if (checked) selectAllInView();
+      else clearSelectionInViewOnly();
+    },
+    [selectAllInView, clearSelectionInViewOnly]
+  );
+
+  const toggleFileSelection = React.useCallback((fileId: string) => {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  }, []);
+
+  const toggleFolderSelection = React.useCallback((folderId: string) => {
+    setSelectedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }, []);
+
+  const selectionTotalCount = selectedFileIds.size + selectedFolderIds.size;
+
+  const bulkDeleteSummary = React.useMemo(() => {
+    const nFiles = selectedFileIds.size;
+    const foldersToDelete = filterTopLevelSelectedFolders(selectedFolderIds, folders);
+    return { nFiles, nFolders: foldersToDelete.length };
+  }, [selectedFileIds, selectedFolderIds, folders]);
 
   const crumbs = React.useMemo(
     () => breadcrumbsForFolder(folders, currentFolderId),
@@ -1097,6 +1199,57 @@ export function FileManager({
     }
   };
 
+  const handleBulkDeleteConfirm = async () => {
+    const snapshotFolders = folders;
+    const fileIds = [...selectedFileIds];
+    const folderRows = filterTopLevelSelectedFolders(selectedFolderIds, snapshotFolders).sort(
+      (a, b) => (b.path?.length ?? 0) - (a.path?.length ?? 0)
+    );
+    setIsBulkDeleting(true);
+    let fileFail = 0;
+    for (const id of fileIds) {
+      const result = await deleteFile(id);
+      if (result.ok) {
+        setFiles((prev) => prev.filter((f) => f.id !== id));
+      } else {
+        fileFail++;
+      }
+    }
+    let folderFail = 0;
+    for (const folder of folderRows) {
+      const result = await deleteFolder(folder.id);
+      if (result.ok) {
+        const subtree = collectSubtreeFolderIds(folder.id, snapshotFolders);
+        setFolders((prev) => prev.filter((f) => !subtree.has(f.id)));
+        setFiles((prev) => prev.filter((f) => !f.folderId || !subtree.has(f.folderId)));
+        if (currentFolderId && subtree.has(currentFolderId)) {
+          navigateToFolder(null);
+        }
+      } else {
+        folderFail++;
+      }
+    }
+    refreshFolders();
+    router.refresh();
+    if (isAgencyStandaloneDrive) void refreshDriveFolderStats();
+    setIsBulkDeleting(false);
+    setBulkDeleteOpen(false);
+    clearDriveSelection();
+    if (fileFail === 0 && folderFail === 0) {
+      toast.success(
+        isArabic
+          ? `تم حذف ${fileIds.length} ملفًا و${folderRows.length} مجلدًا.`
+          : `Deleted ${fileIds.length} file(s) and ${folderRows.length} folder(s).`
+      );
+    } else {
+      toast.error(
+        isArabic
+          ? `لم يكتمل الحذف (ملفات فاشلة: ${fileFail}، مجلدات فاشلة: ${folderFail}).`
+          : `Some items could not be deleted (files: ${fileFail}, folders: ${folderFail}).`
+      );
+    }
+  };
+
   const handleCopyLink = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
@@ -1497,6 +1650,11 @@ export function FileManager({
                   <DropdownMenuItem onClick={() => setSortKey("size")}>{isArabic ? "حسب الحجم" : "By size"}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {bulkActionsEnabled && totalSelectableInView > 0 ? (
+                <Button type="button" variant="outline" size="sm" onClick={selectAllInView}>
+                  {isArabic ? "تحديد الكل" : "Select all"}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 className="gap-2"
@@ -1526,6 +1684,30 @@ export function FileManager({
               </Button>
             </div>
           </div>
+
+          {bulkActionsEnabled && selectionTotalCount > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm">
+              <span className="text-muted-foreground grow font-medium">
+                {isArabic
+                  ? `${selectionTotalCount} عنصر محدد`
+                  : `${selectionTotalCount} selected`}
+              </span>
+              <Button type="button" size="sm" variant="outline" onClick={clearDriveSelection} disabled={isBulkDeleting}>
+                {isArabic ? "إلغاء التحديد" : "Clear selection"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="gap-1.5"
+                disabled={isBulkDeleting}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                <Trash2 className="size-4" />
+                {isArabic ? "حذف المحدد" : "Delete selected"}
+              </Button>
+            </div>
+          ) : null}
 
           <input
             ref={inputRef}
@@ -1609,6 +1791,11 @@ export function FileManager({
                 fileCountByFolderId={fileCountByFolderId}
                 folderSizeBytesByFolderId={folderSizeBytesByFolderId}
                 folderDisplayDateMsByFolderId={folderDisplayDateMsByFolderId}
+                bulkSelectEnabled={bulkActionsEnabled}
+                selectedFileIds={selectedFileIds}
+                selectedFolderIds={selectedFolderIds}
+                onToggleFileSelect={toggleFileSelection}
+                onToggleFolderSelect={toggleFolderSelection}
                 onOpenFolder={(id) => navigateToFolder(id)}
                 onRenameFolder={(f) => setRenameFolderTarget(f)}
                 onDeleteFolder={(f) => setDeleteFolderTarget(f)}
@@ -1664,6 +1851,14 @@ export function FileManager({
                 fileCountByFolderId={fileCountByFolderId}
                 folderSizeBytesByFolderId={folderSizeBytesByFolderId}
                 folderDisplayDateMsByFolderId={folderDisplayDateMsByFolderId}
+                bulkSelectEnabled={bulkActionsEnabled}
+                selectedFileIds={selectedFileIds}
+                selectedFolderIds={selectedFolderIds}
+                onToggleFileSelect={toggleFileSelection}
+                onToggleFolderSelect={toggleFolderSelection}
+                selectedInViewCount={selectedInViewCount}
+                totalSelectableInView={totalSelectableInView}
+                onToggleSelectAllInView={toggleSelectAllInView}
                 onOpenFolder={(id) => navigateToFolder(id)}
                 onRenameFolder={(f) => setRenameFolderTarget(f)}
                 onDeleteFolder={(f) => setDeleteFolderTarget(f)}
@@ -1907,6 +2102,36 @@ export function FileManager({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeletingFolder ? (isArabic ? "جاري الحذف…" : "Deleting...") : isArabic ? "حذف" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => !open && !isBulkDeleting && setBulkDeleteOpen(false)}>
+        <AlertDialogContent className="w-[95vw] max-w-md sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{isArabic ? "حذف العناصر المحددة" : "Delete selected items"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isArabic
+                ? "سيتم حذف الملفات والمجلدات المحددة نهائياً. المجلدات تشمل كل محتوياتها. لا يمكن التراجع."
+                : "Permanently delete the selected files and folders? Folders include all contents. This cannot be undone."}{" "}
+              {isArabic
+                ? `(${bulkDeleteSummary.nFiles} ملف، ${bulkDeleteSummary.nFolders} مجلد بعد دمج التحديدات المتداخلة)`
+                : `(${bulkDeleteSummary.nFiles} file(s), ${bulkDeleteSummary.nFolders} folder(s) after merging nested selections)`}
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}>{isArabic ? "إلغاء" : "Cancel"}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleBulkDeleteConfirm();
+              }}
+              disabled={isBulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isBulkDeleting ? (isArabic ? "جاري الحذف…" : "Deleting...") : isArabic ? "حذف الكل" : "Delete all"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

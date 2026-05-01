@@ -6,6 +6,7 @@ import type { FileRow } from "@/lib/file-types";
 import type { FolderRow } from "@/actions/folders";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -54,6 +55,15 @@ type FileListViewProps = {
   formatDate: (d: Date | string | null | undefined) => string;
   className?: string;
   canManageFolderAccess?: boolean;
+  /** Multi-select + bulk delete (drive). */
+  bulkSelectEnabled?: boolean;
+  selectedFileIds?: ReadonlySet<string>;
+  selectedFolderIds?: ReadonlySet<string>;
+  onToggleFileSelect?: (fileId: string) => void;
+  onToggleFolderSelect?: (folderId: string) => void;
+  selectedInViewCount?: number;
+  totalSelectableInView?: number;
+  onToggleSelectAllInView?: (checked: boolean) => void;
 };
 
 function typeLabel(name: string, mime: string | null | undefined, isArabic: boolean): string {
@@ -108,17 +118,52 @@ export function FileListView({
   formatDate,
   className,
   canManageFolderAccess = true,
+  bulkSelectEnabled = false,
+  selectedFileIds = new Set(),
+  selectedFolderIds = new Set(),
+  onToggleFileSelect,
+  onToggleFolderSelect,
+  selectedInViewCount = 0,
+  totalSelectableInView = 0,
+  onToggleSelectAllInView,
 }: FileListViewProps) {
   const isArabic = useLocale() === "ar";
   const hasRows = childFolders.length > 0 || files.length > 0;
   if (!hasRows) return null;
+
+  const showBulk = Boolean(
+    bulkSelectEnabled &&
+      onToggleFileSelect &&
+      onToggleFolderSelect &&
+      onToggleSelectAllInView &&
+      totalSelectableInView > 0
+  );
+  const headerCheckboxState: boolean | "indeterminate" =
+    totalSelectableInView === 0
+      ? false
+      : selectedInViewCount === totalSelectableInView
+        ? true
+        : selectedInViewCount > 0
+          ? "indeterminate"
+          : false;
 
   return (
     <div className={cn("rounded-md border", className)}>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-12" />
+            <TableHead className="w-12">
+              {showBulk ? (
+                <span className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={headerCheckboxState}
+                    disabled={totalSelectableInView === 0}
+                    onCheckedChange={(v) => onToggleSelectAllInView?.(v === true)}
+                    aria-label={isArabic ? "تحديد الكل في هذا العرض" : "Select all in view"}
+                  />
+                </span>
+              ) : null}
+            </TableHead>
             <TableHead>{isArabic ? "الاسم" : "Name"}</TableHead>
             <TableHead className="hidden sm:table-cell">{isArabic ? "الحجم" : "Size"}</TableHead>
             <TableHead className="hidden md:table-cell">{isArabic ? "التاريخ" : "Date"}</TableHead>
@@ -175,13 +220,24 @@ export function FileListView({
                 }}
               >
                 <TableCell onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
-                  <div
-                    className={cn(
-                      "flex size-9 items-center justify-center rounded-md",
-                      driveFolderPreviewSurfaceClass(f.systemType)
-                    )}
-                  >
-                    <DriveFolderIcon systemType={f.systemType} className="size-4" />
+                  <div className="flex items-center gap-2">
+                    {showBulk && canDel ? (
+                      <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+                        <Checkbox
+                          checked={selectedFolderIds.has(f.id)}
+                          onCheckedChange={() => onToggleFolderSelect?.(f.id)}
+                          aria-label={isArabic ? "تحديد المجلد" : "Select folder"}
+                        />
+                      </span>
+                    ) : null}
+                    <div
+                      className={cn(
+                        "flex size-9 shrink-0 items-center justify-center rounded-md",
+                        driveFolderPreviewSurfaceClass(f.systemType)
+                      )}
+                    >
+                      <DriveFolderIcon systemType={f.systemType} className="size-4" />
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell className="font-medium" onDragOver={onFolderCellDragOver} onDrop={onFolderCellDrop}>
@@ -334,7 +390,18 @@ export function FileListView({
                 onDragOver={fileRowCanReceive ? onFileRowCellDragOver : undefined}
                 onDrop={fileRowCanReceive ? onFileRowCellDrop : undefined}
               >
-                <FileTypeIcon name={file.name} mimeType={file.mimeType} compact />
+                <div className="flex items-center gap-2">
+                  {showBulk ? (
+                    <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+                      <Checkbox
+                        checked={selectedFileIds.has(file.id)}
+                        onCheckedChange={() => onToggleFileSelect?.(file.id)}
+                        aria-label={isArabic ? "تحديد الملف" : "Select file"}
+                      />
+                    </span>
+                  ) : null}
+                  <FileTypeIcon name={file.name} mimeType={file.mimeType} compact />
+                </div>
               </TableCell>
               <TableCell
                 className="max-w-[220px] font-medium"
