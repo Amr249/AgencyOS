@@ -25,6 +25,17 @@ export type DriveFolderDirectFileStat = {
   newestAt: string | null;
 };
 
+/** Neon/pg drivers may return timestamps as strings; normalize for JSON/ISO. */
+function coerceDbTimestampToIso(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? null : value.toISOString();
+  }
+  const d = new Date(value as string | number);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 /** Folder ids for agency drive (/drive, /member-drive): `contentIds` for file listing; admin uses full tree. */
 async function driveViewScopedFolderIdsForUser(): Promise<
   { ok: true; contentIds: string[] } | { ok: false; error: string }
@@ -75,7 +86,7 @@ export async function getDriveFolderDirectFileStats(): Promise<
         folderId: r.folderId!,
         fileCount: Number(r.cnt ?? 0),
         totalBytes: Number(r.bytes ?? 0),
-        newestAt: r.newest ? r.newest.toISOString() : null,
+        newestAt: coerceDbTimestampToIso(r.newest),
       }));
     return { ok: true, data };
   } catch (e) {
