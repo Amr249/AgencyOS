@@ -4,7 +4,7 @@ import { getClientsList, getClientById } from "@/actions/clients";
 import { getProjects, getProjectById, getProjectsByClientId, getProjectTaskCounts } from "@/actions/projects";
 import { getInvoices, getInvoiceStatsWithPayments, getInvoicesByClientId } from "@/actions/invoices";
 import { getExpenses, getExpensesSummary } from "@/actions/expenses";
-import { getTasks, getTasksByProjectId } from "@/actions/tasks";
+import { getTasks, getTasksByProjectId, getTasksSnapshotForAiChat, type AiTaskAssigneeSnapshot } from "@/actions/tasks";
 import { getTeamMembers } from "@/actions/team";
 import { getDashboardData, type DashboardData } from "@/actions/dashboard";
 import { getProposals, getProposalStats } from "@/actions/proposals";
@@ -142,6 +142,43 @@ function formatTasksContext(
         `- ${t.title} | Project: ${t.projectName || "N/A"} | Status: ${t.status} | Priority: ${t.priority} | Due: ${ymd(t.dueDate)}`
     )
     .join("\n");
+  return ctx;
+}
+
+/** Rich task list for AI: includes Assignee(s) from DB (primary + multi-assign). */
+function formatTasksWithAssigneesContext(rows: AiTaskAssigneeSnapshot[]): string {
+  if (!rows.length) return "TASKS (with assignees): No tasks found.";
+
+  const open = rows.filter((t) => t.status !== "done");
+  const overdue = open.filter((t) => t.daysOverdue != null && t.daysOverdue > 0);
+
+  let ctx = `TASKS WITH ASSIGNEES (root tasks only; snapshot up to ${rows.length} rows).\n`;
+  ctx += `Assignee(s) uses the primary assignee on the task plus anyone in task_assignments. "Unassigned" means no one is linked.\n`;
+  ctx += `Summary: ${open.length} not done | ${overdue.length} overdue (due date before today, status not done).\n\n`;
+
+  if (overdue.length) {
+    ctx += `OVERDUE TASKS (first ${Math.min(45, overdue.length)}):\n`;
+    ctx += overdue
+      .slice(0, 45)
+      .map(
+        (t) =>
+          `- ${t.title} | Assignee(s): ${t.assigneeNames} | Project: ${t.projectName} | Status: ${t.status} | Priority: ${t.priority} | Due: ${ymd(t.dueDate)} | Days overdue: ${t.daysOverdue}`
+      )
+      .join("\n");
+    ctx += "\n\n";
+  }
+
+  const notOverdueOpen = open.filter((t) => !(t.daysOverdue != null && t.daysOverdue > 0)).slice(0, 35);
+  if (notOverdueOpen.length) {
+    ctx += `OTHER OPEN TASKS (not done, max 35):\n`;
+    ctx += notOverdueOpen
+      .map(
+        (t) =>
+          `- ${t.title} | Assignee(s): ${t.assigneeNames} | Project: ${t.projectName} | Status: ${t.status} | Priority: ${t.priority} | Due: ${ymd(t.dueDate)}`
+      )
+      .join("\n");
+  }
+
   return ctx;
 }
 
@@ -421,15 +458,36 @@ export async function getContextForQuestion(question: string): Promise<string> {
       "todo",
       "overdue",
       "متأخر",
+      "متاخر",
       "blocked",
       "in progress",
       "قيد التنفيذ",
       "done",
       "مكتمل",
+      "فريق",
+      "مين",
+      "من ",
+      "خلص",
+      "لم ينجز",
+      "لم يكمل",
+      "assignee",
+      "assigned",
+      "assignment",
+      "مكلف",
+      "مكلفون",
+      "مسؤول",
+      "تعيين",
+      "مسند",
     ])
   ) {
-    const tasksRes = await getTasks({});
-    contextParts.push(formatTasksContext(tasksRes.ok ? tasksRes.data : []));
+    const snap = await getTasksSnapshotForAiChat();
+    if (snap.ok) {
+      contextParts.push(formatTasksWithAssigneesContext(snap.data));
+    } else {
+      const tasksRes = await getTasks({});
+      contextParts.push(formatTasksContext(tasksRes.ok ? tasksRes.data : []));
+      contextParts.push(`NOTE: Assignee snapshot unavailable (${snap.error}).`);
+    }
   }
 
   if (

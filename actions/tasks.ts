@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { eq, isNull, isNotNull, and, or, ilike, desc, inArray, gte, lte } from "drizzle-orm";
+import { isBefore, parseISO, startOfDay } from "date-fns";
 import { db } from "@/lib/db";
 import {
   tasks,
@@ -14,6 +15,7 @@ import {
   projectMembers,
   taskAssignments,
   milestoneTeamMembers,
+  teamMembers,
 } from "@/lib/db";
 import { logActivityWithActor } from "@/actions/activity-log";
 import { notifyAdminsOfTaskStatusChange, notifyTaskAssigned } from "@/actions/notifications";
@@ -292,6 +294,122 @@ export async function getTasks(filters?: GetTasksFilters) {
       return { ok: false as const, error: getDbErrorKey(e) };
     }
     return { ok: false as const, error: "Failed to load tasks" };
+  }
+}
+
+/** Root tasks + assignee names for admin AI chat context (legacy assignee + junction). */
+export type AiTaskAssigneeSnapshot = {
+  title: string;
+  projectName: string;
+  status: string;
+  priority: string;
+  dueDate: string | null;
+  assigneeNames: string;
+  daysOverdue: number | null;
+};
+
+const AI_TASK_SNAPSHOT_LIMIT = 220;
+
+export async function getTasksSnapshotForAiChat(): Promise<
+  { ok: true; data: AiTaskAssigneeSnapshot[] } | { ok: false; error: string }
+> {
+  try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+    if (!userId) return { ok: false, error: "Unauthorized" };
+    if (sessionUserRole(session) !== "admin") {
+      return { ok: false, error: "Forbidden" };
+    }
+
+    const today = startOfDay(new Date());
+
+    const baseRows = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        projectName: projects.name,
+        status: tasks.status,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        legacyAssigneeName: teamMembers.name,
+      })
+      .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
+      .where(and(isNull(tasks.deletedAt), isNull(tasks.parentTaskId)))
+      .orderBy(desc(tasks.createdAt))
+      .limit(AI_TASK_SNAPSHOT_LIMIT);
+
+    const taskIds = baseRows.map((r) => r.id);
+    const junctionNamesByTaskId = new Map<string, Set<string>>();
+    if (taskIds.length > 0) {
+      const assigns = await db
+        .select({
+          taskId: taskAssignments.taskId,
+          name: teamMembers.name,
+        })
+        .from(taskAssignments)
+        .innerJoin(teamMembers, eq(taskAssignments.teamMemberId, teamMembers.id))
+        .where(inArray(taskAssignments.taskId, taskIds));
+      for (const a of assigns) {
+        const n = (a.name ?? "").trim();
+        if (!n) continue;
+        let set = junctionNamesByTaskId.get(a.taskId);
+        if (!set) {
+          set = new Set();
+          junctionNamesByTaskId.set(a.taskId, set);
+        }
+        set.add(n);
+      }
+    }
+
+    const data: AiTaskAssigneeSnapshot[] = baseRows.map((r) => {
+      const names = new Set<string>();
+      const legacy = (r.legacyAssigneeName ?? "").trim();
+      if (legacy) names.add(legacy);
+      const extra = junctionNamesByTaskId.get(r.id);
+      if (extra) for (const n of extra) names.add(n);
+      const assigneeNames =
+        names.size > 0 ? [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).join(", ") : "Unassigned";
+
+      let daysOverdue: number | null = null;
+      if (r.dueDate != null && r.status !== "done") {
+        const due = parseISO(String(r.dueDate).slice(0, 10));
+        if (!Number.isNaN(due.getTime()) && isBefore(due, today)) {
+          daysOverdue = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+        }
+      }
+
+      return {
+        title: r.title,
+        projectName: r.projectName,
+        status: r.status,
+        priority: r.priority,
+        dueDate: r.dueDate != null ? String(r.dueDate).slice(0, 10) : null,
+        assigneeNames,
+        daysOverdue,
+      };
+    });
+
+    data.sort((a, b) => {
+      const ad = a.daysOverdue ?? -1;
+      const bd = b.daysOverdue ?? -1;
+      if (ad > 0 || bd > 0) {
+        if ((ad > 0) !== (bd > 0)) return bd > 0 ? 1 : -1;
+        if (ad > 0 && bd > 0 && ad !== bd) return bd - ad;
+      }
+      const da = a.dueDate ?? "";
+      const db = b.dueDate ?? "";
+      return da.localeCompare(db);
+    });
+
+    return { ok: true, data };
+  } catch (e) {
+    console.error("getTasksSnapshotForAiChat", e);
+    if (isDbConnectionError(e)) {
+      return { ok: false, error: getDbErrorKey(e) };
+    }
+    return { ok: false, error: "Failed to load task snapshot" };
   }
 }
 
