@@ -6,11 +6,9 @@ import { CheckCheck } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 
-import { SaudiRiyalMark } from "@/components/ui/saudi-riyal-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { contactWhatsAppHref } from "@/lib/contact-links";
-import { PLAN_LIMITS } from "@/lib/plan-limits";
+import { PLAN_LIMITS, PLAN_SAR_YEARLY_PER_MONTH } from "@/lib/plan-limits";
 import { cn } from "@/lib/utils";
 
 const PAID_KEYS = ["starter", "pro"] as const;
@@ -20,11 +18,9 @@ export function UpgradePlansSection() {
   const tp = useTranslations("marketing.pricing");
   const locale = useLocale();
   const isAr = locale === "ar";
-  const [isYearly, setIsYearly] = useState(true);
+  const [isYearly, setIsYearly] = useState(false);
 
-  const wa = contactWhatsAppHref(
-    isAr ? "مرحباً، أود التحدث عن خطة Enterprise لـ AgencyOS" : "Hi, I’d like to talk about the AgencyOS Enterprise plan."
-  );
+  const enterpriseMailto = `mailto:support@onepixle.com?subject=${encodeURIComponent("AgencyOS Enterprise")}`;
 
   return (
     <div className="space-y-6">
@@ -59,7 +55,10 @@ export function UpgradePlansSection() {
       <div className="grid gap-4 md:grid-cols-3">
         {PAID_KEYS.map((key) => {
           const limits = PLAN_LIMITS[key];
-          const flowVal = isYearly ? limits.priceYearly : limits.priceMonthly;
+          const monthlySar = limits.priceMonthly;
+          const yearlySar = limits.priceYearly;
+          const yearlyPerMonth = PLAN_SAR_YEARLY_PER_MONTH[key];
+          const flowVal = isYearly ? yearlyPerMonth : monthlySar;
           const raw = tp.raw(`${key}.bullets`);
           const bullets = Array.isArray(raw) ? (raw as string[]) : [];
           const isPro = key === "pro";
@@ -82,16 +81,23 @@ export function UpgradePlansSection() {
                   ) : null}
                 </div>
                 <CardDescription>{t(`plans.${key}.tagline`)}</CardDescription>
-                <div className="pt-2 space-y-1">
+                <div className="space-y-1 pt-2">
                   <div className="flex flex-wrap items-baseline gap-1 text-3xl font-semibold tabular-nums">
-                    <span dir="ltr" className="inline-flex items-baseline gap-2">
-                      <SaudiRiyalMark size={28} className="translate-y-[0.1em]" />
+                    <span dir="ltr" className="inline-flex items-baseline gap-1">
                       <NumberFlow value={flowVal} />
+                      <span className="text-xl font-semibold">{tp("sarSuffix")}</span>
                     </span>
                     <span className="text-sm font-normal text-muted-foreground">
-                      {isYearly ? tp("perYear") : tp("perMonth")}
+                      {isYearly ? tp("perMonthEquivalent") : tp("perMonth")}
                     </span>
                   </div>
+                  {isYearly ? (
+                    <p className="text-sm text-muted-foreground">
+                      {tp("yearlyBilledTotal", {
+                        amount: yearlySar.toLocaleString(isAr ? "ar-SA" : "en-US"),
+                      })}
+                    </p>
+                  ) : null}
                   <p className="text-xs text-muted-foreground">
                     {isYearly ? tp(`${key}.usdApproxYearly`) : tp(`${key}.usdApproxMonthly`)}
                   </p>
@@ -140,9 +146,7 @@ export function UpgradePlansSection() {
           </CardContent>
           <CardFooter className="flex flex-col gap-2 sm:flex-row">
             <Button asChild className="w-full sm:flex-1" variant="default">
-              <a href={wa} target="_blank" rel="noopener noreferrer">
-                {t("enterprise.contact")}
-              </a>
+              <a href={enterpriseMailto}>{t("enterprise.contact")}</a>
             </Button>
             <Button asChild className="w-full sm:flex-1" variant="outline">
               <Link href="/dashboard/settings">{t("backToSettings")}</Link>
