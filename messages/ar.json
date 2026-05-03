@@ -1975,8 +1975,7 @@
       "perMonth": "/ شهر",
       "perMonthEquivalent": "/ شهر (سنوي)",
       "perYear": "سنة",
-      "sarSymbol": "\uFDFC",
-      "yearlyBilledTotal": "{amount}\u00a0\uFDFC تُدفع سنوياً",
+      "yearlyBilledTotal": "{amount} تُدفع سنوياً",
       "starter": {
         "name": "Starter",
         "tagline": "للمستقلين",

@@ -1993,8 +1993,7 @@
       "perMonth": "/ month",
       "perMonthEquivalent": "/ month (yearly)",
       "perYear": "year",
-      "sarSymbol": "\uFDFC",
-      "yearlyBilledTotal": "{amount}\u00a0\uFDFC billed annually",
+      "yearlyBilledTotal": "{amount} billed annually",
       "starter": {
         "name": "Starter",
         "tagline": "For freelancers",

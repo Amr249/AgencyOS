@@ -6,6 +6,7 @@ import { CheckCheck } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 
+import { SaudiRiyalMark } from "@/components/ui/saudi-riyal-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { contactWhatsAppHref } from "@/lib/contact-links";
@@ -24,8 +25,6 @@ export function UpgradePlansSection() {
   const wa = contactWhatsAppHref(
     isAr ? "مرحباً، أود التحدث عن خطة Enterprise لـ AgencyOS" : "Hi, I’d like to talk about the AgencyOS Enterprise plan."
   );
-
-  const sarSymbol = tp("sarSymbol");
 
   return (
     <div className="space-y-6">
@@ -86,19 +85,22 @@ export function UpgradePlansSection() {
                 <CardDescription>{t(`plans.${key}.tagline`)}</CardDescription>
                 <div className="pt-2 space-y-1">
                   <div className="flex flex-wrap items-baseline gap-1 text-3xl font-semibold tabular-nums">
-                    <span dir="ltr" className="inline-flex items-baseline gap-1">
+                    <span dir="ltr" className="inline-flex items-baseline gap-2">
+                      <SaudiRiyalMark size={28} className="translate-y-[0.1em]" />
                       <NumberFlow value={flowVal} />
-                      <span className="text-xl">{sarSymbol}</span>
                     </span>
                     <span className="text-sm font-normal text-muted-foreground">
                       {isYearly ? tp("perMonthEquivalent") : tp("perMonth")}
                     </span>
                   </div>
                   {isYearly ? (
-                    <p className="text-sm text-muted-foreground">
-                      {tp("yearlyBilledTotal", {
-                        amount: limits.priceYearly.toLocaleString(isAr ? "ar-SA" : "en-US"),
-                      })}
+                    <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                      <SaudiRiyalMark size={16} className="opacity-90" />
+                      <span>
+                        {tp("yearlyBilledTotal", {
+                          amount: limits.priceYearly.toLocaleString(isAr ? "ar-SA" : "en-US"),
+                        })}
+                      </span>
                     </p>
                   ) : null}
                   <p className="text-xs text-muted-foreground">

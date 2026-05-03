@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { SaudiRiyalMark } from "@/components/ui/saudi-riyal-mark";
 import { TimelineContent } from "@/components/ui/timeline-animation";
 import { contactWhatsAppHref } from "@/lib/contact-links";
 import { PLAN_LIMITS, PLAN_SAR_YEARLY_PER_MONTH } from "@/lib/plan-limits";
@@ -190,8 +191,6 @@ export default function PricingSection() {
 
           const flowValue = isEnterprise ? 0 : isYearly ? yearlyPerMonth : monthlySar;
 
-          const sarSymbol = t("sarSymbol");
-
           return (
             <TimelineContent
               key={planKey}
@@ -225,9 +224,12 @@ export default function PricingSection() {
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
                         <span className="inline-flex items-baseline text-4xl font-semibold tabular-nums text-foreground">
-                          <span dir="ltr" className="inline-flex items-baseline gap-1">
+                          <span dir="ltr" className="inline-flex items-baseline gap-2">
+                            <SaudiRiyalMark
+                              size={32}
+                              className="translate-y-[0.12em] self-center"
+                            />
                             <NumberFlow value={flowValue} className="text-4xl font-semibold" />
-                            <span className="text-2xl font-semibold">{sarSymbol}</span>
                           </span>
                         </span>
                         <span className="text-muted-foreground ms-1 text-sm">
@@ -235,10 +237,13 @@ export default function PricingSection() {
                         </span>
                       </div>
                       {isYearly ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("yearlyBilledTotal", {
-                            amount: yearlySar.toLocaleString(isAr ? "ar-SA" : "en-US"),
-                          })}
+                        <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <SaudiRiyalMark size={18} className="opacity-90" />
+                          <span>
+                            {t("yearlyBilledTotal", {
+                              amount: yearlySar.toLocaleString(isAr ? "ar-SA" : "en-US"),
+                            })}
+                          </span>
                         </p>
                       ) : null}
                       <p className="text-xs text-muted-foreground">
