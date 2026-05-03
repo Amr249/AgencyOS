@@ -11,10 +11,10 @@ import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { db } from "@/lib/db";
 import { invitations, orgMembers, organizations, users } from "@/lib/db/schema";
 import type { PlanTier } from "@/lib/plan-limits";
+import { STARTER_TEAM_LIMIT_ERROR } from "@/lib/org-team-capacity-constants";
 import {
   countNetNewPendingInvites,
   getPendingInviteEmailsLowercased,
-  STARTER_TEAM_LIMIT_ERROR,
   wouldExceedTeamCapWithNewInvites,
   wouldExceedTeamCapWithOneMoreMember,
 } from "@/lib/org-team-capacity";

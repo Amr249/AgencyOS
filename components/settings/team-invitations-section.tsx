@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { cancelInvitation, createSingleInvitation, getOrgInvitations, resendInvitation } from "@/actions/invitations";
-import { STARTER_TEAM_LIMIT_ERROR } from "@/lib/org-team-capacity";
+import { STARTER_TEAM_LIMIT_ERROR } from "@/lib/org-team-capacity-constants";
 import { getInvitationPublicUrl } from "@/lib/invitation-url";
 import type { OrgInvitationRow } from "@/actions/invitations";
 import { Button } from "@/components/ui/button";

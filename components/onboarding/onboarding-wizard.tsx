@@ -9,7 +9,7 @@ import { Building2, Check, ChevronLeft, ChevronRight, FileText, Loader2, Trash2,
 import { toast } from "sonner";
 import type { OnboardingStatePayload } from "@/actions/onboarding";
 import { createInvitations } from "@/actions/invitations";
-import { STARTER_TEAM_LIMIT_ERROR } from "@/lib/org-team-capacity";
+import { STARTER_TEAM_LIMIT_ERROR } from "@/lib/org-team-capacity-constants";
 import {
   completeOnboarding,
   setOnboardingStep,
