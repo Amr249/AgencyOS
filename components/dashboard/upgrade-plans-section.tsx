@@ -25,7 +25,7 @@ export function UpgradePlansSection() {
     isAr ? "مرحباً، أود التحدث عن خطة Enterprise لـ AgencyOS" : "Hi, I’d like to talk about the AgencyOS Enterprise plan."
   );
 
-  const sarSuffix = isAr ? tp("sarSuffixAr") : tp("sarSuffixEn");
+  const sarSymbol = tp("sarSymbol");
 
   return (
     <div className="space-y-6">
@@ -88,7 +88,7 @@ export function UpgradePlansSection() {
                   <div className="flex flex-wrap items-baseline gap-1 text-3xl font-semibold tabular-nums">
                     <span dir="ltr" className="inline-flex items-baseline gap-1">
                       <NumberFlow value={flowVal} />
-                      <span className="text-xl">{sarSuffix}</span>
+                      <span className="text-xl">{sarSymbol}</span>
                     </span>
                     <span className="text-sm font-normal text-muted-foreground">
                       {isYearly ? tp("perMonthEquivalent") : tp("perMonth")}

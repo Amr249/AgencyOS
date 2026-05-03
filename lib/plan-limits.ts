@@ -29,8 +29,8 @@ export const PLAN_LIMITS = {
   starter: {
     name: "Starter",
     nameAr: "ستارتر",
-    priceMonthly: 79,
-    priceYearly: 758,
+    priceMonthly: 99,
+    priceYearly: 950,
     currency: "SAR" as const,
     maxTeamMembers: 3,
     aiRequestsPerMonth: 50,
@@ -39,8 +39,8 @@ export const PLAN_LIMITS = {
   pro: {
     name: "Pro",
     nameAr: "برو",
-    priceMonthly: 249,
-    priceYearly: 2390,
+    priceMonthly: 299,
+    priceYearly: 2870,
     currency: "SAR" as const,
     maxTeamMembers: Number.POSITIVE_INFINITY,
     aiRequestsPerMonth: 500,

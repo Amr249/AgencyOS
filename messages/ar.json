@@ -1427,13 +1427,13 @@
       "starter": {
         "name": "Starter",
         "tagline": "للمستقلين — الوحدات الأساسية وحدود مناسبة.",
-        "lead": "٧٩ ر.س شهرياً أو ٧٥٨ ر.س سنوياً (خصم ٢٠٪).",
+        "lead": "٩٩\u00a0\uFDFC شهرياً أو ٩٥٠\u00a0\uFDFC سنوياً (خصم ٢٠٪).",
         "comingSoon": "سيظهر هنا الاشتراك الذاتي عند تفعيل الفوترة."
       },
       "pro": {
         "name": "Pro",
         "tagline": "للوكالات — حدود أعلى ودعم أولوية.",
-        "lead": "٢٤٩ ر.س شهرياً أو ٢٣٩٠ ر.س سنوياً (خصم ٢٠٪).",
+        "lead": "٢٩٩\u00a0\uFDFC شهرياً أو ٢٨٧٠\u00a0\uFDFC سنوياً (خصم ٢٠٪).",
         "comingSoon": "ستُدار ترقية الخطة هنا عند تفعيل الفوترة."
       },
       "enterprise": {
@@ -1975,19 +1975,18 @@
       "perMonth": "/ شهر",
       "perMonthEquivalent": "/ شهر (سنوي)",
       "perYear": "سنة",
-      "sarSuffixAr": "ر.س",
-      "sarSuffixEn": "SAR",
-      "yearlyBilledTotal": "{amount} ر.س تُدفع سنوياً",
+      "sarSymbol": "\uFDFC",
+      "yearlyBilledTotal": "{amount}\u00a0\uFDFC تُدفع سنوياً",
       "starter": {
         "name": "Starter",
         "tagline": "للمستقلين",
         "price": "تواصل معنا",
-        "monthlyAmount": "79",
-        "yearlyAmount": "758",
+        "monthlyAmount": "99",
+        "yearlyAmount": "950",
         "includesIntro": "ضمن Starter:",
         "cta": "ابدأ",
-        "usdApproxMonthly": "ما يعادل ~٢١ دولاراً/شهر",
-        "usdApproxYearly": "ما يعادل ~١٧ دولاراً/شهر",
+        "usdApproxMonthly": "ما يعادل ~٢٦ دولاراً/شهر",
+        "usdApproxYearly": "ما يعادل ~٢١ دولاراً/شهر",
         "bullets": [
           "كل الميزات الأساسية: العملاء، المشاريع، المهام، الفواتير، المصروفات، الفريق، الملفات، التقارير، لوحة التحكم، الخدمات",
           "حتى ٣ أعضاء في الفريق",
@@ -2000,12 +1999,12 @@
         "name": "Pro",
         "tagline": "للوكالات",
         "price": "تواصل معنا",
-        "monthlyAmount": "249",
-        "yearlyAmount": "2390",
+        "monthlyAmount": "299",
+        "yearlyAmount": "2870",
         "includesIntro": "كل ما في Starter، بالإضافة إلى:",
         "cta": "ابدأ",
-        "usdApproxMonthly": "ما يعادل ~٦٦ دولاراً/شهر",
-        "usdApproxYearly": "ما يعادل ~٥٣ دولاراً/شهر",
+        "usdApproxMonthly": "ما يعادل ~٨٠ دولاراً/شهر",
+        "usdApproxYearly": "ما يعادل ~٦٤ دولاراً/شهر",
         "bullets": [
           "كل ما في Starter",
           "أعضاء فريق غير محدودين",

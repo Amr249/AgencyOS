@@ -190,7 +190,7 @@ export default function PricingSection() {
 
           const flowValue = isEnterprise ? 0 : isYearly ? yearlyPerMonth : monthlySar;
 
-          const sarSuffix = isAr ? t("sarSuffixAr") : t("sarSuffixEn");
+          const sarSymbol = t("sarSymbol");
 
           return (
             <TimelineContent
@@ -227,7 +227,7 @@ export default function PricingSection() {
                         <span className="inline-flex items-baseline text-4xl font-semibold tabular-nums text-foreground">
                           <span dir="ltr" className="inline-flex items-baseline gap-1">
                             <NumberFlow value={flowValue} className="text-4xl font-semibold" />
-                            <span className="text-2xl font-semibold">{sarSuffix}</span>
+                            <span className="text-2xl font-semibold">{sarSymbol}</span>
                           </span>
                         </span>
                         <span className="text-muted-foreground ms-1 text-sm">
