@@ -4,11 +4,8 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
-import { applyPendingInvitationsAfterLogin } from "@/actions/invitations";
 import { LanguageToggle } from "@/components/language-toggle";
 
 function safePostLoginRedirect(): string {
@@ -19,7 +16,6 @@ function safePostLoginRedirect(): string {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("auth");
   /** Avoid hydration mismatches: extensions inject attrs (e.g. fdprocessedid); render form after mount. */
@@ -44,25 +40,24 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
-    setLoading(false);
-    if (result?.error) {
-      setError(t("invalidCredentials"));
-    } else {
-      const inviteResult = await applyPendingInvitationsAfterLogin();
-      if (inviteResult.ok && inviteResult.addedTo.length > 0) {
-        if (inviteResult.addedTo.length === 1) {
-          toast.success(t("invitationJoinedOne", { org: inviteResult.addedTo[0]! }));
-        } else {
-          toast.success(t("invitationJoinedMany", { orgs: inviteResult.addedTo.join(", ") }));
-        }
+    const emailNorm = email.trim().toLowerCase();
+    try {
+      const result = await signIn("credentials", {
+        email: emailNorm,
+        password,
+        redirect: false,
+      });
+      if (result?.error) {
+        setError(t("invalidCredentials"));
+        return;
       }
-      router.push(safePostLoginRedirect());
-      router.refresh();
+      // Full navigation: session cookie must be committed before dashboard RSC.
+      // Pending org invites are applied in `PostLoginPendingInvites` after session is live.
+      window.location.assign(safePostLoginRedirect());
+    } catch {
+      setError(t("invalidCredentials"));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -122,7 +117,7 @@ export default function LoginPage() {
           <div className="mb-8 flex flex-col items-center text-center">
             <div className="mb-4">
               <Image
-                src="/Logo3.png"
+                src="/Logo3-3D.png"
                 alt="AgencyOS"
                 width={48}
                 height={48}

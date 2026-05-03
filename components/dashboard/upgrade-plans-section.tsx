@@ -10,7 +10,7 @@ import { SaudiRiyalMark } from "@/components/ui/saudi-riyal-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { contactWhatsAppHref } from "@/lib/contact-links";
-import { PLAN_LIMITS, PLAN_SAR_YEARLY_PER_MONTH } from "@/lib/plan-limits";
+import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { cn } from "@/lib/utils";
 
 const PAID_KEYS = ["starter", "pro"] as const;
@@ -20,7 +20,7 @@ export function UpgradePlansSection() {
   const tp = useTranslations("marketing.pricing");
   const locale = useLocale();
   const isAr = locale === "ar";
-  const [isYearly, setIsYearly] = useState(false);
+  const [isYearly, setIsYearly] = useState(true);
 
   const wa = contactWhatsAppHref(
     isAr ? "مرحباً، أود التحدث عن خطة Enterprise لـ AgencyOS" : "Hi, I’d like to talk about the AgencyOS Enterprise plan."
@@ -59,8 +59,7 @@ export function UpgradePlansSection() {
       <div className="grid gap-4 md:grid-cols-3">
         {PAID_KEYS.map((key) => {
           const limits = PLAN_LIMITS[key];
-          const yearlyPer = PLAN_SAR_YEARLY_PER_MONTH[key];
-          const flowVal = isYearly ? yearlyPer : limits.priceMonthly;
+          const flowVal = isYearly ? limits.priceYearly : limits.priceMonthly;
           const raw = tp.raw(`${key}.bullets`);
           const bullets = Array.isArray(raw) ? (raw as string[]) : [];
           const isPro = key === "pro";
@@ -90,19 +89,9 @@ export function UpgradePlansSection() {
                       <NumberFlow value={flowVal} />
                     </span>
                     <span className="text-sm font-normal text-muted-foreground">
-                      {isYearly ? tp("perMonthEquivalent") : tp("perMonth")}
+                      {isYearly ? tp("perYear") : tp("perMonth")}
                     </span>
                   </div>
-                  {isYearly ? (
-                    <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                      <SaudiRiyalMark size={16} className="opacity-90" />
-                      <span>
-                        {tp("yearlyBilledTotal", {
-                          amount: limits.priceYearly.toLocaleString(isAr ? "ar-SA" : "en-US"),
-                        })}
-                      </span>
-                    </p>
-                  ) : null}
                   <p className="text-xs text-muted-foreground">
                     {isYearly ? tp(`${key}.usdApproxYearly`) : tp(`${key}.usdApproxMonthly`)}
                   </p>

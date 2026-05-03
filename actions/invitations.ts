@@ -402,7 +402,7 @@ export async function applyPendingInvitationsAfterLogin(): Promise<
 > {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false };
-  if (session.user.role !== "admin" && session.user.role !== "member") {
+  if (session.user.role === "client_portal") {
     return { ok: false };
   }
 

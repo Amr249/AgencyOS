@@ -1992,7 +1992,7 @@
       "switchSaveBadge": "Save 20%",
       "perMonth": "/ month",
       "perMonthEquivalent": "/ month (yearly)",
-      "perYear": "year",
+      "perYear": "/ year",
       "yearlyBilledTotal": "{amount} billed annually",
       "starter": {
         "name": "Starter",

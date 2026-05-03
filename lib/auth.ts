@@ -10,7 +10,10 @@ import { fetchOrganizationSnapshot } from "@/lib/org-snapshot";
 
 const JWT_MAX_AGE_SEC = 30 * 24 * 60 * 60;
 
+const authSecret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+
 export const authOptions: NextAuthOptions = {
+  secret: authSecret,
   session: { strategy: "jwt", maxAge: JWT_MAX_AGE_SEC },
   jwt: { maxAge: JWT_MAX_AGE_SEC },
   pages: { signIn: "/login" },
@@ -23,21 +26,29 @@ export const authOptions: NextAuthOptions = {
       },
       /** Agency users (`users`) first; otherwise client portal (`client_users`). Same `/login` form for both. */
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
-        const email = String(credentials.email).trim().toLowerCase();
-        const password = String(credentials.password);
+        try {
+          if (!credentials?.email || !credentials?.password) return null;
+          const email = String(credentials.email).trim().toLowerCase();
+          const password = String(credentials.password);
 
-        const [agencyUser] = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, email))
-          .limit(1);
+          const [agencyUser] = await db
+            .select()
+            .from(users)
+            .where(eq(users.email, email))
+            .limit(1);
 
-        if (agencyUser) {
-          const valid = await bcrypt.compare(password, agencyUser.passwordHash);
-          if (!valid) return null;
+          if (agencyUser) {
+            const hash = agencyUser.passwordHash?.trim();
+            if (!hash || hash.length < 20) return null;
+            let valid = false;
+            try {
+              valid = await bcrypt.compare(password, hash);
+            } catch {
+              return null;
+            }
+            if (!valid) return null;
 
-          const [membership] = await db
+            const [membership] = await db
             .select({
               organizationId: orgMembers.organizationId,
               orgRole: orgMembers.role,
@@ -50,70 +61,79 @@ export const authOptions: NextAuthOptions = {
             .orderBy(desc(orgMembers.joinedAt))
             .limit(1);
 
-          if (!membership) return null;
+            if (!membership) return null;
+
+            return {
+              id: agencyUser.id,
+              name: agencyUser.name,
+              email: agencyUser.email,
+              role: agencyUser.role,
+              avatarUrl: agencyUser.avatarUrl,
+              organizationId: membership.organizationId,
+              orgName: membership.orgName,
+              plan: membership.plan,
+              orgRole: membership.orgRole,
+            };
+          }
+
+          const [cu] = await db
+            .select({
+              id: clientUsers.id,
+              clientId: clientUsers.clientId,
+              email: clientUsers.email,
+              name: clientUsers.name,
+              passwordHash: clientUsers.passwordHash,
+              isActive: clientUsers.isActive,
+            })
+            .from(clientUsers)
+            .where(eq(clientUsers.email, email))
+            .limit(1);
+
+          if (!cu?.isActive || !cu.passwordHash) return null;
+
+          let validPortal = false;
+          try {
+            validPortal = await bcrypt.compare(password, cu.passwordHash);
+          } catch {
+            return null;
+          }
+          if (!validPortal) return null;
+
+          const [cl] = await db
+            .select({
+              portalEnabled: clients.portalEnabled,
+              organizationId: clients.organizationId,
+            })
+            .from(clients)
+            .where(and(eq(clients.id, cu.clientId), isNull(clients.deletedAt)))
+            .limit(1);
+
+          if (!cl?.portalEnabled) return null;
+
+          const [org] = await db
+            .select({ plan: organizations.plan, orgName: organizations.name })
+            .from(organizations)
+            .where(eq(organizations.id, cl.organizationId))
+            .limit(1);
+
+          await db.update(clientUsers).set({ lastLoginAt: new Date() }).where(eq(clientUsers.id, cu.id));
 
           return {
-            id: agencyUser.id,
-            name: agencyUser.name,
-            email: agencyUser.email,
-            role: agencyUser.role,
-            avatarUrl: agencyUser.avatarUrl,
-            organizationId: membership.organizationId,
-            orgName: membership.orgName,
-            plan: membership.plan,
-            orgRole: membership.orgRole,
+            id: cu.id,
+            name: cu.name ?? cu.email,
+            email: cu.email,
+            role: "client_portal",
+            avatarUrl: null,
+            clientId: cu.clientId,
+            organizationId: cl.organizationId,
+            orgName: org?.orgName?.trim() || "Organization",
+            plan: org?.plan ?? "starter",
+            orgRole: "member" as const,
           };
+        } catch (err) {
+          console.error("[auth.authorize]", err);
+          return null;
         }
-
-        const [cu] = await db
-          .select({
-            id: clientUsers.id,
-            clientId: clientUsers.clientId,
-            email: clientUsers.email,
-            name: clientUsers.name,
-            passwordHash: clientUsers.passwordHash,
-            isActive: clientUsers.isActive,
-          })
-          .from(clientUsers)
-          .where(eq(clientUsers.email, email))
-          .limit(1);
-
-        if (!cu?.isActive || !cu.passwordHash) return null;
-
-        const validPortal = await bcrypt.compare(password, cu.passwordHash);
-        if (!validPortal) return null;
-
-        const [cl] = await db
-          .select({
-            portalEnabled: clients.portalEnabled,
-            organizationId: clients.organizationId,
-          })
-          .from(clients)
-          .where(and(eq(clients.id, cu.clientId), isNull(clients.deletedAt)))
-          .limit(1);
-
-        if (!cl?.portalEnabled) return null;
-
-        const [org] = await db
-          .select({ plan: organizations.plan, orgName: organizations.name })
-          .from(organizations)
-          .where(eq(organizations.id, cl.organizationId))
-          .limit(1);
-
-        await db.update(clientUsers).set({ lastLoginAt: new Date() }).where(eq(clientUsers.id, cu.id));
-
-        return {
-          id: cu.id,
-          name: cu.name ?? cu.email,
-          email: cu.email,
-          role: "client_portal",
-          avatarUrl: null,
-          clientId: cu.clientId,
-          organizationId: cl.organizationId,
-          orgName: org?.orgName?.trim() || "Organization",
-          plan: org?.plan ?? "starter",
-          orgRole: "member" as const,
-        };
       },
     }),
   ],

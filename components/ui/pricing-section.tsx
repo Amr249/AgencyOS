@@ -12,11 +12,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SaudiRiyalMark } from "@/components/ui/saudi-riyal-mark";
 import { TimelineContent } from "@/components/ui/timeline-animation";
 import { contactWhatsAppHref } from "@/lib/contact-links";
-import { PLAN_LIMITS, PLAN_SAR_YEARLY_PER_MONTH } from "@/lib/plan-limits";
+import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { cn } from "@/lib/utils";
-
-/** Brand accent — matches login / signup glows and marketing CTAs (`#a4fe19`). */
-const BRAND = "#a4fe19";
 
 const PLAN_KEYS = ["starter", "pro", "enterprise"] as const;
 
@@ -38,20 +35,21 @@ const revealVariants = {
 };
 
 function PricingSwitch({
+  isYearly,
   monthlyLabel,
   yearlyLabel,
   saveBadge,
   onSwitch,
 }: {
+  isYearly: boolean;
   monthlyLabel: string;
   yearlyLabel: string;
   saveBadge: string;
   onSwitch: (value: string) => void;
 }) {
-  const [selected, setSelected] = useState("0");
+  const selected = isYearly ? "1" : "0";
 
   const handleSwitch = (value: string) => {
-    setSelected(value);
     onSwitch(value);
   };
 
@@ -110,7 +108,7 @@ export default function PricingSection() {
   const t = useTranslations("marketing.pricing");
   const locale = useLocale();
   const isAr = locale === "ar";
-  const [isYearly, setIsYearly] = useState(false);
+  const [isYearly, setIsYearly] = useState(true);
   const pricingRef = useRef<HTMLDivElement>(null);
 
   const togglePricingPeriod = (value: string) => setIsYearly(Number.parseInt(value, 10) === 1);
@@ -167,6 +165,7 @@ export default function PricingSection() {
 
       <TimelineContent as="div" animationNum={3} timelineRef={pricingRef} customVariants={revealVariants}>
         <PricingSwitch
+          isYearly={isYearly}
           monthlyLabel={t("switchMonthly")}
           yearlyLabel={t("switchYearly")}
           saveBadge={t("switchSaveBadge")}
@@ -186,10 +185,8 @@ export default function PricingSection() {
           const limits = isEnterprise ? null : PLAN_LIMITS[planKey];
           const monthlySar = limits?.priceMonthly ?? 0;
           const yearlySar = limits?.priceYearly ?? 0;
-          const yearlyPerMonth =
-            planKey === "starter" || planKey === "pro" ? PLAN_SAR_YEARLY_PER_MONTH[planKey] : 0;
 
-          const flowValue = isEnterprise ? 0 : isYearly ? yearlyPerMonth : monthlySar;
+          const flowValue = isEnterprise ? 0 : isYearly ? yearlySar : monthlySar;
 
           return (
             <TimelineContent
@@ -233,19 +230,9 @@ export default function PricingSection() {
                           </span>
                         </span>
                         <span className="text-muted-foreground ms-1 text-sm">
-                          {isYearly ? t("perMonthEquivalent") : t("perMonth")}
+                          {isYearly ? t("perYear") : t("perMonth")}
                         </span>
                       </div>
-                      {isYearly ? (
-                        <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                          <SaudiRiyalMark size={18} className="opacity-90" />
-                          <span>
-                            {t("yearlyBilledTotal", {
-                              amount: yearlySar.toLocaleString(isAr ? "ar-SA" : "en-US"),
-                            })}
-                          </span>
-                        </p>
-                      ) : null}
                       <p className="text-xs text-muted-foreground">
                         {isYearly ? t(`${planKey}.usdApproxYearly`) : t(`${planKey}.usdApproxMonthly`)}
                       </p>

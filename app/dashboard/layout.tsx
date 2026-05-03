@@ -11,6 +11,7 @@ import { OrgPlanProvider, type OrgPlanSnapshot } from "@/components/org-plan-pro
 import { SiteHeader } from "@/components/site-header";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { MemberDashboardLocaleShell } from "@/components/member-dashboard/member-dashboard-locale-shell";
+import { PostLoginPendingInvites } from "@/components/post-login-pending-invites";
 import { WelcomeToast } from "@/components/welcome-toast";
 import {
   SidebarInset,
@@ -74,7 +75,12 @@ export default async function DashboardLayout({
   }
 
   if (isOnboardingRoute) {
-    return <>{children}</>;
+    return (
+      <>
+        {children}
+        <PostLoginPendingInvites />
+      </>
+    );
   }
 
   const mainContentClassName =
@@ -97,6 +103,7 @@ export default async function DashboardLayout({
         </div>
       </div>
       <MobileBottomNav userRole={userRole} />
+      <PostLoginPendingInvites />
       <WelcomeToast />
     </>
   );
