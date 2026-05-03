@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { SaudiRiyalMark } from "@/components/ui/saudi-riyal-mark";
 import { TimelineContent } from "@/components/ui/timeline-animation";
 import { PLAN_LIMITS, PLAN_SAR_YEARLY_PER_MONTH } from "@/lib/plan-limits";
 import { cn } from "@/lib/utils";
@@ -180,7 +181,6 @@ export default function PricingSection() {
 
           const limits = isEnterprise ? null : PLAN_LIMITS[planKey];
           const monthlySar = limits?.priceMonthly ?? 0;
-          const yearlySar = limits?.priceYearly ?? 0;
           const yearlyPerMonth =
             planKey === "starter" || planKey === "pro" ? PLAN_SAR_YEARLY_PER_MONTH[planKey] : 0;
 
@@ -219,22 +219,18 @@ export default function PricingSection() {
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
                         <span className="inline-flex items-baseline text-4xl font-semibold tabular-nums text-foreground">
-                          <span dir="ltr" className="inline-flex items-baseline gap-1">
+                          <span dir="ltr" className="inline-flex items-baseline gap-2">
+                            <SaudiRiyalMark
+                              size={32}
+                              className="translate-y-[0.12em] self-center shrink-0"
+                            />
                             <NumberFlow value={flowValue} className="text-4xl font-semibold" />
-                            <span className="text-2xl font-semibold">{t("sarSuffix")}</span>
                           </span>
                         </span>
                         <span className="text-muted-foreground ms-1 text-sm">
                           {isYearly ? t("perMonthEquivalent") : t("perMonth")}
                         </span>
                       </div>
-                      {isYearly ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("yearlyBilledTotal", {
-                            amount: yearlySar.toLocaleString(isAr ? "ar-SA" : "en-US"),
-                          })}
-                        </p>
-                      ) : null}
                       <p className="text-xs text-muted-foreground">
                         {isYearly ? t(`${planKey}.usdApproxYearly`) : t(`${planKey}.usdApproxMonthly`)}
                       </p>

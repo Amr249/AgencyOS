@@ -3,11 +3,12 @@
 import Link from "next/link";
 import NumberFlow from "@number-flow/react";
 import { CheckCheck } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { SaudiRiyalMark } from "@/components/ui/saudi-riyal-mark";
 import { PLAN_LIMITS, PLAN_SAR_YEARLY_PER_MONTH } from "@/lib/plan-limits";
 import { cn } from "@/lib/utils";
 
@@ -16,8 +17,6 @@ const PAID_KEYS = ["starter", "pro"] as const;
 export function UpgradePlansSection() {
   const t = useTranslations("upgradePage");
   const tp = useTranslations("marketing.pricing");
-  const locale = useLocale();
-  const isAr = locale === "ar";
   const [isYearly, setIsYearly] = useState(false);
 
   const enterpriseMailto = `mailto:support@onepixle.com?subject=${encodeURIComponent("AgencyOS Enterprise")}`;
@@ -56,7 +55,6 @@ export function UpgradePlansSection() {
         {PAID_KEYS.map((key) => {
           const limits = PLAN_LIMITS[key];
           const monthlySar = limits.priceMonthly;
-          const yearlySar = limits.priceYearly;
           const yearlyPerMonth = PLAN_SAR_YEARLY_PER_MONTH[key];
           const flowVal = isYearly ? yearlyPerMonth : monthlySar;
           const raw = tp.raw(`${key}.bullets`);
@@ -83,21 +81,14 @@ export function UpgradePlansSection() {
                 <CardDescription>{t(`plans.${key}.tagline`)}</CardDescription>
                 <div className="space-y-1 pt-2">
                   <div className="flex flex-wrap items-baseline gap-1 text-3xl font-semibold tabular-nums">
-                    <span dir="ltr" className="inline-flex items-baseline gap-1">
+                    <span dir="ltr" className="inline-flex items-baseline gap-2">
+                      <SaudiRiyalMark size={28} className="translate-y-[0.1em] shrink-0" />
                       <NumberFlow value={flowVal} />
-                      <span className="text-xl font-semibold">{tp("sarSuffix")}</span>
                     </span>
                     <span className="text-sm font-normal text-muted-foreground">
                       {isYearly ? tp("perMonthEquivalent") : tp("perMonth")}
                     </span>
                   </div>
-                  {isYearly ? (
-                    <p className="text-sm text-muted-foreground">
-                      {tp("yearlyBilledTotal", {
-                        amount: yearlySar.toLocaleString(isAr ? "ar-SA" : "en-US"),
-                      })}
-                    </p>
-                  ) : null}
                   <p className="text-xs text-muted-foreground">
                     {isYearly ? tp(`${key}.usdApproxYearly`) : tp(`${key}.usdApproxMonthly`)}
                   </p>
