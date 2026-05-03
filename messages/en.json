@@ -1445,13 +1445,13 @@
       "starter": {
         "name": "Starter",
         "tagline": "For freelancers — core modules and sensible limits.",
-        "lead": "79 ر.س/month or 758 ر.س/year (20% off).",
+        "lead": "99 ر.س/month or 950 ر.س/year (20% off).",
         "comingSoon": "Self‑serve checkout will appear here when billing goes live."
       },
       "pro": {
         "name": "Pro",
         "tagline": "For agencies — higher limits and priority support.",
-        "lead": "249 ر.س/month or 2,390 ر.س/year (20% off).",
+        "lead": "299 ر.س/month or 2,870 ر.س/year (20% off).",
         "comingSoon": "Plan upgrades will be managed here when billing goes live."
       },
       "enterprise": {
@@ -1999,12 +1999,12 @@
         "name": "Starter",
         "tagline": "For freelancers",
         "price": "Contact us",
-        "monthlyAmount": "79",
-        "yearlyAmount": "758",
+        "monthlyAmount": "99",
+        "yearlyAmount": "950",
         "includesIntro": "Included with Starter:",
         "cta": "Get started",
-        "usdApproxMonthly": "~$21/mo equivalent",
-        "usdApproxYearly": "~$17/mo equivalent",
+        "usdApproxMonthly": "~$26/mo equivalent",
+        "usdApproxYearly": "~$21/mo equivalent",
         "bullets": [
           "All core features: Clients, Projects, Tasks, Invoices, Expenses, Team, Files, Reports, Dashboard, Services",
           "Up to 3 team members",
@@ -2017,12 +2017,12 @@
         "name": "Pro",
         "tagline": "For agencies",
         "price": "Contact us",
-        "monthlyAmount": "249",
-        "yearlyAmount": "2390",
+        "monthlyAmount": "299",
+        "yearlyAmount": "2870",
         "includesIntro": "Everything in Starter, plus:",
         "cta": "Get started",
-        "usdApproxMonthly": "~$66/mo equivalent",
-        "usdApproxYearly": "~$53/mo equivalent",
+        "usdApproxMonthly": "~$80/mo equivalent",
+        "usdApproxYearly": "~$64/mo equivalent",
         "bullets": [
           "Everything in Starter",
           "Unlimited team members",

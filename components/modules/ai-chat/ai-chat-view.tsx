@@ -18,6 +18,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 
+import { AiChatThinkingIndicator } from "@/components/modules/ai-chat/ai-chat-thinking-indicator";
 import { AssistantMarkdown } from "@/components/modules/ai-chat/assistant-markdown";
 import { inferTextDirection } from "@/lib/text-dir";
 import { cn } from "@/lib/utils";
@@ -309,11 +310,6 @@ export function AiChatView({ storageOrganizationId }: AiChatViewProps) {
 
   const active = sessions.find((s) => s.id === activeId) ?? null;
 
-  React.useEffect(() => {
-    if (!active?.messages.length) return;
-    scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [active?.messages]);
-
   function stopCallModeInternal() {
     callModeRef.current = false;
     setCallMode(false);
@@ -596,6 +592,25 @@ export function AiChatView({ storageOrganizationId }: AiChatViewProps) {
 
   const showHero = !active?.messages.length;
 
+  React.useLayoutEffect(() => {
+    if (showHero) return;
+    if (!active?.messages.length && !streaming) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const scrollToEnd = () => {
+      const viewport = el.closest('[data-slot="scroll-area-viewport"]') as HTMLElement | null;
+      if (viewport) {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+      } else {
+        el.scrollIntoView({ behavior: "smooth", block: "end" });
+      }
+    };
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToEnd);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [active?.messages, active?.id, streaming, showHero]);
+
   const selectedModelRow =
     OPENROUTER_MODELS.find((m) => m.id === model) ?? OPENROUTER_MODELS[0];
 
@@ -818,7 +833,7 @@ export function AiChatView({ storageOrganizationId }: AiChatViewProps) {
                         m.content.trim() ? (
                           <AssistantMarkdown content={m.content} contentDir={textDir} />
                         ) : streaming && i === active.messages.length - 1 ? (
-                          <p className="text-muted-foreground text-sm">…</p>
+                          <AiChatThinkingIndicator />
                         ) : null
                       ) : (
                         <div
@@ -1008,7 +1023,10 @@ export function AiChatView({ storageOrganizationId }: AiChatViewProps) {
                     <Button
                       type="button"
                       size="icon"
-                      className="size-10 rounded-full"
+                      className={cn(
+                        "size-10 rounded-full transition-opacity",
+                        streaming && "opacity-50"
+                      )}
                       disabled={
                         streaming ||
                         uploading ||
@@ -1019,7 +1037,11 @@ export function AiChatView({ storageOrganizationId }: AiChatViewProps) {
                       }
                       onClick={() => void sendMessage()}
                     >
-                      <ArrowUp className="size-5" />
+                      {streaming ? (
+                        <Loader2 className="size-5 animate-spin" aria-hidden />
+                      ) : (
+                        <ArrowUp className="size-5" />
+                      )}
                     </Button>
                   </div>
                 </div>
