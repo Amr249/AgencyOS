@@ -4,9 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
-import { Linkedin, Mail, MapPin, Twitter } from "lucide-react";
+import { Linkedin, MapPin, MessageCircle, Twitter } from "lucide-react";
 import { motion } from "motion/react";
 
+import { contactWhatsAppHref } from "@/lib/contact-links";
 import { cn } from "@/lib/utils";
 
 /** Brand lime — login / signup / marketing CTAs */
@@ -157,7 +158,7 @@ export function FooterBackgroundGradient() {
   );
 }
 
-const SUPPORT_EMAIL = "support@onepixle.com";
+const WHATSAPP_HREF = contactWhatsAppHref("AgencyOS");
 
 export default function MarketingHoverFooter() {
   const t = useTranslations("marketing.footer");
@@ -173,7 +174,7 @@ export default function MarketingHoverFooter() {
   const legalLinks = [
     { label: t("privacy"), href: "/privacy" },
     { label: t("terms"), href: "/terms" },
-    { label: t("contactEmailCta"), href: `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("AgencyOS")}` },
+    { label: t("contactEmailCta"), href: WHATSAPP_HREF },
   ];
 
   const socialLinks = [
@@ -221,9 +222,11 @@ export default function MarketingHoverFooter() {
             <ul className="space-y-3 text-sm">
               {legalLinks.map((link) => (
                 <li key={link.href}>
-                  {link.href.startsWith("mailto:") ? (
+                  {link.href.startsWith("https://wa.me") ? (
                     <a
                       href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="text-zinc-400 transition-colors hover:text-[#a4fe19]"
                     >
                       {link.label}
@@ -245,12 +248,14 @@ export default function MarketingHoverFooter() {
             <h4 className="mb-6 text-lg font-semibold text-white">{t("contactTitle")}</h4>
             <ul className="space-y-4 text-sm">
               <li className="flex items-start gap-3">
-                <Mail className="mt-0.5 size-[18px] shrink-0 text-[#a4fe19]" aria-hidden />
+                <MessageCircle className="mt-0.5 size-[18px] shrink-0 text-[#a4fe19]" aria-hidden />
                 <a
-                  href={`mailto:${SUPPORT_EMAIL}`}
+                  href={WHATSAPP_HREF}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="text-zinc-400 transition-colors hover:text-[#a4fe19]"
                 >
-                  {SUPPORT_EMAIL}
+                  +966 54 701 4904
                 </a>
               </li>
               <li className="flex items-start gap-3">

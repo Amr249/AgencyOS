@@ -140,7 +140,8 @@
     "voiceCallStop": "End voice call",
     "voiceCallHint": "Speak naturally. When you pause, your message is sent and the reply is read aloud.",
     "voiceCallListening": "Listening…",
-    "voiceCallThinking": "Assistant is replying…"
+    "voiceCallThinking": "Assistant is replying…",
+    "thinking": "Thinking…"
   },
   "common": {
     "search": "Search...",
@@ -1344,7 +1345,8 @@
         "unknown": "Something went wrong.",
         "teamMemberNotFound": "That team member was not found.",
         "teamMemberNoEmail": "That team member has no email on file.",
-        "teamMemberAlreadyLinked": "That team member already has a dashboard login."
+        "teamMemberAlreadyLinked": "That team member already has a dashboard login.",
+        "starter_team_limit": "Your Starter plan supports up to 3 team members. Upgrade to Pro for unlimited members."
       }
     }
   },
@@ -1428,36 +1430,41 @@
     "connectionTimeout": "Database connection timed out. Please try again.",
     "fetchFailed": "Failed to fetch data. Check your connection.",
     "unknown": "An unexpected error occurred.",
+    "starterTeamMemberLimit": "Your Starter plan supports up to 3 team members. Upgrade to Pro for unlimited members.",
     "forbidden": "You don’t have permission to do this.",
     "trial_expired": "Your free trial has expired. Your data is safe — upgrade to continue using AgencyOS.",
     "upgrade_to_continue": "Upgrade to continue"
   },
   "upgradePage": {
     "title": "Plans & billing",
-    "subtitle": "Choose a plan that fits your agency. Paid checkout is coming soon — enterprise teams can reach us today.",
+    "subtitle": "Choose a plan that fits your agency. Checkout is coming soon — chat with us on WhatsApp for Enterprise.",
     "comingSoonCta": "Coming soon",
+    "signupCta": "Get started",
     "backToSettings": "Back to settings",
     "plans": {
       "starter": {
         "name": "Starter",
-        "tagline": "Essential tools for small teams getting started.",
-        "comingSoon": "Self‑serve signup and billing will be available here soon."
+        "tagline": "For freelancers — core modules and sensible limits.",
+        "lead": "79 SAR/month or 758 SAR/year (20% off).",
+        "comingSoon": "Self‑serve checkout will appear here when billing goes live."
       },
       "pro": {
         "name": "Pro",
-        "tagline": "Advanced features and higher limits for growing agencies.",
-        "comingSoon": "Pro checkout and plan management are on the way."
+        "tagline": "For agencies — higher limits and priority support.",
+        "lead": "249 SAR/month or 2,390 SAR/year (20% off).",
+        "comingSoon": "Plan upgrades will be managed here when billing goes live."
       },
       "enterprise": {
         "name": "Enterprise",
-        "tagline": "Custom agreements, security review, and dedicated support.",
+        "tagline": "For large agencies — custom agreements and dedicated support.",
+        "priceLabel": "Contact us",
         "comingSoon": ""
       }
     },
     "enterprise": {
       "title": "Need a custom setup?",
-      "lead": "Tell us about your team size, compliance needs, and integrations. We’ll follow up with options and pricing.",
-      "contact": "Contact us"
+      "lead": "Tell us about your team size, compliance needs, and integrations. We reply on WhatsApp.",
+      "contact": "Contact us on WhatsApp"
     }
   },
   "search": {
@@ -1795,6 +1802,9 @@
       "planEnterprise": "Enterprise",
       "planInternal": "Internal",
       "internalUnlimited": "Your workspace has unlimited usage.",
+      "teamMembers": "Team seats",
+      "teamUnlimited": "Unlimited team seats",
+      "teamUsage": "{used} / {limit}",
       "aiRequests": "AI requests",
       "storage": "Storage",
       "trialActive": "Trial active until {date}.",
@@ -1980,34 +1990,48 @@
       "switchMonthly": "Monthly",
       "switchYearly": "Yearly",
       "switchSaveBadge": "Save 20%",
-      "perMonth": "month",
+      "perMonth": "/ month",
+      "perMonthEquivalent": "/ month (yearly)",
       "perYear": "year",
+      "sarSuffixAr": "ر.س",
+      "sarSuffixEn": "SAR",
+      "yearlyBilledTotal": "{amount} SAR billed annually",
       "starter": {
         "name": "Starter",
         "tagline": "For freelancers",
-        "price": "Coming soon",
-        "monthlyAmount": "12",
-        "yearlyAmount": "99",
+        "price": "Contact us",
+        "monthlyAmount": "79",
+        "yearlyAmount": "758",
         "includesIntro": "Included with Starter:",
-        "cta": "Start free",
+        "cta": "Get started",
+        "usdApproxMonthly": "~$21/mo equivalent",
+        "usdApproxYearly": "~$17/mo equivalent",
         "bullets": [
-          "All core features",
+          "All core features: Clients, Projects, Tasks, Invoices, Expenses, Team, Files, Reports, Dashboard, Services",
+          "Up to 3 team members",
           "50 AI requests / month",
-          "1 GB storage"
+          "10 GB storage",
+          "Email support"
         ]
       },
       "pro": {
         "name": "Pro",
         "tagline": "For agencies",
-        "price": "Coming soon",
-        "monthlyAmount": "48",
-        "yearlyAmount": "399",
+        "price": "Contact us",
+        "monthlyAmount": "249",
+        "yearlyAmount": "2390",
         "includesIntro": "Everything in Starter, plus:",
-        "cta": "Start free",
+        "cta": "Get started",
+        "usdApproxMonthly": "~$66/mo equivalent",
+        "usdApproxYearly": "~$53/mo equivalent",
         "bullets": [
-          "All core features + advanced reports + custom branding",
+          "Everything in Starter",
+          "Unlimited team members",
           "500 AI requests / month",
-          "10 GB storage"
+          "100 GB storage",
+          "Advanced reports",
+          "Custom PDF branding (invoice colors)",
+          "Priority support"
         ]
       },
       "enterprise": {
@@ -2019,9 +2043,13 @@
         "includesIntro": "Everything in Pro, plus:",
         "cta": "Contact us",
         "bullets": [
-          "Everything in Pro + API access + custom features",
-          "5000 AI requests / month",
-          "100 GB storage"
+          "Everything in Pro",
+          "Unlimited AI requests",
+          "500 GB storage",
+          "API access",
+          "Custom features on request",
+          "Dedicated support",
+          "SLA guarantee"
         ]
       }
     },
@@ -2048,7 +2076,7 @@
     "contact": {
       "title": "Contact us",
       "lead": "For Enterprise plans or partnerships.",
-      "emailCta": "Email us"
+      "emailCta": "WhatsApp"
     },
     "footer": {
       "brandLine": "AgencyOS © 2026",
@@ -2070,7 +2098,7 @@
       "linkSignup": "Start free",
       "contactTitle": "Contact",
       "contactRegion": "Saudi Arabia · Remote-first",
-      "contactEmailCta": "Email support",
+      "contactEmailCta": "WhatsApp",
       "copyrightLine": "AgencyOS. All rights reserved."
     },
     "legalPage": {

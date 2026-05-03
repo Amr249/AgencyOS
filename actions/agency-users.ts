@@ -6,7 +6,9 @@ import { and, asc, count, eq, isNull, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import { assertAdminSession } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
-import { orgMembers, teamMembers, users } from "@/lib/db/schema";
+import { orgMembers, organizations, teamMembers, users } from "@/lib/db/schema";
+import type { PlanTier } from "@/lib/plan-limits";
+import { wouldExceedTeamCapWithOneMoreMember } from "@/lib/org-team-capacity";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { notifyUserAndAdmins } from "@/actions/notifications";
 import { requireAgencyOrganization } from "@/lib/org-session";
@@ -153,6 +155,7 @@ export async function createAgencyUser(
         | "team_member_not_found"
         | "team_member_no_email"
         | "team_member_already_linked"
+        | "starter_team_limit"
         | "unauthorized"
         | "forbidden"
         | string;
@@ -210,6 +213,16 @@ export async function createAgencyUser(
       .where(eq(users.email, emailNorm))
       .limit(1);
     if (existing) return { ok: false, error: "email_exists" };
+
+    const [orgPlanRow] = await db
+      .select({ plan: organizations.plan })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1);
+    const plan = (orgPlanRow?.plan ?? "starter") as PlanTier;
+    if (await wouldExceedTeamCapWithOneMoreMember({ organizationId: orgId, plan })) {
+      return { ok: false, error: "starter_team_limit" };
+    }
 
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
     const [row] = await db

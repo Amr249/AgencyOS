@@ -10,6 +10,14 @@ import { authOptions } from "@/lib/auth";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { db } from "@/lib/db";
 import { invitations, orgMembers, organizations, users } from "@/lib/db/schema";
+import type { PlanTier } from "@/lib/plan-limits";
+import {
+  countNetNewPendingInvites,
+  getPendingInviteEmailsLowercased,
+  STARTER_TEAM_LIMIT_ERROR,
+  wouldExceedTeamCapWithNewInvites,
+  wouldExceedTeamCapWithOneMoreMember,
+} from "@/lib/org-team-capacity";
 import { getInvitationPublicUrl } from "@/lib/invitation-url";
 import { getRequiredSession } from "@/lib/session";
 import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
@@ -52,6 +60,21 @@ export async function createInvitations(entries: unknown): Promise<CreateInvitat
     if (!wa.ok) return { ok: false, error: wa.error };
 
     const organizationId = session.user.organizationId;
+
+    const [orgRow] = await db
+      .select({ plan: organizations.plan })
+      .from(organizations)
+      .where(eq(organizations.id, organizationId))
+      .limit(1);
+    const plan = (orgRow?.plan ?? "starter") as PlanTier;
+
+    const pendingLower = await getPendingInviteEmailsLowercased(organizationId);
+    const emails = parsed.data.map((r) => r.email.trim().toLowerCase());
+    const netNew = countNetNewPendingInvites(emails, pendingLower);
+    if (await wouldExceedTeamCapWithNewInvites({ organizationId, plan, netNewPendingInvites: netNew })) {
+      return { ok: false, error: STARTER_TEAM_LIMIT_ERROR };
+    }
+
     const inviteLinks: { email: string; url: string }[] = [];
     let count = 0;
 
@@ -153,7 +176,8 @@ const acceptInviteSchema = z
 export type AcceptInvitationResult =
   | { ok: true; email: string }
   | { ok: false; error: Record<string, string[]> | string }
-  | { ok: false; code: "account_exists"; email: string };
+  | { ok: false; code: "account_exists"; email: string }
+  | { ok: false; code: "starter_team_limit" };
 
 export async function acceptInvitation(input: unknown): Promise<AcceptInvitationResult> {
   const parsed = acceptInviteSchema.safeParse(input);
@@ -178,6 +202,16 @@ export async function acceptInvitation(input: unknown): Promise<AcceptInvitation
     }
     if (inv.expiresAt.getTime() <= Date.now()) {
       return { ok: false, error: "Invitation has expired" };
+    }
+
+    const [orgForCap] = await db
+      .select({ plan: organizations.plan })
+      .from(organizations)
+      .where(eq(organizations.id, inv.organizationId))
+      .limit(1);
+    const plan = (orgForCap?.plan ?? "starter") as PlanTier;
+    if (await wouldExceedTeamCapWithOneMoreMember({ organizationId: inv.organizationId, plan })) {
+      return { ok: false, code: "starter_team_limit" };
     }
 
     const email = inv.email.trim().toLowerCase();
@@ -398,6 +432,16 @@ export async function applyPendingInvitationsAfterLogin(): Promise<
         .where(and(eq(orgMembers.userId, session.user.id), eq(orgMembers.organizationId, inv.organizationId)))
         .limit(1);
       if (already) continue;
+
+      const [orgForCap] = await db
+        .select({ plan: organizations.plan })
+        .from(organizations)
+        .where(eq(organizations.id, inv.organizationId))
+        .limit(1);
+      const plan = (orgForCap?.plan ?? "starter") as PlanTier;
+      if (await wouldExceedTeamCapWithOneMoreMember({ organizationId: inv.organizationId, plan })) {
+        continue;
+      }
 
       const [minRow] = await db
         .select({ m: min(orgMembers.joinedAt) })

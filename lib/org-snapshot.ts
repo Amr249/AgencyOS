@@ -1,7 +1,7 @@
 import { cache } from "react";
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { organizations, settings } from "@/lib/db/schema";
+import { orgMembers, organizations, settings } from "@/lib/db/schema";
 import type { PlanTier } from "@/lib/plan-limits";
 
 export type CachedOrganization = {
@@ -20,6 +20,8 @@ export type CachedOrganization = {
   onboardingStep: number;
   /** `organizations.logo_url` — agency branding (sidebar, etc.). */
   orgLogoUrl: string | null;
+  /** Active org_members rows (dashboard seats). */
+  teamMemberCount: number;
 };
 
 /** Fresh read from DB (mutations and auth should use this, not React cache). */
@@ -47,6 +49,11 @@ export async function fetchOrganizationSnapshot(
       .limit(1);
 
     if (!orgRow) return null;
+
+    const [memberCountRow] = await db
+      .select({ c: count() })
+      .from(orgMembers)
+      .where(eq(orgMembers.organizationId, organizationId));
 
     let settingsAgencyLogoUrl: string | null = null;
     try {
@@ -77,6 +84,7 @@ export async function fetchOrganizationSnapshot(
       onboardingStep: orgRow.onboardingStep,
       orgLogoUrl:
         orgRow.orgLogoUrl?.trim() || settingsAgencyLogoUrl?.trim() || null,
+      teamMemberCount: Number(memberCountRow?.c ?? 0),
     };
   } catch (err) {
     console.error("[fetchOrganizationSnapshot] failed", { organizationId, err });

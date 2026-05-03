@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
+  getMaxTeamMembersForPlan,
+  isUnlimitedTeam,
   PLAN_AI_MONTHLY_LIMIT,
   PLAN_STORAGE_BYTES_LIMIT,
   type PlanTier,
@@ -23,6 +25,7 @@ type SettingsUsageSectionProps = {
   trialEndsAt: string | null;
   aiUsageCount: number;
   storageUsedBytes: number;
+  teamMemberCount: number;
 };
 
 export function SettingsUsageSection({
@@ -30,6 +33,7 @@ export function SettingsUsageSection({
   trialEndsAt,
   aiUsageCount,
   storageUsedBytes,
+  teamMemberCount,
 }: SettingsUsageSectionProps) {
   const t = useTranslations("billing.usage");
   const locale = useLocale();
@@ -53,6 +57,7 @@ export function SettingsUsageSection({
 
   const aiLimit = PLAN_AI_MONTHLY_LIMIT[plan];
   const storageLimit = PLAN_STORAGE_BYTES_LIMIT[plan];
+  const teamLimit = getMaxTeamMembersForPlan(plan);
   const aiPct =
     aiLimit > 0 && Number.isFinite(aiLimit)
       ? Math.min(100, Math.round((aiUsageCount / aiLimit) * 100))
@@ -96,6 +101,26 @@ export function SettingsUsageSection({
           )}
         </CardHeader>
         <CardContent className="space-y-6">
+          {!isUnlimitedTeam(plan) ? (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>{t("teamMembers")}</span>
+                <span className="text-muted-foreground tabular-nums">
+                  {t("teamUsage", {
+                    used: teamMemberCount.toLocaleString(locale),
+                    limit: teamLimit.toLocaleString(locale),
+                  })}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>{t("teamMembers")}</span>
+                <span className="text-muted-foreground">{t("teamUnlimited")}</span>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span>{t("aiRequests")}</span>

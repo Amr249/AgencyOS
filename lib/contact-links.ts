@@ -1,17 +1,22 @@
-/**
- * Builds a wa.me URL. Normalizes common Saudi local mobiles (05xxxxxxxx → 9665xxxxxxxx).
- */
-export function buildWhatsAppChatUrl(phone: string): string | null {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length < 8) return null;
-  let n = digits;
-  if (n.length === 10 && n.startsWith("0")) {
-    n = `966${n.slice(1)}`;
-  }
-  return `https://wa.me/${n}`;
+/** AgencyOS sales / support on WhatsApp (E.164 without +). */
+export const CONTACT_WHATSAPP_E164 = "966547014904";
+
+export const CONTACT_WHATSAPP_URL = `https://wa.me/${CONTACT_WHATSAPP_E164}`;
+
+export function contactWhatsAppHref(prefill?: string): string {
+  const q = prefill?.trim();
+  if (!q) return CONTACT_WHATSAPP_URL;
+  return `${CONTACT_WHATSAPP_URL}?text=${encodeURIComponent(q)}`;
 }
 
-/** Opens Gmail compose in the browser with the given recipient prefilled. */
-export function buildGmailComposeUrl(to: string): string {
-  return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to.trim())}`;
+/** Open WhatsApp chat to an arbitrary phone (CRM / team member). Digits only for `wa.me`. */
+export function buildWhatsAppChatUrl(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return CONTACT_WHATSAPP_URL;
+  return `https://wa.me/${digits}`;
+}
+
+/** Open Gmail compose to a recipient (team / client email). */
+export function buildGmailComposeUrl(toEmail: string): string {
+  return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(toEmail.trim())}`;
 }

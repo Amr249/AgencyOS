@@ -38,6 +38,7 @@ type UsageOrgProps = {
   trialEndsAt: string | null;
   aiUsageCount: number;
   storageUsedBytes: number;
+  teamMemberCount: number;
 };
 
 type SettingsContentProps = {
@@ -119,6 +120,7 @@ export function SettingsContent({
           trialEndsAt={usageOrg.trialEndsAt}
           aiUsageCount={usageOrg.aiUsageCount}
           storageUsedBytes={usageOrg.storageUsedBytes}
+          teamMemberCount={usageOrg.teamMemberCount}
         />
       ) : null}
       <ClientTagLibrarySettings initialTags={initialClientTags} />

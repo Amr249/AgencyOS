@@ -62,6 +62,7 @@ export default async function SettingsPage() {
                 trialEndsAt: org.trialEndsAt ? org.trialEndsAt.toISOString() : null,
                 aiUsageCount: org.aiUsageCount,
                 storageUsedBytes: org.storageUsedBytes,
+                teamMemberCount: org.teamMemberCount,
               }
             : null
         }

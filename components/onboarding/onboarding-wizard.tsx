@@ -9,6 +9,7 @@ import { Building2, Check, ChevronLeft, ChevronRight, FileText, Loader2, Trash2,
 import { toast } from "sonner";
 import type { OnboardingStatePayload } from "@/actions/onboarding";
 import { createInvitations } from "@/actions/invitations";
+import { STARTER_TEAM_LIMIT_ERROR } from "@/lib/org-team-capacity";
 import {
   completeOnboarding,
   setOnboardingStep,
@@ -37,6 +38,7 @@ export function OnboardingWizard({
   organizationId: string;
 }) {
   const t = useTranslations("onboarding");
+  const terr = useTranslations("errors");
   const locale = useLocale();
   const isRTL = locale === "ar";
   const tcx = useTranslations("onboarding.currencies");
@@ -184,7 +186,7 @@ export function OnboardingWizard({
       if (inviteList.length > 0) {
         const r = await createInvitations(inviteList);
         if (!r.ok) {
-          toast.error(r.error);
+          toast.error(r.error === STARTER_TEAM_LIMIT_ERROR ? terr("starterTeamMemberLimit") : r.error);
           return;
         }
         setCreatedInviteLinks(r.inviteLinks ?? []);

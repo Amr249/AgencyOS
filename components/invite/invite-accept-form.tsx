@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { acceptInvitation } from "@/actions/invitations";
@@ -27,9 +26,9 @@ export function InviteAcceptForm({
   inviterName,
   role,
 }: InviteAcceptFormProps) {
-  const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("invitations");
+  const terr = useTranslations("errors");
   const tAuth = useTranslations("auth");
   const tOnboarding = useTranslations("onboarding.roleLabel");
   const [name, setName] = useState("");
@@ -60,6 +59,10 @@ export function InviteAcceptForm({
         setAccountExists(true);
         return;
       }
+      if ("code" in res && res.code === "starter_team_limit") {
+        setFieldErrors({ _form: [terr("starterTeamMemberLimit")] });
+        return;
+      }
       if ("error" in res) {
         if (typeof res.error === "string") {
           setFieldErrors({ _form: [res.error] });
@@ -79,8 +82,7 @@ export function InviteAcceptForm({
       setFieldErrors({ _form: [tAuth("invalidCredentials")] });
       return;
     }
-    router.push("/dashboard");
-    router.refresh();
+    window.location.assign("/dashboard");
   }
 
   return (

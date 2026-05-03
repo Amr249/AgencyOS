@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { cancelInvitation, createSingleInvitation, getOrgInvitations, resendInvitation } from "@/actions/invitations";
+import { STARTER_TEAM_LIMIT_ERROR } from "@/lib/org-team-capacity";
 import { getInvitationPublicUrl } from "@/lib/invitation-url";
 import type { OrgInvitationRow } from "@/actions/invitations";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ type TeamInvitationsSectionProps = {
 export function TeamInvitationsSection({ initialInvitations }: TeamInvitationsSectionProps) {
   const router = useRouter();
   const t = useTranslations("invitations.settings");
+  const terr = useTranslations("errors");
   const tStatus = useTranslations("invitations.status");
   const tRole = useTranslations("onboarding.roleLabel");
   const [rows, setRows] = useState(initialInvitations);
@@ -72,7 +74,7 @@ export function TeamInvitationsSection({ initialInvitations }: TeamInvitationsSe
     try {
       const res = await createSingleInvitation({ email: email.trim(), role });
       if (!res.ok) {
-        toast.error(res.error);
+        toast.error(res.error === STARTER_TEAM_LIMIT_ERROR ? terr("starterTeamMemberLimit") : res.error);
         return;
       }
       toast.success(t("inviteCreated"));

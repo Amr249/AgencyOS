@@ -2,21 +2,22 @@
 
 import Link from "next/link";
 import NumberFlow from "@number-flow/react";
-import { Briefcase, CheckCheck, Database, Server } from "lucide-react";
+import { CheckCheck } from "lucide-react";
 import { motion } from "motion/react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { TimelineContent } from "@/components/ui/timeline-animation";
+import { contactWhatsAppHref } from "@/lib/contact-links";
+import { PLAN_LIMITS, PLAN_SAR_YEARLY_PER_MONTH } from "@/lib/plan-limits";
 import { cn } from "@/lib/utils";
 
 /** Brand accent — matches login / signup glows and marketing CTAs (`#a4fe19`). */
 const BRAND = "#a4fe19";
 
 const PLAN_KEYS = ["starter", "pro", "enterprise"] as const;
-const FEATURE_ICONS = [Briefcase, Database, Server] as const;
 
 const revealVariants = {
   visible: (i: number) => ({
@@ -106,14 +107,21 @@ function PricingSwitch({
 
 export default function PricingSection() {
   const t = useTranslations("marketing.pricing");
+  const locale = useLocale();
+  const isAr = locale === "ar";
   const [isYearly, setIsYearly] = useState(false);
   const pricingRef = useRef<HTMLDivElement>(null);
 
   const togglePricingPeriod = (value: string) => setIsYearly(Number.parseInt(value, 10) === 1);
 
+  const waEnterprise = contactWhatsAppHref(
+    isAr ? "مرحباً، أود التحدث عن خطة Enterprise لـ AgencyOS" : "Hi, I’d like to talk about the AgencyOS Enterprise plan."
+  );
+
   return (
     <div
       ref={pricingRef}
+      id="pricing"
       className="relative mx-auto min-h-0 bg-muted/40 px-4 py-16 sm:px-6 sm:py-20 dark:bg-muted/20"
     >
       <div
@@ -168,21 +176,21 @@ export default function PricingSection() {
       <div className="relative z-[1] mx-auto grid max-w-7xl gap-4 py-8 md:grid-cols-3">
         {PLAN_KEYS.map((planKey, index) => {
           const rawBullets = t.raw(`${planKey}.bullets`);
-          const bullets = Array.isArray(rawBullets) ? (rawBullets as string[]).slice(0, 3) : [];
-          const hasNumeric = planKey !== "enterprise";
-          const monthlyAmount = Number(t(`${planKey}.monthlyAmount`));
-          const yearlyAmount = Number(t(`${planKey}.yearlyAmount`));
+          const bullets = Array.isArray(rawBullets) ? (rawBullets as string[]) : [];
+          const isEnterprise = planKey === "enterprise";
           const isPro = planKey === "pro";
-          const ctaHref =
-            planKey === "enterprise"
-              ? "mailto:support@onepixle.com?subject=AgencyOS%20Enterprise"
-              : "/signup";
-          const isMailto = planKey === "enterprise";
+          const ctaHref = isEnterprise ? waEnterprise : "/signup";
+          const isExternal = isEnterprise;
 
-          const features = bullets.map((text, i) => {
-            const Icon = FEATURE_ICONS[i] ?? Briefcase;
-            return { text, icon: <Icon className="size-5" aria-hidden /> };
-          });
+          const limits = isEnterprise ? null : PLAN_LIMITS[planKey];
+          const monthlySar = limits?.priceMonthly ?? 0;
+          const yearlySar = limits?.priceYearly ?? 0;
+          const yearlyPerMonth =
+            planKey === "starter" || planKey === "pro" ? PLAN_SAR_YEARLY_PER_MONTH[planKey] : 0;
+
+          const flowValue = isEnterprise ? 0 : isYearly ? yearlyPerMonth : monthlySar;
+
+          const sarSuffix = isAr ? t("sarSuffixAr") : t("sarSuffixEn");
 
           return (
             <TimelineContent
@@ -212,26 +220,36 @@ export default function PricingSection() {
                     ) : null}
                   </div>
                   <p className="mb-4 text-sm text-muted-foreground">{t(`${planKey}.tagline`)}</p>
-                  <div className="flex flex-wrap items-baseline gap-x-1 gap-y-1">
-                    {hasNumeric ? (
-                      <>
+
+                  {!isEnterprise ? (
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
                         <span className="inline-flex items-baseline text-4xl font-semibold tabular-nums text-foreground">
-                          <span aria-hidden>$</span>
-                          <span dir="ltr" className="inline-flex">
-                            <NumberFlow
-                              value={isYearly ? yearlyAmount : monthlyAmount}
-                              className="text-4xl font-semibold"
-                            />
+                          <span dir="ltr" className="inline-flex items-baseline gap-1">
+                            <NumberFlow value={flowValue} className="text-4xl font-semibold" />
+                            <span className="text-2xl font-semibold">{sarSuffix}</span>
                           </span>
                         </span>
                         <span className="text-muted-foreground ms-1 text-sm">
-                          /{isYearly ? t("perYear") : t("perMonth")}
+                          {isYearly ? t("perMonthEquivalent") : t("perMonth")}
                         </span>
-                      </>
-                    ) : (
+                      </div>
+                      {isYearly ? (
+                        <p className="text-sm text-muted-foreground">
+                          {t("yearlyBilledTotal", {
+                            amount: yearlySar.toLocaleString(isAr ? "ar-SA" : "en-US"),
+                          })}
+                        </p>
+                      ) : null}
+                      <p className="text-xs text-muted-foreground">
+                        {isYearly ? t(`${planKey}.usdApproxYearly`) : t(`${planKey}.usdApproxMonthly`)}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
                       <span className="text-3xl font-semibold text-foreground">{t(`${planKey}.price`)}</span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </CardHeader>
 
                 <CardContent className="px-8 pb-8 pt-0 sm:px-10">
@@ -244,23 +262,14 @@ export default function PricingSection() {
                       isPro && "bg-[#a4fe19] font-semibold text-black hover:bg-[#a4fe19]/90"
                     )}
                   >
-                    {isMailto ? (
-                      <a href={ctaHref}>{t(`${planKey}.cta`)}</a>
+                    {isExternal ? (
+                      <a href={ctaHref} target="_blank" rel="noopener noreferrer">
+                        {t(`${planKey}.cta`)}
+                      </a>
                     ) : (
                       <Link href={ctaHref}>{t(`${planKey}.cta`)}</Link>
                     )}
                   </Button>
-
-                  <ul className="space-y-2 py-4 font-medium">
-                    {features.map((feature, featureIndex) => (
-                      <li key={featureIndex} className="flex items-start gap-3">
-                        <span className="mt-0.5 grid size-8 shrink-0 place-content-center rounded-md bg-muted text-foreground">
-                          {feature.icon}
-                        </span>
-                        <span className="text-sm leading-snug text-muted-foreground">{feature.text}</span>
-                      </li>
-                    ))}
-                  </ul>
 
                   <div className="space-y-3 border-t border-border pt-4">
                     <h4 className="mb-2 text-base font-medium text-foreground">{t(`${planKey}.includesIntro`)}</h4>

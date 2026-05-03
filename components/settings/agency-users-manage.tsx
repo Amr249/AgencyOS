@@ -104,6 +104,8 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
           return t("errors.teamMemberNoEmail");
         case "team_member_already_linked":
           return t("errors.teamMemberAlreadyLinked");
+        case "starter_team_limit":
+          return t("errors.starter_team_limit");
         case "connectionTimeout":
           return te("connectionTimeout");
         case "fetchFailed":
