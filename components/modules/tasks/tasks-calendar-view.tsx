@@ -24,10 +24,9 @@ import { cn } from "@/lib/utils";
 import {
   TASK_PRIORITY_BADGE_CLASS,
   TASK_STATUS_BADGE_CLASS,
-  TASK_STATUS_LABELS,
-  TASK_STATUS_LABELS_EN,
 } from "@/types";
 import type { TaskWithProject } from "@/actions/tasks";
+import { useLocale, useTranslations } from "next-intl";
 
 type TasksCalendarViewProps = {
   tasks: TaskWithProject[];
@@ -50,11 +49,28 @@ function taskFallsOnDay(task: TaskWithProject, day: Date): boolean {
   return isSameDay(day, due);
 }
 
-export function TasksCalendarView({ tasks, onOpenTask, memberView = false }: TasksCalendarViewProps) {
+export function TasksCalendarView({
+  tasks,
+  onOpenTask,
+  memberView: _memberView = false,
+}: TasksCalendarViewProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const tTasks = useTranslations("tasks");
+  const tCal = useTranslations("workspace.calendar");
   const [cursor, setCursor] = React.useState<Date>(() => startOfDay(new Date()));
-  const locale = memberView ? arSA : enUS;
-  const weekStartsOn: 0 | 1 | 6 = memberView ? 6 : 0; // Saturday for Arabic locale, Sunday otherwise
-  const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
+  const locale = isAr ? arSA : enUS;
+  const weekStartsOn: 0 | 1 | 6 = isAr ? 6 : 0; // Saturday for Arabic locale, Sunday otherwise
+  const statusLabels = React.useMemo(
+    () => ({
+      todo: tTasks("taskStatusTodo"),
+      in_progress: tTasks("taskStatusInProgress"),
+      in_review: tTasks("taskStatusInReview"),
+      done: tTasks("taskStatusDone"),
+      blocked: tTasks("taskStatusBlocked"),
+    }),
+    [tTasks]
+  );
 
   const monthStart = startOfMonth(cursor);
   const monthEnd = endOfMonth(cursor);
@@ -85,12 +101,12 @@ export function TasksCalendarView({ tasks, onOpenTask, memberView = false }: Tas
         const ai = order.indexOf(a.priority);
         const bi = order.indexOf(b.priority);
         if (ai !== bi) return ai - bi;
-        return a.title.localeCompare(b.title);
+        return a.title.localeCompare(b.title, appLocale);
       });
       map.set(key, list);
     }
     return map;
-  }, [days, tasks]);
+  }, [days, tasks, appLocale]);
 
   const weekDayLabels = React.useMemo(() => {
     const base = startOfWeek(new Date(), { weekStartsOn });
@@ -99,7 +115,7 @@ export function TasksCalendarView({ tasks, onOpenTask, memberView = false }: Tas
 
   const today = startOfDay(new Date());
   const monthTitle = format(cursor, "MMMM yyyy", { locale });
-  const dir = memberView ? "rtl" : "ltr";
+  const dir = isAr ? "rtl" : "ltr";
 
   return (
     <div dir={dir} className="rounded-xl border bg-card">
@@ -109,7 +125,7 @@ export function TasksCalendarView({ tasks, onOpenTask, memberView = false }: Tas
             variant="ghost"
             size="icon"
             onClick={() => setCursor(subMonths(cursor, 1))}
-            aria-label={memberView ? "الشهر السابق" : "Previous month"}
+            aria-label={tTasks("workspacePage.calendarPrevMonth")}
           >
             {dir === "rtl" ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </Button>
@@ -117,19 +133,17 @@ export function TasksCalendarView({ tasks, onOpenTask, memberView = false }: Tas
             variant="ghost"
             size="icon"
             onClick={() => setCursor(addMonths(cursor, 1))}
-            aria-label={memberView ? "الشهر التالي" : "Next month"}
+            aria-label={tTasks("workspacePage.calendarNextMonth")}
           >
             {dir === "rtl" ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setCursor(startOfDay(new Date()))}>
-            {memberView ? "اليوم" : "Today"}
+            {tCal("today")}
           </Button>
         </div>
         <h3 className="text-base font-semibold capitalize">{monthTitle}</h3>
         <div className="text-muted-foreground text-xs">
-          {memberView
-            ? `${tasks.length} مهمة`
-            : `${tasks.length} task${tasks.length === 1 ? "" : "s"}`}
+          {tTasks("workspacePage.calendarTaskCount", { count: tasks.length })}
         </div>
       </div>
 
@@ -209,7 +223,7 @@ export function TasksCalendarView({ tasks, onOpenTask, memberView = false }: Tas
             variant="secondary"
             className={cn("text-[10px]", TASK_STATUS_BADGE_CLASS[s] ?? "")}
           >
-            {statusLabels[s] ?? s}
+            {statusLabels[s as keyof typeof statusLabels] ?? s}
           </Badge>
         ))}
       </div>

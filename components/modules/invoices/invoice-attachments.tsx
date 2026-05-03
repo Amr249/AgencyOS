@@ -132,6 +132,7 @@ export function InvoiceAttachments({ invoiceId, initialFiles }: InvoiceAttachmen
         r2Key: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? file.size ?? null,
+        skipStorageAccount: true,
         invoiceId,
       });
 

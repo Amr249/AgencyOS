@@ -15,6 +15,7 @@ import {
   getAccessibleFolderIds,
   memberHasAccessToProjectFolder,
 } from "@/lib/member-drive-access";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 
 export type FolderAccessListEntry = {
   teamMemberId: string;
@@ -37,6 +38,9 @@ export async function grantFolderAccess(folderId: string, teamMemberId: string, 
   const userId = session?.user?.id;
   if (!userId) return { ok: false as const, error: getDbErrorKey(new Error("Not authorized")) };
   if (sessionUserRole(session) !== "admin") return { ok: false as const, error: getDbErrorKey(new Error("Forbidden")) };
+
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
 
   try {
     const [folder] = await db.select().from(folders).where(eq(folders.id, p.data.folderId)).limit(1);
@@ -88,6 +92,9 @@ export async function revokeFolderAccess(folderId: string, teamMemberId: string)
   if (!userId) return { ok: false as const, error: getDbErrorKey(new Error("Not authorized")) };
   if (sessionUserRole(session) !== "admin") return { ok: false as const, error: getDbErrorKey(new Error("Forbidden")) };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
+
   try {
     const subtree = await collectSubtreeFolderIds(p.data.folderId);
     await db
@@ -117,6 +124,9 @@ export async function excludeSubfolder(folderId: string, teamMemberId: string) {
   if (!session?.user?.id) return { ok: false as const, error: getDbErrorKey(new Error("Not authorized")) };
   if (sessionUserRole(session) !== "admin") return { ok: false as const, error: getDbErrorKey(new Error("Forbidden")) };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
+
   try {
     await db
       .insert(folderAccessExclusions)
@@ -139,6 +149,9 @@ export async function removeExclusion(folderId: string, teamMemberId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: getDbErrorKey(new Error("Not authorized")) };
   if (sessionUserRole(session) !== "admin") return { ok: false as const, error: getDbErrorKey(new Error("Forbidden")) };
+
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
 
   try {
     await db

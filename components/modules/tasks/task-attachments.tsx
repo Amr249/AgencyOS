@@ -22,6 +22,7 @@ import { Progress } from "@/components/ui/progress";
 import { createFile, deleteFile, getFiles } from "@/actions/files";
 import type { FileRow } from "@/lib/file-types";
 import { cn } from "@/lib/utils";
+import { useLocale } from "next-intl";
 
 const EN = {
   title: "Attachments",
@@ -125,12 +126,14 @@ export type TaskAttachmentsProps = {
 
 export function TaskAttachments({
   taskId,
-  memberView = false,
+  memberView: _memberView = false,
   canUpload,
   canDeleteAny,
   currentUserId,
 }: TaskAttachmentsProps) {
-  const L = memberView ? AR : EN;
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const L = isAr ? AR : EN;
   const [files, setFiles] = React.useState<FileRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [pending, setPending] = React.useState<PendingUpload[]>([]);
@@ -224,6 +227,7 @@ export function TaskAttachments({
         r2Key: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? item.file.size ?? null,
+        skipStorageAccount: true,
         taskId,
         description: item.note.trim() || null,
       });
@@ -287,8 +291,8 @@ export function TaskAttachments({
     return f.uploadedBy === currentUserId;
   };
 
-  const dir = memberView ? "rtl" : "ltr";
-  const align = memberView ? "text-right" : "text-left";
+  const dir = isAr ? "rtl" : "ltr";
+  const align = isAr ? "text-right" : "text-left";
 
   return (
     <div className={cn("space-y-3", align)} dir={dir}>
@@ -460,7 +464,7 @@ export function TaskAttachments({
                   <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
                     <span>{formatSize(f.sizeBytes)}</span>
                     <span>·</span>
-                    <span>{formatDateSafe(f.createdAt, memberView)}</span>
+                    <span>{formatDateSafe(f.createdAt, isAr)}</span>
                     {f.uploadedByName ? (
                       <>
                         <span>·</span>

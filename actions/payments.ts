@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { invoiceCollectedAmount } from "@/lib/invoice-collected";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 export type Payment = typeof payments.$inferSelect;
 export type PaymentWithInvoice = Payment & {
@@ -67,6 +68,8 @@ async function recalculateInvoiceStatus(invoiceId: string) {
 export async function createPayment(input: z.infer<typeof createPaymentSchema>) {
   try {
     const validated = createPaymentSchema.parse(input);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
 
     const [payment] = await db
       .insert(payments)
@@ -102,6 +105,8 @@ export async function createPayment(input: z.infer<typeof createPaymentSchema>) 
 export async function updatePayment(input: z.infer<typeof updatePaymentSchema>) {
   try {
     const validated = updatePaymentSchema.parse(input);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const { id, ...data } = validated;
 
     const currentPayment = await db.query.payments.findFirst({
@@ -145,6 +150,8 @@ export async function updatePayment(input: z.infer<typeof updatePaymentSchema>) 
 
 export async function deletePayment(id: string) {
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const payment = await db.query.payments.findFirst({
       where: eq(payments.id, id),
     });

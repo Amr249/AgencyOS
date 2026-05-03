@@ -11,7 +11,14 @@ import { clients, expenses, expenseServices, projects, services, teamMembers } f
 const expenseClient = alias(clients, "expense_client");
 const projectOwnerClient = alias(clients, "project_owner_client");
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import {
+  getOrganizationIdForClient,
+  getOrganizationIdForProject,
+  getOrganizationIdForTeamMember,
+} from "@/lib/db/default-organization";
 import { ensureSystemFoldersInternal, recordExpenseReceiptInCategoryFolder } from "@/actions/system-folders";
+import { requireAgencyOrganization, requireAgencyWriteContext } from "@/lib/org-session";
+import { trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 const categoryValues = [
   "software",
@@ -111,6 +118,29 @@ type RawExpenseJoin = {
   createdAt: Date;
 };
 
+async function assertExpenseForeignKeysForOrg(
+  orgId: string,
+  links: {
+    clientId?: string | null;
+    projectId?: string | null;
+    teamMemberId?: string | null;
+  }
+): Promise<boolean> {
+  if (links.projectId) {
+    const o = await getOrganizationIdForProject(links.projectId);
+    if (o !== orgId) return false;
+  }
+  if (links.clientId) {
+    const o = await getOrganizationIdForClient(links.clientId);
+    if (o !== orgId) return false;
+  }
+  if (links.teamMemberId) {
+    const o = await getOrganizationIdForTeamMember(links.teamMemberId);
+    if (o !== orgId) return false;
+  }
+  return true;
+}
+
 function expenseRowFromJoin(
   r: RawExpenseJoin,
   svcMap: Map<string, { ids: string[]; names: string[] }>,
@@ -141,7 +171,10 @@ function expenseRowFromJoin(
   };
 }
 
-async function fetchExpenseServicesMap(expenseIds: string[]): Promise<Map<string, { ids: string[]; names: string[] }>> {
+async function fetchExpenseServicesMap(
+  expenseIds: string[],
+  orgId: string
+): Promise<Map<string, { ids: string[]; names: string[] }>> {
   const map = new Map<string, { ids: string[]; names: string[] }>();
   if (expenseIds.length === 0) return map;
   const rows = await db
@@ -152,7 +185,14 @@ async function fetchExpenseServicesMap(expenseIds: string[]): Promise<Map<string
     })
     .from(expenseServices)
     .innerJoin(services, eq(expenseServices.serviceId, services.id))
-    .where(inArray(expenseServices.expenseId, expenseIds));
+    .innerJoin(expenses, eq(expenseServices.expenseId, expenses.id))
+    .where(
+      and(
+        inArray(expenseServices.expenseId, expenseIds),
+        eq(expenses.organizationId, orgId),
+        eq(services.organizationId, orgId)
+      )
+    );
   for (const r of rows) {
     let entry = map.get(r.expenseId);
     if (!entry) {
@@ -166,10 +206,12 @@ async function fetchExpenseServicesMap(expenseIds: string[]): Promise<Map<string
 }
 
 export async function getExpenses(filters?: z.infer<typeof getExpensesFiltersSchema>) {
+  const ctx = await requireAgencyOrganization();
+  const orgId = ctx.organizationId;
   const parsed = filters ? getExpensesFiltersSchema.safeParse(filters) : { success: true as const, data: {} };
   const f = parsed.success ? parsed.data : {};
 
-  const conditions = [];
+  const conditions = [eq(expenses.organizationId, orgId)];
   if (f.category) conditions.push(eq(expenses.category, f.category));
   if (f.dateFrom) conditions.push(gte(expenses.date, f.dateFrom));
   if (f.dateTo) conditions.push(lte(expenses.date, f.dateTo));
@@ -204,10 +246,10 @@ export async function getExpenses(filters?: z.infer<typeof getExpensesFiltersSch
     .leftJoin(projects, eq(expenses.projectId, projects.id))
     .leftJoin(expenseClient, eq(expenses.clientId, expenseClient.id))
     .leftJoin(projectOwnerClient, eq(projects.clientId, projectOwnerClient.id))
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-  const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+  const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id), orgId);
   const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
   return { ok: true as const, data };
@@ -276,6 +318,8 @@ export async function getExpenseById(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid expense id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const [row] = await db
       .select({
         id: expenses.id,
@@ -303,11 +347,11 @@ export async function getExpenseById(id: string) {
       .leftJoin(projects, eq(expenses.projectId, projects.id))
       .leftJoin(expenseClient, eq(expenses.clientId, expenseClient.id))
       .leftJoin(projectOwnerClient, eq(projects.clientId, projectOwnerClient.id))
-      .where(eq(expenses.id, parsed.data));
+      .where(and(eq(expenses.id, parsed.data), eq(expenses.organizationId, orgId)));
 
     if (!row) return { ok: false as const, error: "Expense not found" };
 
-    const svcMap = await fetchExpenseServicesMap([row.id]);
+    const svcMap = await fetchExpenseServicesMap([row.id], orgId);
     const data: ExpenseRow = expenseRowFromJoin(row, svcMap);
 
     return { ok: true as const, data };
@@ -336,6 +380,8 @@ export async function getExpensesSummary(): Promise<{
   totalThisYear: number;
   topCategory: { category: ExpenseCategory; total: number } | null;
 }> {
+  const ctx = await requireAgencyOrganization();
+  const orgId = ctx.organizationId;
   const now = new Date();
   const y = now.getFullYear();
   const yearStart = `${y}-01-01`;
@@ -346,17 +392,30 @@ export async function getExpensesSummary(): Promise<{
     db
       .select({ total: sql<number>`sum(${expenses.amount})` })
       .from(expenses)
-      .where(and(gte(expenses.date, monthStart), lte(expenses.date, monthEnd))),
+      .where(
+        and(
+          eq(expenses.organizationId, orgId),
+          gte(expenses.date, monthStart),
+          lte(expenses.date, monthEnd)
+        )
+      ),
     db
       .select({ total: sql<number>`sum(${expenses.amount})` })
       .from(expenses)
-      .where(and(gte(expenses.date, yearStart), lte(expenses.date, yearEnd))),
+      .where(
+        and(
+          eq(expenses.organizationId, orgId),
+          gte(expenses.date, yearStart),
+          lte(expenses.date, yearEnd)
+        )
+      ),
     db
       .select({
         category: expenses.category,
         total: sql<number>`sum(${expenses.amount})`,
       })
       .from(expenses)
+      .where(eq(expenses.organizationId, orgId))
       .groupBy(expenses.category),
   ]);
 
@@ -380,9 +439,31 @@ export async function createExpense(input: z.input<typeof createExpenseSchema>) 
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   }
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredForm();
+    const organizationId = ctx.organizationId;
+    const linksOk = await assertExpenseForeignKeysForOrg(organizationId, {
+      clientId: parsed.data.clientId ?? null,
+      projectId: parsed.data.projectId ?? null,
+      teamMemberId: parsed.data.teamMemberId ?? null,
+    });
+    if (!linksOk) {
+      return { ok: false as const, error: { _form: ["forbidden"] } };
+    }
+    const sIds = parsed.data.serviceIds ?? [];
+    if (sIds.length > 0) {
+      const svcRows = await db
+        .select({ id: services.id })
+        .from(services)
+        .where(and(inArray(services.id, sIds), eq(services.organizationId, organizationId)));
+      if (svcRows.length !== sIds.length) {
+        return { ok: false as const, error: { _form: ["forbidden"] } };
+      }
+    }
     const [row] = await db
       .insert(expenses)
       .values({
+        organizationId,
         title: parsed.data.title,
         amount: String(parsed.data.amount),
         category: parsed.data.category,
@@ -410,7 +491,6 @@ export async function createExpense(input: z.input<typeof createExpenseSchema>) 
         console.error("systemFolders/expenseReceipt", e);
       }
     }
-    const sIds = parsed.data.serviceIds ?? [];
     if (sIds.length > 0) {
       await db.insert(expenseServices).values(sIds.map((sid) => ({ expenseId: row.id, serviceId: sid })));
     }
@@ -451,13 +531,43 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
     return { ok: false as const, error: "No fields to update" };
   }
   try {
+    const wctx = await requireAgencyWriteContext();
+    if (!wctx.ok) return trialExpiredForm();
+    const orgId = wctx.organizationId;
+
     const previous = await db.query.expenses.findFirst({
-      where: eq(expenses.id, id),
-      columns: { projectId: true },
+      where: and(eq(expenses.id, id), eq(expenses.organizationId, orgId)),
+      columns: { projectId: true, clientId: true, teamMemberId: true },
     });
+    if (!previous) return { ok: false as const, error: "Expense not found" };
+
+    const effectiveLinks = {
+      clientId: rest.clientId !== undefined ? rest.clientId : previous.clientId,
+      projectId: rest.projectId !== undefined ? rest.projectId : previous.projectId,
+      teamMemberId: rest.teamMemberId !== undefined ? rest.teamMemberId : previous.teamMemberId,
+    };
+    const linksOk = await assertExpenseForeignKeysForOrg(orgId, effectiveLinks);
+    if (!linksOk) {
+      return { ok: false as const, error: { _form: ["forbidden"] } };
+    }
+
+    if (hasServiceUpdate) {
+      const sIds = rest.serviceIds ?? [];
+      if (sIds.length > 0) {
+        const svcRows = await db
+          .select({ id: services.id })
+          .from(services)
+          .where(and(inArray(services.id, sIds), eq(services.organizationId, orgId)));
+        if (svcRows.length !== sIds.length) {
+          return { ok: false as const, error: { _form: ["forbidden"] } };
+        }
+      }
+    }
+
+    const orgExpenseWhere = and(eq(expenses.id, id), eq(expenses.organizationId, orgId));
     const [row] = Object.keys(payload).length > 0
-      ? await db.update(expenses).set(payload).where(eq(expenses.id, id)).returning()
-      : await db.select().from(expenses).where(eq(expenses.id, id));
+      ? await db.update(expenses).set(payload).where(orgExpenseWhere).returning()
+      : await db.select().from(expenses).where(orgExpenseWhere);
     if (!row) return { ok: false as const, error: "Expense not found" };
     if (rest.receiptUrl !== undefined && row.receiptUrl) {
       try {
@@ -475,16 +585,16 @@ export async function updateExpense(input: z.infer<typeof updateExpenseSchema>) 
     }
     if (hasServiceUpdate) {
       await db.delete(expenseServices).where(eq(expenseServices.expenseId, id));
-      const sIds = rest.serviceIds ?? [];
-      if (sIds.length > 0) {
-        await db.insert(expenseServices).values(sIds.map((sid) => ({ expenseId: id, serviceId: sid })));
+      const updSids = rest.serviceIds ?? [];
+      if (updSids.length > 0) {
+        await db.insert(expenseServices).values(updSids.map((sid) => ({ expenseId: id, serviceId: sid })));
       }
     }
     revalidatePath("/dashboard/expenses");
     revalidatePath(`/dashboard/expenses/${id}`);
     revalidatePath("/dashboard/reports");
     revalidatePath("/dashboard");
-    const prevPid = previous?.projectId ?? null;
+    const prevPid = previous.projectId ?? null;
     const nextPid = row.projectId ?? null;
     if (prevPid && prevPid !== nextPid) revalidatePath(`/dashboard/projects/${prevPid}`);
     if (nextPid) revalidatePath(`/dashboard/projects/${nextPid}`);
@@ -502,7 +612,12 @@ export async function deleteExpense(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
-    const [row] = await db.delete(expenses).where(eq(expenses.id, parsed.data)).returning();
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
+    const [row] = await db
+      .delete(expenses)
+      .where(and(eq(expenses.id, parsed.data), eq(expenses.organizationId, ctx.organizationId)))
+      .returning();
     if (!row) return { ok: false as const, error: "Expense not found" };
     revalidatePath("/dashboard/expenses");
     revalidatePath(`/dashboard/expenses/${parsed.data}`);
@@ -523,10 +638,15 @@ export async function deleteExpenses(ids: string[]) {
   const parsed = z.array(z.string().uuid()).min(1).safeParse(ids);
   if (!parsed.success) return { ok: false as const, error: "Invalid ids" };
   try {
-    const deleted = await db.delete(expenses).where(inArray(expenses.id, parsed.data)).returning({
-      id: expenses.id,
-      projectId: expenses.projectId,
-    });
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
+    const deleted = await db
+      .delete(expenses)
+      .where(and(inArray(expenses.id, parsed.data), eq(expenses.organizationId, ctx.organizationId)))
+      .returning({
+        id: expenses.id,
+        projectId: expenses.projectId,
+      });
     if (deleted.length === 0) return { ok: false as const, error: "No expenses found" };
     revalidatePath("/dashboard/expenses");
     for (const r of deleted) {
@@ -597,6 +717,14 @@ export async function getExpensesByTeamMemberId(teamMemberId: string) {
   const parsed = z.string().uuid().safeParse(teamMemberId);
   if (!parsed.success) return { ok: false as const, error: "Invalid team member id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const memberInOrg = await db.query.teamMembers.findFirst({
+      where: and(eq(teamMembers.id, parsed.data), eq(teamMembers.organizationId, orgId)),
+      columns: { id: true },
+    });
+    if (!memberInOrg) return { ok: false as const, error: "Team member not found" };
+
     const rows = await db
       .select({
         id: expenses.id,
@@ -624,10 +752,10 @@ export async function getExpensesByTeamMemberId(teamMemberId: string) {
       .leftJoin(projects, eq(expenses.projectId, projects.id))
       .leftJoin(expenseClient, eq(expenses.clientId, expenseClient.id))
       .leftJoin(projectOwnerClient, eq(projects.clientId, projectOwnerClient.id))
-      .where(eq(expenses.teamMemberId, parsed.data))
+      .where(and(eq(expenses.teamMemberId, parsed.data), eq(expenses.organizationId, orgId)))
       .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id), orgId);
     const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
     return { ok: true as const, data };
@@ -644,6 +772,13 @@ export async function getExpensesByProjectId(projectId: string) {
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const projectOrg = await getOrganizationIdForProject(parsed.data);
+    if (projectOrg !== orgId) {
+      return { ok: true as const, data: [] };
+    }
+
     const rows = await db
       .select({
         id: expenses.id,
@@ -671,10 +806,10 @@ export async function getExpensesByProjectId(projectId: string) {
       .leftJoin(projects, eq(expenses.projectId, projects.id))
       .leftJoin(expenseClient, eq(expenses.clientId, expenseClient.id))
       .leftJoin(projectOwnerClient, eq(projects.clientId, projectOwnerClient.id))
-      .where(eq(expenses.projectId, parsed.data))
+      .where(and(eq(expenses.projectId, parsed.data), eq(expenses.organizationId, orgId)))
       .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id), orgId);
     const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
     return { ok: true as const, data };
@@ -691,6 +826,13 @@ export async function getExpensesByClientId(clientId: string) {
   const parsed = z.string().uuid().safeParse(clientId);
   if (!parsed.success) return { ok: false as const, error: "Invalid client id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const clientOrg = await getOrganizationIdForClient(parsed.data);
+    if (clientOrg !== orgId) {
+      return { ok: true as const, data: [] };
+    }
+
     const rows = await db
       .select({
         id: expenses.id,
@@ -718,10 +860,10 @@ export async function getExpensesByClientId(clientId: string) {
       .leftJoin(projects, eq(expenses.projectId, projects.id))
       .leftJoin(expenseClient, eq(expenses.clientId, expenseClient.id))
       .leftJoin(projectOwnerClient, eq(projects.clientId, projectOwnerClient.id))
-      .where(eq(expenses.clientId, parsed.data))
+      .where(and(eq(expenses.clientId, parsed.data), eq(expenses.organizationId, orgId)))
       .orderBy(desc(expenses.date), desc(expenses.createdAt));
 
-    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id));
+    const svcMap = await fetchExpenseServicesMap(rows.map((r) => r.id), orgId);
     const data: ExpenseRow[] = rows.map((r) => expenseRowFromJoin(r, svcMap));
 
     return { ok: true as const, data };
@@ -738,6 +880,21 @@ export async function getProjectCostSummary(projectId: string) {
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const projectOrg = await getOrganizationIdForProject(parsed.data);
+    if (projectOrg !== orgId) {
+      return {
+        ok: true as const,
+        data: {
+          totalExpenses: 0,
+          billableExpenses: 0,
+          nonBillableExpenses: 0,
+          expenseCount: 0,
+        },
+      };
+    }
+
     const result = await db
       .select({
         totalExpenses: sql<string>`COALESCE(SUM(${expenses.amount}), 0)`,
@@ -746,7 +903,7 @@ export async function getProjectCostSummary(projectId: string) {
         expenseCount: sql<number>`COUNT(*)::int`,
       })
       .from(expenses)
-      .where(eq(expenses.projectId, parsed.data));
+      .where(and(eq(expenses.projectId, parsed.data), eq(expenses.organizationId, orgId)));
 
     return {
       ok: true as const,
@@ -774,13 +931,15 @@ export async function getExpenseTotalsByProjectIds(projectIds: string[]) {
     return { ok: true as const, data: {} as Record<string, number> };
   }
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const rows = await db
       .select({
         projectId: expenses.projectId,
         total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)`,
       })
       .from(expenses)
-      .where(inArray(expenses.projectId, parsed.data))
+      .where(and(inArray(expenses.projectId, parsed.data), eq(expenses.organizationId, orgId)))
       .groupBy(expenses.projectId);
 
     const map: Record<string, number> = {};
@@ -804,6 +963,21 @@ export async function getClientCostSummary(clientId: string) {
   const parsed = z.string().uuid().safeParse(clientId);
   if (!parsed.success) return { ok: false as const, error: "Invalid client id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const clientOrg = await getOrganizationIdForClient(parsed.data);
+    if (clientOrg !== orgId) {
+      return {
+        ok: true as const,
+        data: {
+          totalExpenses: 0,
+          billableExpenses: 0,
+          nonBillableExpenses: 0,
+          expenseCount: 0,
+        },
+      };
+    }
+
     const result = await db
       .select({
         totalExpenses: sql<string>`COALESCE(SUM(${expenses.amount}), 0)`,
@@ -812,7 +986,7 @@ export async function getClientCostSummary(clientId: string) {
         expenseCount: sql<number>`COUNT(*)::int`,
       })
       .from(expenses)
-      .where(eq(expenses.clientId, parsed.data));
+      .where(and(eq(expenses.clientId, parsed.data), eq(expenses.organizationId, orgId)));
 
     return {
       ok: true as const,

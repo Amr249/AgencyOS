@@ -8,6 +8,7 @@ import { getTasks, getTasksByProjectId, getTasksSnapshotForAiChat, type AiTaskAs
 import { getTeamMembers } from "@/actions/team";
 import { getDashboardData, type DashboardData } from "@/actions/dashboard";
 import { getProposals, getProposalStats } from "@/actions/proposals";
+import { getOrganizationIdForAiDataAccess } from "@/lib/ai-chat/ai-chat-org";
 import { shouldSkipRetrieval } from "@/lib/ai-chat/intent-skip";
 
 const CONTEXT_MAX_CHARS = 56000;
@@ -323,6 +324,9 @@ function formatSpecificProjectContext(
 export async function getContextForQuestion(question: string): Promise<string> {
   const trimmed = question.trim();
   if (!trimmed || shouldSkipRetrieval(trimmed)) return "";
+
+  const orgGate = await getOrganizationIdForAiDataAccess();
+  if (!orgGate.ok) return "";
 
   const lowerQ = trimmed.toLowerCase();
   const contextParts: string[] = [];

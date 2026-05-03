@@ -5,7 +5,9 @@ import type { Icon } from "@tabler/icons-react";
 import { ChevronDown, ChevronRight, type LucideIcon } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { useLocale } from "next-intl";
 
+import type { NavGatedFeature } from "@/components/org-plan-provider";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -16,10 +18,12 @@ import {
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
-type NavLeaf = {
+export type NavLeaf = {
   title: string;
   url: string;
   icon?: Icon;
+  /** When set, callers should filter this item by plan (see `useFeature`). */
+  feature?: NavGatedFeature;
 };
 
 type NavGroup = {
@@ -57,6 +61,9 @@ export function NavMain({
 }: NavMainProps) {
   const { setOpenMobile, state } = useSidebar();
   const pathname = usePathname();
+  const locale = useLocale();
+  const groupLabelCase =
+    locale === "ar" ? "normal-case tracking-normal" : "uppercase tracking-wide";
 
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(groups.map((g) => [g.id, true]))
@@ -119,7 +126,8 @@ export function NavMain({
                     type="button"
                     onClick={() => toggleGroup(group.id)}
                     className={cn(
-                      "text-sidebar-foreground/80 hover:bg-sidebar-accent flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide transition-colors group-data-[collapsible=icon]:hidden",
+                      "text-sidebar-foreground/80 hover:bg-sidebar-accent flex w-full items-center justify-between rounded-md px-2 py-2 text-start text-xs font-semibold transition-colors group-data-[collapsible=icon]:hidden",
+                      groupLabelCase,
                       anyChildActive && "text-sidebar-foreground"
                     )}
                   >

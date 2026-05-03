@@ -31,6 +31,7 @@ import {
   memberIsAssignedToTask,
 } from "@/lib/member-context";
 import { sessionUserRole } from "@/lib/auth-helpers";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 const TASK_STATUSES = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
 
@@ -768,6 +769,8 @@ export async function updateTaskSortOrder(updates: Array<{ id: string; sortOrder
   const parsed = sortOrderSchema.safeParse(updates);
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
@@ -842,6 +845,8 @@ export async function logTime(input: {
   const parsed = logTimeSchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
@@ -889,6 +894,8 @@ export async function deleteTimeLog(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
@@ -968,6 +975,8 @@ export async function createTaskComment(taskId: string, body: string) {
     .safeParse({ taskId, body });
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
@@ -1015,6 +1024,8 @@ export async function deleteTaskComment(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
@@ -1046,6 +1057,8 @@ export async function assignTask(taskId: string, teamMemberId: string | null) {
     .safeParse({ taskId, teamMemberId });
   if (!parsed.success) return { ok: false as const, error: "Invalid payload" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const session = await getServerSession(authOptions);
     if (sessionUserRole(session) === "member") {
       if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };

@@ -3,8 +3,8 @@
  * When embeddings exist later, merge here instead of or in addition to ilike snippets.
  */
 
-import { and, desc, ilike, isNull, or } from "drizzle-orm";
-import { db, proposals, projects, mostaqlProjects } from "@/lib/db";
+import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import { db, proposals, projects, mostaqlProjects, mostaqlScrapeRuns } from "@/lib/db";
 import { cleanLikeToken } from "@/lib/ai-chat/retrieval-tools";
 
 const SNIPPET_MAX = 480;
@@ -15,7 +15,11 @@ function clip(s: string | null | undefined): string {
   return t.length <= SNIPPET_MAX ? t : `${t.slice(0, SNIPPET_MAX)}…`;
 }
 
-export async function retrieveUnstructuredSnippets(tokens: string[], perSource = 4): Promise<string[]> {
+export async function retrieveUnstructuredSnippets(
+  organizationId: string,
+  tokens: string[],
+  perSource = 4
+): Promise<string[]> {
   const cleaned = tokens.map((t) => cleanLikeToken(t)).filter((x): x is string => Boolean(x));
   if (!cleaned.length) return [];
 
@@ -33,10 +37,13 @@ export async function retrieveUnstructuredSnippets(tokens: string[], perSource =
       })
       .from(proposals)
       .where(
-        or(
-          ilike(proposals.title, p),
-          ilike(proposals.description, p),
-          ilike(proposals.notes, p)
+        and(
+          eq(proposals.organizationId, organizationId),
+          or(
+            ilike(proposals.title, p),
+            ilike(proposals.description, p),
+            ilike(proposals.notes, p)
+          )
         )
       )
       .orderBy(desc(proposals.appliedAt))
@@ -59,6 +66,7 @@ export async function retrieveUnstructuredSnippets(tokens: string[], perSource =
       .from(projects)
       .where(
         and(
+          eq(projects.organizationId, organizationId),
           isNull(projects.deletedAt),
           or(ilike(projects.name, p), ilike(projects.description, p), ilike(projects.notes, p))
         )
@@ -80,7 +88,13 @@ export async function retrieveUnstructuredSnippets(tokens: string[], perSource =
         url: mostaqlProjects.url,
       })
       .from(mostaqlProjects)
-      .where(or(ilike(mostaqlProjects.title, p), ilike(mostaqlProjects.description, p)))
+      .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
+      .where(
+        and(
+          eq(mostaqlScrapeRuns.organizationId, organizationId),
+          or(ilike(mostaqlProjects.title, p), ilike(mostaqlProjects.description, p))
+        )
+      )
       .orderBy(desc(mostaqlProjects.scrapedAt))
       .limit(perSource);
 

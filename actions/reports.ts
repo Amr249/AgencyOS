@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, isNull, and, sql, inArray, lt, ne, gte, lte, desc, sum, type SQL } from "drizzle-orm";
+import { eq, isNull, and, or, sql, inArray, lt, ne, gte, lte, desc, sum, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   projects,
@@ -14,8 +14,10 @@ import {
   payments,
   recurringExpenses,
   settings,
+  teamMembers,
 } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireAgencyOrganization } from "@/lib/org-session";
 import { rollupRevenueByClient } from "@/lib/client-revenue-stats";
 import {
   startOfWeek,
@@ -50,6 +52,11 @@ import {
   PROFIT_LOSS_PERIODS,
   type ProfitLossPeriodKey,
 } from "@/lib/reports-constants";
+
+async function reportOrganizationId(): Promise<string> {
+  const ctx = await requireAgencyOrganization();
+  return ctx.organizationId;
+}
 
 // --- Types ---
 
@@ -122,6 +129,7 @@ const PROJECT_STATUS_LABELS_AR: Record<string, string> = {
 };
 
 export async function getProjectsSummary(): Promise<ProjectsSummary> {
+  const orgId = await reportOrganizationId();
   const now = new Date();
   const todayStr = format(now, "yyyy-MM-dd");
   const currentYear = getYear(now);
@@ -129,7 +137,13 @@ export async function getProjectsSummary(): Promise<ProjectsSummary> {
   const [activeCountResult] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(projects)
-    .where(and(eq(projects.status, "active"), isNull(projects.deletedAt)));
+    .where(
+      and(
+        eq(projects.status, "active"),
+        isNull(projects.deletedAt),
+        eq(projects.organizationId, orgId)
+      )
+    );
 
   const [completedThisYearResult] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -138,6 +152,7 @@ export async function getProjectsSummary(): Promise<ProjectsSummary> {
       and(
         eq(projects.status, "completed"),
         isNull(projects.deletedAt),
+        eq(projects.organizationId, orgId),
         sql`${projects.endDate} is not null and to_char(${projects.endDate}, 'YYYY') = ${String(currentYear)}`
       )
     );
@@ -148,7 +163,7 @@ export async function getProjectsSummary(): Promise<ProjectsSummary> {
       done: sql<number>`count(*) filter (where ${tasks.status} = 'done')::int`,
     })
     .from(tasks)
-    .where(isNull(tasks.deletedAt));
+    .where(and(isNull(tasks.deletedAt), eq(tasks.organizationId, orgId)));
 
   const [overdueCountResult] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -156,6 +171,7 @@ export async function getProjectsSummary(): Promise<ProjectsSummary> {
     .where(
       and(
         isNull(tasks.deletedAt),
+        eq(tasks.organizationId, orgId),
         ne(tasks.status, "done"),
         sql`${tasks.dueDate} is not null`,
         lt(tasks.dueDate, todayStr)
@@ -177,13 +193,14 @@ export async function getProjectsSummary(): Promise<ProjectsSummary> {
 }
 
 export async function getProjectsByStatus(): Promise<ProjectsByStatusRow[]> {
+  const orgId = await reportOrganizationId();
   const rows = await db
     .select({
       status: projects.status,
       count: sql<number>`count(*)::int`,
     })
     .from(projects)
-    .where(isNull(projects.deletedAt))
+    .where(and(isNull(projects.deletedAt), eq(projects.organizationId, orgId)))
     .groupBy(projects.status);
 
   return rows.map((r) => ({
@@ -195,6 +212,7 @@ export async function getProjectsByStatus(): Promise<ProjectsByStatusRow[]> {
 
 /** Last 8 weeks: count of tasks with status = 'done' by week of createdAt (approximation for "completed that week"). */
 export async function getWeeklyTaskCompletion(): Promise<WeeklyTaskCompletionRow[]> {
+  const orgId = await reportOrganizationId();
   const now = new Date();
   const result: WeeklyTaskCompletionRow[] = [];
 
@@ -210,6 +228,7 @@ export async function getWeeklyTaskCompletion(): Promise<WeeklyTaskCompletionRow
         and(
           eq(tasks.status, "done"),
           isNull(tasks.deletedAt),
+          eq(tasks.organizationId, orgId),
           gte(tasks.createdAt, weekStart),
           lte(tasks.createdAt, weekEnd)
         )
@@ -225,6 +244,7 @@ export async function getWeeklyTaskCompletion(): Promise<WeeklyTaskCompletionRow
 }
 
 export async function getOverdueTasks(): Promise<OverdueTaskRow[]> {
+  const orgId = await reportOrganizationId();
   const now = new Date();
   const todayStr = format(now, "yyyy-MM-dd");
   const today = startOfDay(now);
@@ -241,6 +261,7 @@ export async function getOverdueTasks(): Promise<OverdueTaskRow[]> {
     .where(
       and(
         isNull(tasks.deletedAt),
+        eq(tasks.organizationId, orgId),
         ne(tasks.status, "done"),
         sql`${tasks.dueDate} is not null`,
         lt(tasks.dueDate, todayStr)
@@ -254,7 +275,7 @@ export async function getOverdueTasks(): Promise<OverdueTaskRow[]> {
       ? await db
           .select({ id: projects.id, name: projects.name })
           .from(projects)
-          .where(inArray(projects.id, projectIds))
+          .where(and(inArray(projects.id, projectIds), eq(projects.organizationId, orgId)))
       : [];
   const projectNameMap = new Map(projectNames.map((p) => [p.id, p.name]));
 
@@ -272,6 +293,7 @@ export async function getOverdueTasks(): Promise<OverdueTaskRow[]> {
 }
 
 export async function getActiveProjectsWithProgress(): Promise<ActiveProjectRow[]> {
+  const orgId = await reportOrganizationId();
   const now = new Date();
   const todayStr = format(now, "yyyy-MM-dd");
 
@@ -291,6 +313,8 @@ export async function getActiveProjectsWithProgress(): Promise<ActiveProjectRow[
     .where(
       and(
         isNull(projects.deletedAt),
+        eq(projects.organizationId, orgId),
+        eq(clients.organizationId, orgId),
         ne(projects.status, "completed"),
         ne(projects.status, "cancelled")
       )
@@ -307,7 +331,13 @@ export async function getActiveProjectsWithProgress(): Promise<ActiveProjectRow[
       done: sql<number>`count(*) filter (where ${tasks.status} = 'done')::int`,
     })
     .from(tasks)
-    .where(and(inArray(tasks.projectId, projectIds), isNull(tasks.deletedAt)))
+    .where(
+      and(
+        inArray(tasks.projectId, projectIds),
+        isNull(tasks.deletedAt),
+        eq(tasks.organizationId, orgId)
+      )
+    )
     .groupBy(tasks.projectId);
 
   const countMap = new Map<string, { total: number; done: number }>();
@@ -344,6 +374,7 @@ export async function getNewClientsPerMonth(year: number): Promise<{
   byMonth: NewClientsPerMonthRow[];
   recent: RecentClientRow[];
 }> {
+  const orgId = await reportOrganizationId();
   const start = `${year}-01-01`;
   const end = `${year}-12-31`;
 
@@ -356,6 +387,7 @@ export async function getNewClientsPerMonth(year: number): Promise<{
     .where(
       and(
         isNull(clients.deletedAt),
+        eq(clients.organizationId, orgId),
         gte(clients.createdAt, yearStart),
         lte(clients.createdAt, yearEnd)
       )
@@ -398,6 +430,7 @@ export async function getNewClientsPerMonth(year: number): Promise<{
     .where(
       and(
         isNull(clients.deletedAt),
+        eq(clients.organizationId, orgId),
         gte(clients.createdAt, yearStart),
         lte(clients.createdAt, yearEnd)
       )
@@ -589,6 +622,8 @@ export type ClientProfitabilitySummary = {
 export type ProfitabilityDateRange = {
   dateFrom?: string;
   dateTo?: string;
+  /** When set (e.g. dashboard), restrict to this tenant for performance and isolation. */
+  organizationId?: string;
 };
 
 /** Service-level profitability: project revenue/expense in range split evenly across services on each project. */
@@ -620,6 +655,7 @@ function sqlExpenseDateFilterAliasE(dateFrom?: string, dateTo?: string): SQL {
 
 /** KPI summary: collected metrics use `payments.payment_date`; invoiced-this-year uses `issue_date`. */
 export async function getFinancialSummary(): Promise<FinancialSummary> {
+  const orgId = await reportOrganizationId();
   const now = new Date();
   const thisMonthStart = startOfMonth(now);
   const thisMonthEnd = endOfMonth(now);
@@ -630,7 +666,9 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
 
   const allPayments = await db
     .select({ amount: payments.amount, paymentDate: payments.paymentDate })
-    .from(payments);
+    .from(payments)
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(eq(invoices.organizationId, orgId));
 
   let revenueThisMonth = 0;
   let revenueLastMonth = 0;
@@ -655,7 +693,8 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
 
   const invoiceTotals = await db
     .select({ id: invoices.id, total: invoices.total, issueDate: invoices.issueDate })
-    .from(invoices);
+    .from(invoices)
+    .where(eq(invoices.organizationId, orgId));
 
   const paidByInvoice = await db
     .select({
@@ -663,6 +702,8 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
       paid: sum(payments.amount),
     })
     .from(payments)
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(eq(invoices.organizationId, orgId))
     .groupBy(payments.invoiceId);
 
   const paidMap = new Map(paidByInvoice.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
@@ -819,7 +860,11 @@ function resolveProfitLossWindow(period: ProfitLossPeriodKey, now: Date): {
   }
 }
 
-async function aggregateProfitLossForRange(startStr: string, endStr: string): Promise<{
+async function aggregateProfitLossForRange(
+  startStr: string,
+  endStr: string,
+  orgId: string
+): Promise<{
   invoiced: number;
   collected: number;
   outstanding: number;
@@ -834,14 +879,27 @@ async function aggregateProfitLossForRange(startStr: string, endStr: string): Pr
       total: sql<string>`coalesce(sum(${invoices.total}::numeric), 0)::text`,
     })
     .from(invoices)
-    .where(and(gte(invoices.issueDate, startStr), lte(invoices.issueDate, endStr)));
+    .where(
+      and(
+        eq(invoices.organizationId, orgId),
+        gte(invoices.issueDate, startStr),
+        lte(invoices.issueDate, endStr)
+      )
+    );
 
   const [payRow] = await db
     .select({
       total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)::text`,
     })
     .from(payments)
-    .where(and(gte(payments.paymentDate, startStr), lte(payments.paymentDate, endStr)));
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(
+      and(
+        eq(invoices.organizationId, orgId),
+        gte(payments.paymentDate, startStr),
+        lte(payments.paymentDate, endStr)
+      )
+    );
 
   const categoryRows = await db
     .select({
@@ -849,7 +907,13 @@ async function aggregateProfitLossForRange(startStr: string, endStr: string): Pr
       total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)::text`,
     })
     .from(expenses)
-    .where(and(gte(expenses.date, startStr), lte(expenses.date, endStr)))
+    .where(
+      and(
+        eq(expenses.organizationId, orgId),
+        gte(expenses.date, startStr),
+        lte(expenses.date, endStr)
+      )
+    )
     .groupBy(expenses.category);
 
   const byCategory: ProfitLossExpensesByCategory = {
@@ -879,7 +943,13 @@ async function aggregateProfitLossForRange(startStr: string, endStr: string): Pr
   const periodInvoices = await db
     .select({ id: invoices.id, total: invoices.total })
     .from(invoices)
-    .where(and(gte(invoices.issueDate, startStr), lte(invoices.issueDate, endStr)));
+    .where(
+      and(
+        eq(invoices.organizationId, orgId),
+        gte(invoices.issueDate, startStr),
+        lte(invoices.issueDate, endStr)
+      )
+    );
 
   let outstanding = 0;
   const invoiceIds = periodInvoices.map((i) => i.id);
@@ -890,7 +960,14 @@ async function aggregateProfitLossForRange(startStr: string, endStr: string): Pr
         paid: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)::text`,
       })
       .from(payments)
-      .where(and(inArray(payments.invoiceId, invoiceIds), lte(payments.paymentDate, endStr)))
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .where(
+        and(
+          eq(invoices.organizationId, orgId),
+          inArray(payments.invoiceId, invoiceIds),
+          lte(payments.paymentDate, endStr)
+        )
+      )
       .groupBy(payments.invoiceId);
 
     const paidMap = new Map<string, number>();
@@ -939,16 +1016,18 @@ export async function getProfitLossStatement(
   const key = period as ProfitLossPeriodKey;
 
   try {
+    const orgId = await reportOrganizationId();
     const now = new Date();
     const resolved = resolveProfitLossWindow(key, now);
     const current = await aggregateProfitLossForRange(
       resolved.current.startStr,
-      resolved.current.endStr
+      resolved.current.endStr,
+      orgId
     );
 
     let comparison: ProfitLossStatement["comparison"] = null;
     if (resolved.prev) {
-      const prev = await aggregateProfitLossForRange(resolved.prev.startStr, resolved.prev.endStr);
+      const prev = await aggregateProfitLossForRange(resolved.prev.startStr, resolved.prev.endStr, orgId);
       const delta = roundMoney(current.net - prev.net);
       let percentChange: number | null = null;
       if (Math.abs(prev.net) > 0.0001) {
@@ -1019,6 +1098,7 @@ export async function getProfitLossStatement(
 
 /** Last 12 months with English month labels. Collected = sum of `payments` by `payment_date`; invoiced = sum of `invoices.total` by `created_at`. */
 export async function getMonthlyRevenue(dateRange: DateRangeKey): Promise<MonthlyRevenuePoint[]> {
+  const orgId = await reportOrganizationId();
   const now = new Date();
 
   let monthKeys: string[];
@@ -1043,12 +1123,13 @@ export async function getMonthlyRevenue(dateRange: DateRangeKey): Promise<Monthl
   const rangeEndExclusiveStr = format(rangeEndExclusive, "yyyy-MM-dd");
 
   const collectedRaw = await db.execute(sql`
-    SELECT to_char(${payments.paymentDate}, 'YYYY-MM') AS month_key,
-           sum(${payments.amount})::numeric AS total
-    FROM ${payments}
-    WHERE ${payments.paymentDate} >= ${rangeStartStr}::date
-      AND ${payments.paymentDate} < ${rangeEndExclusiveStr}::date
-    GROUP BY to_char(${payments.paymentDate}, 'YYYY-MM')
+    SELECT to_char(p.payment_date, 'YYYY-MM') AS month_key,
+           sum(p.amount)::numeric AS total
+    FROM ${payments} p
+    INNER JOIN ${invoices} i ON i.id = p.invoice_id AND i.organization_id = ${orgId}::uuid
+    WHERE p.payment_date >= ${rangeStartStr}::date
+      AND p.payment_date < ${rangeEndExclusiveStr}::date
+    GROUP BY to_char(p.payment_date, 'YYYY-MM')
   `);
   const collectedRows = Array.isArray(collectedRaw)
     ? collectedRaw
@@ -1063,7 +1144,8 @@ export async function getMonthlyRevenue(dateRange: DateRangeKey): Promise<Monthl
     SELECT to_char(${invoices.createdAt}, 'YYYY-MM') AS month_key,
            sum(${invoices.total})::numeric AS total
     FROM ${invoices}
-    WHERE ${invoices.createdAt} >= ${rangeStart}
+    WHERE ${invoices.organizationId} = ${orgId}::uuid
+      AND ${invoices.createdAt} >= ${rangeStart}
       AND ${invoices.createdAt} < ${rangeEndExclusive}
     GROUP BY to_char(${invoices.createdAt}, 'YYYY-MM')
   `);
@@ -1080,7 +1162,13 @@ export async function getMonthlyRevenue(dateRange: DateRangeKey): Promise<Monthl
   const expenseRows = await db
     .select({ date: expenses.date, amount: expenses.amount })
     .from(expenses)
-    .where(and(gte(expenses.date, `${firstMonth}-01`), lte(expenses.date, expenseRangeEnd)));
+    .where(
+      and(
+        eq(expenses.organizationId, orgId),
+        gte(expenses.date, `${firstMonth}-01`),
+        lte(expenses.date, expenseRangeEnd)
+      )
+    );
   const expensesMap = new Map<string, number>();
   for (const ex of expenseRows) {
     const key = format(parseISO(String(ex.date)), "yyyy-MM");
@@ -1115,6 +1203,7 @@ export type MonthlyComparisonPoint = {
 };
 
 export async function getMonthlyComparison(): Promise<MonthlyComparisonPoint[]> {
+  const orgId = await reportOrganizationId();
   const now = new Date();
   const monthKeys: string[] = [];
   for (let i = 5; i >= 0; i--) {
@@ -1129,12 +1218,13 @@ export async function getMonthlyComparison(): Promise<MonthlyComparisonPoint[]> 
   const rangeEndExclusiveStr = format(rangeEndExclusive, "yyyy-MM-dd");
 
   const collectedRaw = await db.execute(sql`
-    SELECT to_char(${payments.paymentDate}, 'YYYY-MM') AS month_key,
-           sum(${payments.amount})::numeric AS total
-    FROM ${payments}
-    WHERE ${payments.paymentDate} >= ${rangeStartStr}::date
-      AND ${payments.paymentDate} < ${rangeEndExclusiveStr}::date
-    GROUP BY to_char(${payments.paymentDate}, 'YYYY-MM')
+    SELECT to_char(p.payment_date, 'YYYY-MM') AS month_key,
+           sum(p.amount)::numeric AS total
+    FROM ${payments} p
+    INNER JOIN ${invoices} i ON i.id = p.invoice_id AND i.organization_id = ${orgId}::uuid
+    WHERE p.payment_date >= ${rangeStartStr}::date
+      AND p.payment_date < ${rangeEndExclusiveStr}::date
+    GROUP BY to_char(p.payment_date, 'YYYY-MM')
   `);
   const collectedRows = Array.isArray(collectedRaw)
     ? collectedRaw
@@ -1149,7 +1239,13 @@ export async function getMonthlyComparison(): Promise<MonthlyComparisonPoint[]> 
   const expenseRows = await db
     .select({ date: expenses.date, amount: expenses.amount })
     .from(expenses)
-    .where(and(gte(expenses.date, `${firstMonth}-01`), lte(expenses.date, expenseRangeEnd)));
+    .where(
+      and(
+        eq(expenses.organizationId, orgId),
+        gte(expenses.date, `${firstMonth}-01`),
+        lte(expenses.date, expenseRangeEnd)
+      )
+    );
   const expensesMap = new Map<string, number>();
   for (const ex of expenseRows) {
     const key = format(parseISO(String(ex.date)), "yyyy-MM");
@@ -1190,14 +1286,18 @@ export async function getMonthlyAreaDefaultBounds(): Promise<{
   start: string;
   end: string;
 }> {
+  const orgId = await reportOrganizationId();
   const end = format(endOfDay(new Date()), "yyyy-MM-dd");
 
   const [pRow] = await db
     .select({ min: sql<string | null>`min(${payments.paymentDate})` })
-    .from(payments);
+    .from(payments)
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(eq(invoices.organizationId, orgId));
   const [eRow] = await db
     .select({ min: sql<string | null>`min(${expenses.date})` })
-    .from(expenses);
+    .from(expenses)
+    .where(eq(expenses.organizationId, orgId));
 
   let earliest: Date | null = null;
   for (const raw of [pRow?.min, eRow?.min]) {
@@ -1219,6 +1319,7 @@ export async function getMonthlyAreaData(
   startDate: string,
   endDate: string
 ): Promise<MonthlyAreaPoint[]> {
+  const orgId = await reportOrganizationId();
   const rangeStart = startOfMonth(parseISO(startDate));
   const rangeEnd = endOfMonth(parseISO(endDate));
 
@@ -1237,12 +1338,13 @@ export async function getMonthlyAreaData(
   const rangeEndExclusiveStrArea = format(rangeEndSql, "yyyy-MM-dd");
 
   const collectedRaw = await db.execute(sql`
-    SELECT to_char(${payments.paymentDate}, 'YYYY-MM') AS month_key,
-           sum(${payments.amount})::numeric AS total
-    FROM ${payments}
-    WHERE ${payments.paymentDate} >= ${rangeStartStrArea}::date
-      AND ${payments.paymentDate} < ${rangeEndExclusiveStrArea}::date
-    GROUP BY to_char(${payments.paymentDate}, 'YYYY-MM')
+    SELECT to_char(p.payment_date, 'YYYY-MM') AS month_key,
+           sum(p.amount)::numeric AS total
+    FROM ${payments} p
+    INNER JOIN ${invoices} i ON i.id = p.invoice_id AND i.organization_id = ${orgId}::uuid
+    WHERE p.payment_date >= ${rangeStartStrArea}::date
+      AND p.payment_date < ${rangeEndExclusiveStrArea}::date
+    GROUP BY to_char(p.payment_date, 'YYYY-MM')
   `);
   const collectedRows = Array.isArray(collectedRaw)
     ? collectedRaw
@@ -1257,7 +1359,13 @@ export async function getMonthlyAreaData(
   const expenseRows = await db
     .select({ date: expenses.date, amount: expenses.amount })
     .from(expenses)
-    .where(and(gte(expenses.date, `${firstMonth}-01`), lte(expenses.date, expenseRangeEnd)));
+    .where(
+      and(
+        eq(expenses.organizationId, orgId),
+        gte(expenses.date, `${firstMonth}-01`),
+        lte(expenses.date, expenseRangeEnd)
+      )
+    );
   const expensesMap = new Map<string, number>();
   for (const ex of expenseRows) {
     const key = format(parseISO(String(ex.date)), "yyyy-MM");
@@ -1282,6 +1390,7 @@ export async function getMonthlyAreaData(
 
 /** Top N clients by collected revenue (payments + legacy paid-without-rows), all time, non-deleted clients only. */
 export async function getTopClientsByRevenue(limit: number): Promise<TopClientRow[]> {
+  const orgId = await reportOrganizationId();
   const invRows = await db
     .select({
       id: invoices.id,
@@ -1294,7 +1403,13 @@ export async function getTopClientsByRevenue(limit: number): Promise<TopClientRo
     })
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
-    .where(isNull(clients.deletedAt));
+    .where(
+      and(
+        isNull(clients.deletedAt),
+        eq(clients.organizationId, orgId),
+        eq(invoices.organizationId, orgId)
+      )
+    );
 
   if (invRows.length === 0) return [];
 
@@ -1305,7 +1420,8 @@ export async function getTopClientsByRevenue(limit: number): Promise<TopClientRo
       paid: sum(payments.amount),
     })
     .from(payments)
-    .where(inArray(payments.invoiceId, invoiceIds))
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(and(inArray(payments.invoiceId, invoiceIds), eq(invoices.organizationId, orgId)))
     .groupBy(payments.invoiceId);
   const payMap = new Map(payRows.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
 
@@ -1336,6 +1452,7 @@ export async function getTopClientsByRevenue(limit: number): Promise<TopClientRo
 
 /** Last N invoices by created_at DESC. */
 export async function getRecentInvoices(limit: number): Promise<RecentInvoiceRow[]> {
+  const orgId = await reportOrganizationId();
   const rows = await db
     .select({
       id: invoices.id,
@@ -1347,6 +1464,7 @@ export async function getRecentInvoices(limit: number): Promise<RecentInvoiceRow
     })
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
+    .where(and(eq(invoices.organizationId, orgId), eq(clients.organizationId, orgId)))
     .orderBy(desc(invoices.createdAt))
     .limit(limit);
 
@@ -1362,12 +1480,15 @@ export async function getRecentInvoices(limit: number): Promise<RecentInvoiceRow
 
 /** Invoices with remaining balance (total − payments &gt; 0), with client/project and days since issue. */
 export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]> {
+  const orgId = await reportOrganizationId();
   const paidSums = await db
     .select({
       invoiceId: payments.invoiceId,
       paid: sum(payments.amount),
     })
     .from(payments)
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(eq(invoices.organizationId, orgId))
     .groupBy(payments.invoiceId);
 
   const paidMap = new Map(paidSums.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
@@ -1385,7 +1506,11 @@ export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]>
     })
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
-    .leftJoin(projects, eq(invoices.projectId, projects.id))
+    .leftJoin(
+      projects,
+      and(eq(invoices.projectId, projects.id), eq(projects.organizationId, orgId))
+    )
+    .where(and(eq(invoices.organizationId, orgId), eq(clients.organizationId, orgId)))
     .orderBy(desc(invoices.issueDate));
 
   const today = new Date();
@@ -1416,6 +1541,7 @@ export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]>
 }
 
 export async function getClientSpendByService(): Promise<ClientServiceSpendRow[]> {
+  const orgId = await reportOrganizationId();
   const rows = await db
     .select({
       clientId: clients.id,
@@ -1434,7 +1560,15 @@ export async function getClientSpendByService(): Promise<ClientServiceSpendRow[]
       clientServices,
       and(eq(clientServices.clientId, clients.id), eq(clientServices.serviceId, services.id))
     )
-    .where(eq(invoices.status, "paid"));
+    .where(
+      and(
+        eq(invoices.status, "paid"),
+        eq(invoices.organizationId, orgId),
+        eq(clients.organizationId, orgId),
+        eq(projects.organizationId, orgId),
+        eq(services.organizationId, orgId)
+      )
+    );
 
   const map = new Map<string, ClientServiceSpendRow>();
   for (const row of rows) {
@@ -1460,6 +1594,7 @@ export async function getClientSpendByService(): Promise<ClientServiceSpendRow[]
 }
 
 export async function getServicesProfitability(): Promise<ServiceProfitabilityRow[]> {
+  const orgId = await reportOrganizationId();
   const rows = await db
     .select({
       serviceId: services.id,
@@ -1471,7 +1606,14 @@ export async function getServicesProfitability(): Promise<ServiceProfitabilityRo
     .innerJoin(projects, eq(invoices.projectId, projects.id))
     .innerJoin(projectServices, eq(projectServices.projectId, projects.id))
     .innerJoin(services, eq(projectServices.serviceId, services.id))
-    .where(eq(invoices.status, "paid"));
+    .where(
+      and(
+        eq(invoices.status, "paid"),
+        eq(invoices.organizationId, orgId),
+        eq(projects.organizationId, orgId),
+        eq(services.organizationId, orgId)
+      )
+    );
 
   const revenueByService = new Map<string, { serviceName: string; totalRevenue: number; clients: Set<string> }>();
   for (const row of rows) {
@@ -1513,6 +1655,7 @@ export async function getClientProfitability(
   try {
     const dateFrom = range?.dateFrom;
     const dateTo = range?.dateTo;
+    const orgId = range?.organizationId ?? (await reportOrganizationId());
 
     const clientRows = await db
       .select({
@@ -1522,7 +1665,7 @@ export async function getClientProfitability(
         status: clients.status,
       })
       .from(clients)
-      .where(isNull(clients.deletedAt));
+      .where(and(isNull(clients.deletedAt), eq(clients.organizationId, orgId)));
 
     const payConds: SQL[] = [];
     if (dateFrom) payConds.push(gte(payments.paymentDate, dateFrom));
@@ -1535,9 +1678,8 @@ export async function getClientProfitability(
       })
       .from(payments)
       .innerJoin(invoices, eq(payments.invoiceId, invoices.id));
-    if (payConds.length) {
-      revenueQ = revenueQ.where(and(...payConds)) as typeof revenueQ;
-    }
+    const revenueWhere = [...payConds, eq(invoices.organizationId, orgId)];
+    revenueQ = revenueQ.where(and(...revenueWhere)) as typeof revenueQ;
     const revenueRows = await revenueQ.groupBy(invoices.clientId);
 
     const revenueMap = new Map<string, number>();
@@ -1550,24 +1692,28 @@ export async function getClientProfitability(
         ? sql` AND ${dateFrom ? sql`${expenses.date} >= ${dateFrom}::date` : sql`TRUE`} AND ${dateTo ? sql`${expenses.date} <= ${dateTo}::date` : sql`TRUE`}`
         : sql``;
 
+    const expenseOrgSql = sql`AND ${clients.organizationId} = ${orgId}::uuid`;
     const expenseRaw = await db.execute(sql`
       SELECT ${clients.id}::text AS client_id,
         COALESCE(SUM(${expenses.amount}::numeric), 0)::text AS total_expenses,
         COUNT(DISTINCT ${expenses.id})::int AS expense_count
       FROM ${clients}
       LEFT JOIN ${expenses} ON (
-        (
+        ${expenses.organizationId} = ${orgId}::uuid
+        AND (
           ${expenses.clientId} = ${clients.id}
           OR EXISTS (
             SELECT 1 FROM ${projects}
             WHERE ${projects.id} = ${expenses.projectId}
               AND ${projects.clientId} = ${clients.id}
               AND ${projects.deletedAt} IS NULL
+              AND ${projects.organizationId} = ${orgId}::uuid
           )
         )
         ${expenseDateSql}
       )
       WHERE ${clients.deletedAt} IS NULL
+      ${expenseOrgSql}
       GROUP BY ${clients.id}
     `);
 
@@ -1590,7 +1736,7 @@ export async function getClientProfitability(
         count: sql<number>`count(*)::int`,
       })
       .from(projects)
-      .where(isNull(projects.deletedAt))
+      .where(and(isNull(projects.deletedAt), eq(projects.organizationId, orgId)))
       .groupBy(projects.clientId);
 
     const projectCountMap = new Map<string, number>();
@@ -1604,6 +1750,7 @@ export async function getClientProfitability(
         count: sql<number>`count(*)::int`,
       })
       .from(invoices)
+      .where(eq(invoices.organizationId, orgId))
       .groupBy(invoices.clientId);
 
     const invoiceCountMap = new Map<string, number>();
@@ -1720,19 +1867,24 @@ export async function getCashFlowForecast(): Promise<
     const m0Key = format(monthStarts[0], "yyyy-MM");
     const m2Key = format(monthStarts[2], "yyyy-MM");
 
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const [settingsRow] = await db
       .select({ defaultPaymentTerms: settings.defaultPaymentTerms })
       .from(settings)
-      .where(eq(settings.id, 1));
+      .where(eq(settings.organizationId, orgId));
     const defaultTerms = settingsRow?.defaultPaymentTerms ?? 30;
 
     const [paymentsTotalRow] = await db
       .select({ total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)` })
-      .from(payments);
+      .from(payments)
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .where(eq(invoices.organizationId, orgId));
 
     const [expensesTotalRow] = await db
       .select({ total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)` })
-      .from(expenses);
+      .from(expenses)
+      .where(eq(expenses.organizationId, orgId));
 
     const collected = roundMoney(Number(paymentsTotalRow?.total ?? 0));
     const expensesToDate = roundMoney(Number(expensesTotalRow?.total ?? 0));
@@ -1744,7 +1896,13 @@ export async function getCashFlowForecast(): Promise<
     const [histNonRecurringRow] = await db
       .select({ total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)` })
       .from(expenses)
-      .where(and(gte(expenses.date, histStartStr), lt(expenses.date, histEndExclusiveStr)));
+      .where(
+        and(
+          eq(expenses.organizationId, orgId),
+          gte(expenses.date, histStartStr),
+          lt(expenses.date, histEndExclusiveStr)
+        )
+      );
 
     const avgMonthlyNonRecurring = roundMoney(Number(histNonRecurringRow?.total ?? 0) / 6);
 
@@ -1754,6 +1912,8 @@ export async function getCashFlowForecast(): Promise<
         paid: sum(payments.amount),
       })
       .from(payments)
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .where(eq(invoices.organizationId, orgId))
       .groupBy(payments.invoiceId);
 
     const paidMap = new Map(paidSums.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
@@ -1765,7 +1925,8 @@ export async function getCashFlowForecast(): Promise<
         issueDate: invoices.issueDate,
         dueDate: invoices.dueDate,
       })
-      .from(invoices);
+      .from(invoices)
+      .where(eq(invoices.organizationId, orgId));
 
     const incomeByMonth = [0, 0, 0] as [number, number, number];
 
@@ -1797,7 +1958,19 @@ export async function getCashFlowForecast(): Promise<
         nextDueDate: recurringExpenses.nextDueDate,
       })
       .from(recurringExpenses)
-      .where(eq(recurringExpenses.isActive, true));
+      .leftJoin(projects, eq(recurringExpenses.projectId, projects.id))
+      .leftJoin(clients, eq(recurringExpenses.clientId, clients.id))
+      .leftJoin(teamMembers, eq(recurringExpenses.teamMemberId, teamMembers.id))
+      .where(
+        and(
+          eq(recurringExpenses.isActive, true),
+          or(
+            eq(projects.organizationId, orgId),
+            eq(clients.organizationId, orgId),
+            eq(teamMembers.organizationId, orgId)
+          )
+        )
+      );
 
     const recurringByMonth = [0, 0, 0] as [number, number, number];
 
@@ -1891,27 +2064,39 @@ export async function getProjectProfitability(
   try {
     const dateFrom = range?.dateFrom;
     const dateTo = range?.dateTo;
+    const orgId = range?.organizationId ?? (await reportOrganizationId());
     const useRange = Boolean(dateFrom || dateTo);
     const payF = sqlPaymentDateFilterPayments(dateFrom, dateTo);
     const expF = sqlExpenseDateFilterAliasE(dateFrom, dateTo);
+
+    const ipJoinOrg = sql`INNER JOIN invoices inv_ip ON inv_ip.id = ip.invoice_id AND inv_ip.organization_id = ${orgId}::uuid`;
+    const invUnionOrg = sql`AND i.organization_id = ${orgId}::uuid`;
+    const payJoinOrg = sql`INNER JOIN invoices inv_fp ON inv_fp.id = p.invoice_id AND inv_fp.organization_id = ${orgId}::uuid`;
+    const invoiceCollectedOrg = sql`AND i.organization_id = ${orgId}::uuid`;
+    const expenseOrgE = sql`AND e.organization_id = ${orgId}::uuid`;
+    const expenseOrgBare = sql`AND organization_id = ${orgId}::uuid`;
+    const finalProjOrg = sql`AND p.organization_id = ${orgId}::uuid AND c.organization_id = ${orgId}::uuid`;
 
     const raw = useRange
       ? await db.execute(sql`
       WITH invoice_project_links AS (
         SELECT ip.invoice_id, ip.project_id
         FROM invoice_projects ip
+        ${ipJoinOrg}
         UNION ALL
         SELECT i.id AS invoice_id, i.project_id
         FROM invoices i
         WHERE i.project_id IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM invoice_projects ip2 WHERE ip2.invoice_id = i.id)
+          ${invUnionOrg}
       ),
       filtered_payments AS (
-        SELECT invoice_id, SUM(amount)::numeric AS paid_in_range
-        FROM payments
+        SELECT p.invoice_id, SUM(p.amount)::numeric AS paid_in_range
+        FROM payments p
+        ${payJoinOrg}
         WHERE 1 = 1
           ${payF}
-        GROUP BY invoice_id
+        GROUP BY p.invoice_id
       ),
       invoice_collected AS (
         SELECT
@@ -1919,6 +2104,8 @@ export async function getProjectProfitability(
           COALESCE(fp.paid_in_range, 0)::numeric AS collected
         FROM invoices i
         LEFT JOIN filtered_payments fp ON fp.invoice_id = i.id
+        WHERE 1 = 1
+          ${invoiceCollectedOrg}
       ),
       link_counts AS (
         SELECT invoice_id, COUNT(*)::numeric AS cnt
@@ -1944,6 +2131,7 @@ export async function getProjectProfitability(
         FROM expenses e
         WHERE e.project_id IS NOT NULL
           ${expF}
+          ${expenseOrgE}
         GROUP BY e.project_id
       )
       SELECT
@@ -1964,17 +2152,20 @@ export async function getProjectProfitability(
       LEFT JOIN project_expenses pe ON pe.project_id = p.id
       WHERE p.deleted_at IS NULL
         AND c.deleted_at IS NULL
+        ${finalProjOrg}
       ORDER BY (COALESCE(pr.total_revenue, 0) - COALESCE(pe.total_expenses, 0)) DESC
     `)
       : await db.execute(sql`
       WITH invoice_project_links AS (
         SELECT ip.invoice_id, ip.project_id
         FROM invoice_projects ip
+        ${ipJoinOrg}
         UNION ALL
         SELECT i.id AS invoice_id, i.project_id
         FROM invoices i
         WHERE i.project_id IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM invoice_projects ip2 WHERE ip2.invoice_id = i.id)
+          ${invUnionOrg}
       ),
       invoice_collected AS (
         SELECT
@@ -1990,6 +2181,8 @@ export async function getProjectProfitability(
           FROM payments
           GROUP BY invoice_id
         ) pt ON pt.invoice_id = i.id
+        WHERE 1 = 1
+          ${invoiceCollectedOrg}
       ),
       link_counts AS (
         SELECT invoice_id, COUNT(*)::numeric AS cnt
@@ -2014,6 +2207,7 @@ export async function getProjectProfitability(
           COUNT(*)::int AS expense_count
         FROM expenses
         WHERE project_id IS NOT NULL
+          ${expenseOrgBare}
         GROUP BY project_id
       )
       SELECT
@@ -2034,6 +2228,7 @@ export async function getProjectProfitability(
       LEFT JOIN project_expenses pe ON pe.project_id = p.id
       WHERE p.deleted_at IS NULL
         AND c.deleted_at IS NULL
+        ${finalProjOrg}
       ORDER BY (COALESCE(pr.total_revenue, 0) - COALESCE(pe.total_expenses, 0)) DESC
     `);
 
@@ -2095,6 +2290,9 @@ export async function getServiceProfitability(
     const projRes = await getProjectProfitability(range);
     if (!projRes.ok) return projRes;
 
+    const orgId =
+      range?.organizationId ??
+      (await reportOrganizationId());
     const linkRows = await db
       .select({
         projectId: projectServices.projectId,
@@ -2104,7 +2302,13 @@ export async function getServiceProfitability(
       .from(projectServices)
       .innerJoin(services, eq(projectServices.serviceId, services.id))
       .innerJoin(projects, eq(projectServices.projectId, projects.id))
-      .where(isNull(projects.deletedAt));
+      .where(
+        and(
+          isNull(projects.deletedAt),
+          eq(projects.organizationId, orgId),
+          eq(services.organizationId, orgId)
+        )
+      );
 
     const servicesByProject = new Map<string, { id: string; name: string }[]>();
     for (const row of linkRows) {
@@ -2212,6 +2416,7 @@ export async function getAgingReport(): Promise<
   { ok: true; data: AgingReportData } | { ok: false; error: ReturnType<typeof getDbErrorKey> }
 > {
   try {
+    const orgId = await reportOrganizationId();
     const today = startOfDay(new Date());
 
     const paidSums = await db
@@ -2220,6 +2425,8 @@ export async function getAgingReport(): Promise<
         paid: sum(payments.amount),
       })
       .from(payments)
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .where(eq(invoices.organizationId, orgId))
       .groupBy(payments.invoiceId);
 
     const paidMap = new Map(
@@ -2234,7 +2441,8 @@ export async function getAgingReport(): Promise<
         logoUrl: clients.logoUrl,
       })
       .from(invoices)
-      .innerJoin(clients, eq(invoices.clientId, clients.id));
+      .innerJoin(clients, eq(invoices.clientId, clients.id))
+      .where(and(eq(invoices.organizationId, orgId), eq(clients.organizationId, orgId)));
 
     const buckets = emptyAgingBuckets();
     const list: AgingReportInvoiceRow[] = [];

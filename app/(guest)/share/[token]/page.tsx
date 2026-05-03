@@ -55,7 +55,10 @@ export default async function GuestSharePage({ params }: Props) {
   const { token } = await params;
   const res = await getFileByShareToken(token);
 
-  const [settingsRow] = await db.select().from(settings).where(eq(settings.id, 1)).limit(1);
+  const orgId = res.ok ? res.data.organizationId : null;
+  const [settingsRow] = orgId
+    ? await db.select().from(settings).where(eq(settings.organizationId, orgId)).limit(1)
+    : [];
   const agencyName = settingsRow?.agencyName?.trim() || "AgencyOS";
   const logoUrl = settingsRow?.agencyLogoUrl?.trim() || null;
 

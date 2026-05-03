@@ -33,20 +33,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { useLocale, useTranslations } from "next-intl";
 
-const formSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  role: z.string().optional(),
-  email: z.string().email("Invalid email address").optional().or(z.literal("")),
-  phone: z.string().optional(),
-  avatarUrl: z.string().optional(),
-  status: z.enum(["active", "inactive"]),
-  notes: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof formSchema>;
-
-const ROLE_SUGGESTIONS = ["Designer", "Developer", "Project Manager", "Accountant", "Other"];
+type FormValues = {
+  name: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  avatarUrl?: string;
+  status: "active" | "inactive";
+  notes?: string;
+};
 
 type NewMemberModalProps = {
   trigger: React.ReactNode;
@@ -65,12 +62,29 @@ export function NewMemberModal({
   asChild,
   onSuccess,
 }: NewMemberModalProps) {
+  const t = useTranslations("team");
+  const locale = useLocale();
+  const pageDir = locale === "ar" ? "rtl" : "ltr";
   const [openLocal, setOpenLocal] = React.useState(false);
   const [avatarUploading, setAvatarUploading] = React.useState(false);
   const isControlled = openProp !== undefined && onOpenChangeProp !== undefined;
   const open = isControlled ? openProp : openLocal;
   const setOpen = isControlled ? onOpenChangeProp! : setOpenLocal;
   const isEdit = !!member;
+
+  const formSchema = React.useMemo(
+    () =>
+      z.object({
+        name: z.string().min(1, t("validationNameRequired")),
+        role: z.string().optional(),
+        email: z.string().email(t("validationEmailInvalid")).optional().or(z.literal("")),
+        phone: z.string().optional(),
+        avatarUrl: z.string().optional(),
+        status: z.enum(["active", "inactive"]),
+        notes: z.string().optional(),
+      }),
+    [t]
+  );
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -123,9 +137,9 @@ export function NewMemberModal({
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (data.url) form.setValue("avatarUrl", data.url);
-      else toast.error("Failed to upload image");
+      else toast.error(t("toastAvatarUploadFailed"));
     } catch {
-      toast.error("Failed to upload image");
+      toast.error(t("toastAvatarUploadFailed"));
     } finally {
       setAvatarUploading(false);
     }
@@ -145,35 +159,35 @@ export function NewMemberModal({
     if (isEdit) {
       const result = await updateTeamMember({ id: member.id, ...payload });
       if (result.ok) {
-        toast.success("Member updated");
+        toast.success(t("toastMemberUpdated"));
         setOpen(false);
         onSuccess?.();
       } else {
-        toast.error(typeof result.error === "string" ? result.error : "Update failed");
+        toast.error(typeof result.error === "string" ? result.error : t("toastUpdateFailed"));
       }
     } else {
       const result = await createTeamMember(payload);
       if (result.ok) {
-        toast.success("Member added");
+        toast.success(t("toastMemberAdded"));
         setOpen(false);
         onSuccess?.();
       } else {
         const err = result.error as Record<string, string[] | undefined>;
-        const msg = err?.name?.[0] ?? (typeof result.error === "string" ? result.error : "Create failed");
+        const msg = err?.name?.[0] ?? (typeof result.error === "string" ? result.error : t("toastCreateFailed"));
         toast.error(msg);
       }
     }
   }
 
+  const fieldAlign = pageDir === "rtl" ? "text-end" : "text-start";
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild={asChild}>{trigger}</DialogTrigger>
-      <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-lg" dir="ltr">
-        <DialogHeader className="text-left">
-          <DialogTitle>{isEdit ? "Edit Team Member" : "Add New Member"}</DialogTitle>
-          <DialogDescription>
-            {isEdit ? "Update member details." : "Enter new member details."}
-          </DialogDescription>
+      <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-lg" dir={pageDir}>
+        <DialogHeader className={fieldAlign}>
+          <DialogTitle>{isEdit ? t("modalEditTitle") : t("modalAddTitle")}</DialogTitle>
+          <DialogDescription>{isEdit ? t("modalEditDescription") : t("modalAddDescription")}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -181,10 +195,10 @@ export function NewMemberModal({
               control={form.control}
               name="name"
               render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Name *</FormLabel>
+                <FormItem className={fieldAlign}>
+                  <FormLabel>{t("nameRequiredLabel")}</FormLabel>
                   <FormControl>
-                    <Input placeholder="Full name" className="text-left" {...field} />
+                    <Input placeholder={t("placeholderFullName")} className={fieldAlign} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -194,14 +208,10 @@ export function NewMemberModal({
               control={form.control}
               name="role"
               render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Role</FormLabel>
+                <FormItem className={fieldAlign}>
+                  <FormLabel>{t("role")}</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder="Designer / Developer / Project Manager / Accountant / Other"
-                      className="text-left"
-                      {...field}
-                    />
+                    <Input placeholder={t("placeholderRole")} className={fieldAlign} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -211,10 +221,10 @@ export function NewMemberModal({
               control={form.control}
               name="email"
               render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Email</FormLabel>
+                <FormItem className={fieldAlign}>
+                  <FormLabel>{t("email")}</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="email@example.com" className="text-left" {...field} />
+                    <Input type="email" placeholder={t("placeholderEmail")} className={fieldAlign} dir="ltr" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -224,10 +234,10 @@ export function NewMemberModal({
               control={form.control}
               name="phone"
               render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Phone</FormLabel>
+                <FormItem className={fieldAlign}>
+                  <FormLabel>{t("phone")}</FormLabel>
                   <FormControl>
-                    <Input placeholder="Phone number" className="text-left" {...field} />
+                    <Input placeholder={t("placeholderPhone")} className={fieldAlign} dir="ltr" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -236,22 +246,18 @@ export function NewMemberModal({
             <FormField
               control={form.control}
               name="avatarUrl"
-              render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Avatar</FormLabel>
+              render={() => (
+                <FormItem className={fieldAlign}>
+                  <FormLabel>{t("avatar")}</FormLabel>
                   <FormControl>
-                    <div className="flex items-center gap-3">
+                    <div className={`flex items-center gap-3 ${pageDir === "rtl" ? "flex-row-reverse" : ""}`}>
                       {avatarUrl && (
-                        <img
-                          src={avatarUrl}
-                          alt=""
-                          className="h-14 w-14 rounded-full border object-cover"
-                        />
+                        <img src={avatarUrl} alt="" className="h-14 w-14 rounded-full border object-cover" />
                       )}
                       <Input
                         type="file"
                         accept="image/*"
-                        className="cursor-pointer max-w-[200px]"
+                        className="max-w-[min(100%,220px)] cursor-pointer"
                         disabled={avatarUploading}
                         onChange={onAvatarChange}
                       />
@@ -265,17 +271,17 @@ export function NewMemberModal({
               control={form.control}
               name="status"
               render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Status</FormLabel>
+                <FormItem className={fieldAlign}>
+                  <FormLabel>{t("status")}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger className="text-left">
+                      <SelectTrigger className={fieldAlign}>
                         <SelectValue />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectContent dir={pageDir}>
+                      <SelectItem value="active">{t("active")}</SelectItem>
+                      <SelectItem value="inactive">{t("inactive")}</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -286,20 +292,20 @@ export function NewMemberModal({
               control={form.control}
               name="notes"
               render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Notes</FormLabel>
+                <FormItem className={fieldAlign}>
+                  <FormLabel>{t("notes")}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Optional notes" className="text-left min-h-[80px]" {...field} />
+                    <Textarea placeholder={t("placeholderNotes")} className={`min-h-[80px] ${fieldAlign}`} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className={pageDir === "rtl" ? "sm:flex-row-reverse sm:justify-start" : undefined}>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Cancel
+                {t("cancel")}
               </Button>
-              <Button type="submit">{isEdit ? "Save" : "Add"}</Button>
+              <Button type="submit">{isEdit ? t("save") : t("add")}</Button>
             </DialogFooter>
           </form>
         </Form>

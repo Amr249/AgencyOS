@@ -19,12 +19,45 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
 | `service_status` | `active`, `inactive` |
 | `workspace_view` | `board`, `list`, `timeline` |
+| `file_document_type` | `contract`, `agreement`, `proposal`, `nda`, `other` |
+| `org_plan` | `starter`, `pro`, `enterprise`, `internal` |
+| `org_member_role` | `owner`, `admin`, `member` |
 
 ## TypeScript-only type
 
 - **`AddressJson`** — `{ street?, city?, country?, postal? }` used for `clients.address` and `settings.agency_address`.
 
 ## Tables
+
+### `organizations`
+
+| Column | Type | Notes |
+|--------|------|--------|
+| `id` | UUID | PK, default random |
+| `name` | text | NOT NULL — agency / tenant display name |
+| `slug` | text | NOT NULL, UNIQUE — URL-safe identifier (e.g. `onepixle`) |
+| `plan` | org_plan | NOT NULL, default `starter` |
+| `features` | jsonb | NOT NULL, default `{}` — per-tenant feature flags |
+| `logo_url` | text | optional |
+| `trial_ends_at` | timestamptz | optional — null = no trial / paid |
+| `ai_usage_count` | integer | NOT NULL, default 0 — AI requests this billing cycle |
+| `ai_usage_reset_at` | timestamptz | optional — counter reset time |
+| `storage_used_bytes` | bigint | NOT NULL, default 0 |
+| `created_at`, `updated_at` | timestamptz | NOT NULL, default now |
+
+Indexes: UNIQUE on `slug`, index on `plan`.
+
+### `org_members`
+
+| Column | Type | Notes |
+|--------|------|--------|
+| `id` | UUID | PK |
+| `user_id` | UUID | NOT NULL → `users.id` **ON DELETE CASCADE** |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
+| `role` | org_member_role | NOT NULL, default `member` |
+| `joined_at` | timestamptz | NOT NULL, default now |
+
+Indexes: UNIQUE (`user_id`, `organization_id`), index on `organization_id`.
 
 ### `users`
 
@@ -43,6 +76,7 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `company_name` | text | NOT NULL |
 | `status` | client_status | NOT NULL, default `lead` |
 | `contact_name`, `contact_email`, `contact_phone` | text | optional |
@@ -57,6 +91,7 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `client_id` | UUID | NOT NULL → `clients.id` **ON DELETE CASCADE** |
 | `name` | text | NOT NULL |
 | `description`, `cover_image_url`, `notes` | text | optional |
@@ -81,6 +116,7 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `project_id` | UUID | NOT NULL → `projects.id` **CASCADE** |
 | `phase_id` | UUID | → `phases.id` **ON DELETE SET NULL** |
 | `parent_task_id` | UUID | self-FK → `tasks.id` **CASCADE** (subtasks) |
@@ -96,7 +132,7 @@ Source of truth: [`lib/db/schema.ts`](../lib/db/schema.ts). Migrations live in [
 | `created_at` | timestamptz | NOT NULL |
 | `deleted_at` | timestamptz | soft delete |
 
-Indexes: `tasks_project_id_idx`, `tasks_status_idx`, `tasks_parent_task_id_idx`.
+Indexes: `tasks_organization_id_idx`, `tasks_project_id_idx`, `tasks_status_idx`, `tasks_parent_task_id_idx`.
 
 <!-- ADDED 2026-03-23 -->
 <!-- OUTDATED: tasks table listing below omitted start_date in earlier revision -->
@@ -107,6 +143,7 @@ Indexes: `tasks_project_id_idx`, `tasks_status_idx`, `tasks_parent_task_id_idx`.
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `invoice_number` | text | NOT NULL, UNIQUE — sequential format e.g. **`INV-001`** from `settings.invoice_prefix` + counter |
 | `client_id` | UUID | NOT NULL → `clients.id` **CASCADE** |
 | `project_id` | UUID | → `projects.id` **SET NULL** (primary linked project; see `invoice_projects` for many) |
@@ -164,6 +201,7 @@ Index: `invoice_projects_project_id_idx` on `project_id`.
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `name` | text | NOT NULL |
 | `imagekit_file_id`, `imagekit_url`, `file_path` | text | NOT NULL |
 | `mime_type` | text | optional |
@@ -181,6 +219,7 @@ Indexes: `files_invoice_id_idx`, `files_expense_id_idx`.
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `name` | text | NOT NULL |
 | `role`, `email`, `phone`, `avatar_url`, `notes` | text | optional |
 | `status` | team_member_status | NOT NULL, default `active` |
@@ -191,12 +230,13 @@ Indexes: `files_invoice_id_idx`, `files_expense_id_idx`.
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `name` | text | NOT NULL |
 | `description` | text | optional |
 | `status` | service_status | NOT NULL, default `active` |
 | `created_at`, `updated_at` | timestamptz | NOT NULL |
 
-Indexes: `services_name_idx`, `services_status_idx`.
+Indexes: `services_organization_id_idx`, `services_name_idx`, `services_status_idx`.
 
 ### `project_services` (junction)
 
@@ -255,6 +295,7 @@ Indexes on `client_id`, `service_id`.
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `title` | text | NOT NULL |
 | `url`, `category`, `description`, `notes` | text | optional |
 | `platform` | text | NOT NULL, default `mostaql` |
@@ -265,13 +306,14 @@ Indexes on `client_id`, `service_id`.
 | `client_id`, `project_id` | UUID | optional → **SET NULL** |
 | `created_at` | timestamptz | NOT NULL |
 
-Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
+Indexes: `proposals_organization_id_idx`, `proposals_status_idx`, `proposals_applied_at_idx`.
 
 ### `expenses`
 
 | Column | Type | Notes |
 |--------|------|--------|
 | `id` | UUID | PK |
+| `organization_id` | UUID | NOT NULL → `organizations.id` **ON DELETE CASCADE** |
 | `title` | text | NOT NULL |
 | `amount` | numeric(12,2) | NOT NULL |
 | `category` | expense_category | NOT NULL |
@@ -303,17 +345,20 @@ Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
 | `created_at` | timestamptz | NOT NULL |
 | `updated_at` | timestamptz | NOT NULL |
 
-### `settings` (singleton row)
+### `settings` (one row per organization)
 
 | Column | Type | Notes |
 |--------|------|--------|
-| `id` | integer | PK, default `1` — single row |
+| `id` | UUID | PK, default random |
+| `organization_id` | UUID | NOT NULL, UNIQUE → `organizations.id` **ON DELETE CASCADE** |
 | `agency_name`, `agency_email`, `agency_website`, `vat_number`, `agency_logo_url`, `invoice_prefix`, `invoice_footer` | text | optional |
 | `agency_address` | jsonb | `AddressJson` |
 | `invoice_next_number` | integer | default 1 |
 | `default_currency` | char(3) | default `SAR` |
 | `default_payment_terms` | integer | default 30 |
 | `invoice_color` | char(7) | optional hex |
+
+Unique index on `organization_id` (one settings row per tenant).
 
 ### `time_logs`
 
@@ -342,6 +387,8 @@ Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
 
 ## Relationships (summary)
 
+- **organizations** → many **org_members**, **clients**, **projects**, **proposals**, **tasks**, **invoices**, **expenses**, **files**, **team_members**, **services**; one **settings** row (via unique `organization_id` on `settings`)
+- **users** ↔ **organizations** through **org_members**
 - **clients** → many **projects**, **invoices**, **files**, **proposals**, **client_services**, **expenses**, **recurring_expenses**
 - **projects** → many **phases**, **tasks**, **invoices** (and **invoice_projects**), **files**, **project_members**, **project_services**, **project_user_members**, **proposals**, **expenses**, **recurring_expenses**
 - **phases** → many **tasks**
@@ -351,10 +398,12 @@ Indexes: `proposals_status_idx`, `proposals_applied_at_idx`.
 - **team_members** → **project_members**, **expenses**, **recurring_expenses**
 - **expenses** → optional **files** (`expense_id`)
 - **services** ↔ **projects** / **clients** via junction tables
+- **settings** → one **organization** (tenant-scoped agency + invoice defaults)
 
 Drizzle `relations()` definitions at the bottom of `schema.ts` mirror the above for query API.
 
 ## Migrations status
 
+- **`0032_multi_tenant_foundation.sql`** — `org_plan` / `org_member_role`, `organizations`, `org_members`, `organization_id` on tenant-scoped tables, `settings` PK migrated from integer singleton to UUID + `organization_id` (SQL includes backfill via a default org row).
 - Additional SQL migrations exist beyond the initial set (e.g. invoice **`due_date`**, **`payments`**, **`files.invoice_id`** / **`files.expense_id`**, **`invoice_projects`**, **`expenses.project_id` / `client_id` / `is_billable`**, **`recurring_expenses`**, **`recurrence_frequency`**). See `/drizzle/*.sql` and align your database with [`lib/db/schema.ts`](../lib/db/schema.ts).
 - `drizzle/meta/_journal.json` may not enumerate every file; verify applied state in your environment.

@@ -132,6 +132,7 @@ async function main() {
   const { isR2Configured, uploadToR2, sanitizeFilename } = await import("@/lib/r2");
   const { db } = await import("@/lib/db");
   const { clients, settings, teamMembers, projects, expenses } = await import("@/lib/db/schema");
+  const { getDefaultOrganizationId } = await import("@/lib/db/default-organization");
   const { eq, isNull, isNotNull, and, sql } = await import("drizzle-orm");
 
   if (!process.env.DATABASE_URL?.trim()) {
@@ -292,16 +293,20 @@ async function main() {
     });
   }
 
-  const [settingsRow] = await db
-    .select({ agencyLogoUrl: settings.agencyLogoUrl })
-    .from(settings)
-    .where(eq(settings.id, 1));
+  const settingsOrgId = await getDefaultOrganizationId();
+  const [settingsRow] = settingsOrgId
+    ? await db
+        .select({ id: settings.id, agencyLogoUrl: settings.agencyLogoUrl })
+        .from(settings)
+        .where(eq(settings.organizationId, settingsOrgId))
+        .limit(1)
+    : [];
   if (settingsRow?.agencyLogoUrl && isImageKitUrl(settingsRow.agencyLogoUrl)) {
     const ext = extFromUrlOrName(settingsRow.agencyLogoUrl, "logo.png");
     extras.push({
       kind: "agency_logo",
       table: "settings",
-      id: "1",
+      id: settingsRow.id,
       url: settingsRow.agencyLogoUrl,
       r2Key: `agency/logo${ext}`,
     });
@@ -412,7 +417,7 @@ async function main() {
       if (ex.table === "clients") {
         await db.update(clients).set({ logoUrl: publicUrl }).where(eq(clients.id, ex.id));
       } else if (ex.table === "settings") {
-        await db.update(settings).set({ agencyLogoUrl: publicUrl }).where(eq(settings.id, 1));
+        await db.update(settings).set({ agencyLogoUrl: publicUrl }).where(eq(settings.id, ex.id));
       } else if (ex.table === "team_members") {
         await db.update(teamMembers).set({ avatarUrl: publicUrl }).where(eq(teamMembers.id, ex.id));
       } else if (ex.table === "projects") {

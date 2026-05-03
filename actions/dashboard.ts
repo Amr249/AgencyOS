@@ -4,6 +4,7 @@ import { eq, isNull, and, desc, inArray, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { invoices, projects, tasks, clients, settings, payments, expenses } from "@/lib/db";
 import { getProjectProfitability, getClientProfitability } from "@/actions/reports";
+import { requireAgencyOrganization } from "@/lib/org-session";
 import { getUpcomingMilestones } from "@/actions/milestones";
 import { getRecentActivity, type RecentActivityEntry } from "@/actions/activity-log";
 import { getProjectsHealthMap } from "@/actions/project-health";
@@ -92,6 +93,11 @@ const PROJECT_STATUS_LABELS: Record<string, string> = {
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
+  const ctx = await requireAgencyOrganization();
+  if (!ctx.ok) {
+    throw new Error("Dashboard requires an organization in session");
+  }
+  const orgId = ctx.organizationId;
   const now = new Date();
   const thisMonthStart = startOfMonth(now);
   const thisMonthEnd = endOfMonth(now);
@@ -102,7 +108,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   const [settingsRow] = await db
     .select({ defaultCurrency: settings.defaultCurrency })
     .from(settings)
-    .where(eq(settings.id, 1));
+    .where(eq(settings.organizationId, orgId));
   const currency = settingsRow?.defaultCurrency ?? "USD";
 
   const allInvoices = await db
@@ -116,7 +122,8 @@ export async function getDashboardData(): Promise<DashboardData> {
       invoiceNumber: invoices.invoiceNumber,
       clientId: invoices.clientId,
     })
-    .from(invoices);
+    .from(invoices)
+    .where(eq(invoices.organizationId, orgId));
 
   let revenueThisMonth = 0;
   let revenueLastMonth = 0;
@@ -169,7 +176,11 @@ export async function getDashboardData(): Promise<DashboardData> {
     .select({ id: projects.id })
     .from(projects)
     .where(
-      and(eq(projects.status, "active"), isNull(projects.deletedAt))
+      and(
+        eq(projects.organizationId, orgId),
+        eq(projects.status, "active"),
+        isNull(projects.deletedAt)
+      )
     );
   const activeProjectsCount = activeProjects.length;
 
@@ -182,7 +193,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       status: tasks.status,
     })
     .from(tasks)
-    .where(isNull(tasks.deletedAt));
+    .where(and(eq(tasks.organizationId, orgId), isNull(tasks.deletedAt)));
   const today = startOfDay(now);
   const overdueTasksRows = allTasks.filter(
     (t) =>
@@ -198,7 +209,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       ? await db
           .select({ id: projects.id, name: projects.name })
           .from(projects)
-          .where(inArray(projects.id, projectIds))
+          .where(and(inArray(projects.id, projectIds), eq(projects.organizationId, orgId)))
       : [];
   const projectNameMap = new Map(projectNames.map((p) => [p.id, p.name]));
 
@@ -228,6 +239,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     .from(projects)
     .where(
       and(
+        eq(projects.organizationId, orgId),
         isNull(projects.deletedAt),
         gte(projects.endDate, todayStr),
         lte(projects.endDate, fourteenDaysLaterStr)
@@ -242,7 +254,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       ? await db
           .select({ id: clients.id, companyName: clients.companyName })
           .from(clients)
-          .where(inArray(clients.id, clientIds))
+          .where(and(inArray(clients.id, clientIds), eq(clients.organizationId, orgId)))
       : [];
   const clientNameMap = new Map(clientNames.map((c) => [c.id, c.companyName]));
 
@@ -280,6 +292,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       status: invoices.status,
     })
     .from(invoices)
+    .where(eq(invoices.organizationId, orgId))
     .orderBy(desc(invoices.createdAt))
     .limit(5);
 
@@ -289,7 +302,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       ? await db
           .select({ id: clients.id, companyName: clients.companyName })
           .from(clients)
-          .where(inArray(clients.id, invClientIds))
+          .where(and(inArray(clients.id, invClientIds), eq(clients.organizationId, orgId)))
       : [];
   const invClientMap = new Map(invClientNames.map((c) => [c.id, c.companyName]));
 
@@ -304,7 +317,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   const projectStatusRows = await db
     .select({ status: projects.status })
     .from(projects)
-    .where(isNull(projects.deletedAt));
+    .where(and(eq(projects.organizationId, orgId), isNull(projects.deletedAt)));
   const statusCounts = new Map<string, number>();
   for (const r of projectStatusRows) {
     statusCounts.set(r.status, (statusCounts.get(r.status) ?? 0) + 1);
@@ -320,18 +333,36 @@ export async function getDashboardData(): Promise<DashboardData> {
   const yearStartStr = format(startOfYear(now), "yyyy-MM-dd");
   const yearEndStr = format(endOfYear(now), "yyyy-MM-dd");
 
-  const [[ytdPayRow], [ytdExpRow], projectProfitResult, clientProfitResult] = await Promise.all([
-    db
-      .select({ total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)` })
-      .from(payments)
-      .where(and(gte(payments.paymentDate, yearStartStr), lte(payments.paymentDate, yearEndStr))),
-    db
-      .select({ total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)` })
-      .from(expenses)
-      .where(and(gte(expenses.date, yearStartStr), lte(expenses.date, yearEndStr))),
-    getProjectProfitability(),
-    getClientProfitability(),
-  ]);
+  const [[ytdPayRow], [ytdExpRow], projectProfitResult, clientProfitResult, orgClientIds, orgProjectIds] =
+    await Promise.all([
+      db
+        .select({ total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)` })
+        .from(payments)
+        .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+        .where(
+          and(
+            eq(invoices.organizationId, orgId),
+            gte(payments.paymentDate, yearStartStr),
+            lte(payments.paymentDate, yearEndStr)
+          )
+        ),
+      db
+        .select({ total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)` })
+        .from(expenses)
+        .where(
+          and(
+            eq(expenses.organizationId, orgId),
+            gte(expenses.date, yearStartStr),
+            lte(expenses.date, yearEndStr)
+          )
+        ),
+      getProjectProfitability({ organizationId: orgId }),
+      getClientProfitability({ organizationId: orgId }),
+      db.select({ id: clients.id }).from(clients).where(eq(clients.organizationId, orgId)),
+      db.select({ id: projects.id }).from(projects).where(eq(projects.organizationId, orgId)),
+    ]);
+  const clientIdSet = new Set(orgClientIds.map((c) => c.id));
+  const projectIdSet = new Set(orgProjectIds.map((p) => p.id));
 
   const ytdCollected = Math.round((Number(ytdPayRow?.total ?? 0) || 0) * 100) / 100;
   const ytdExpensesTotal = Math.round((Number(ytdExpRow?.total ?? 0) || 0) * 100) / 100;
@@ -343,22 +374,28 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   let topProfitableProject: DashboardData["topProfitableProject"] = null;
   if (projectProfitResult.ok && projectProfitResult.data.length > 0) {
-    const top = projectProfitResult.data[0]!;
-    topProfitableProject = {
-      id: top.projectId,
-      name: top.projectName,
-      profit: top.profit,
-    };
+    const scoped = projectProfitResult.data.filter((r) => projectIdSet.has(r.projectId));
+    const top = scoped[0];
+    if (top) {
+      topProfitableProject = {
+        id: top.projectId,
+        name: top.projectName,
+        profit: top.profit,
+      };
+    }
   }
 
   let topProfitableClient: DashboardData["topProfitableClient"] = null;
   if (clientProfitResult.ok && clientProfitResult.data.length > 0) {
-    const top = clientProfitResult.data[0]!;
-    topProfitableClient = {
-      id: top.clientId,
-      name: top.companyName ?? "—",
-      profit: top.profit,
-    };
+    const scoped = clientProfitResult.data.filter((r) => clientIdSet.has(r.clientId));
+    const top = scoped[0];
+    if (top) {
+      topProfitableClient = {
+        id: top.clientId,
+        name: top.companyName ?? "—",
+        profit: top.profit,
+      };
+    }
   }
 
   const budgetProjectRows = await db
@@ -371,6 +408,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     .from(projects)
     .where(
       and(
+        eq(projects.organizationId, orgId),
         isNull(projects.deletedAt),
         sql`${projects.budget} is not null`,
         sql`coalesce(cast(${projects.budget} as numeric), 0) > 0`
@@ -387,7 +425,7 @@ export async function getDashboardData(): Promise<DashboardData> {
           ? await db
               .select({ id: clients.id, companyName: clients.companyName })
               .from(clients)
-              .where(inArray(clients.id, warnClientIds))
+              .where(and(inArray(clients.id, warnClientIds), eq(clients.organizationId, orgId)))
           : [];
       const warnClientMap = new Map(warnClients.map((c) => [c.id, c.companyName]));
 

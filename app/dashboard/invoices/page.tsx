@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { getTranslations } from "next-intl/server";
 import {
   getInvoicesWithPayments,
   getInvoiceStatsWithPayments,
@@ -10,10 +11,13 @@ import { getClientsList } from "@/actions/clients";
 import { getSettings } from "@/actions/settings";
 import { InvoicesListView } from "@/components/modules/invoices/invoices-list-view";
 
-export const metadata: Metadata = {
-  title: "Invoices",
-  description: "Invoices and billing",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("invoices");
+  return {
+    title: t("title"),
+    description: t("metaDescription"),
+  };
+}
 
 type PageProps = {
   searchParams: Promise<{
@@ -34,6 +38,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     dateTo: dateTo ?? undefined,
     search: search ?? undefined,
   };
+  const tList = await getTranslations("invoices.list");
   const [invoicesResult, statsResult, clientsResult, settingsResult, nextNumResult] = await Promise.all([
     getInvoicesWithPayments(invoiceFilters),
     getInvoiceStatsWithPayments(),
@@ -43,9 +48,10 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
   ]);
 
   if (!invoicesResult.ok) {
+    const t = await getTranslations("invoices");
     return (
-      <div className="space-y-4" dir="ltr">
-        <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold tracking-tight">{t("loadErrorTitle")}</h1>
         <p className="text-destructive">{invoicesResult.error}</p>
       </div>
     );
@@ -79,7 +85,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     : null;
 
   return (
-    <Suspense fallback={<div className="text-muted-foreground">Loading…</div>}>
+    <Suspense fallback={<div className="text-muted-foreground">{tList("loading")}</div>}>
       <InvoicesListView
         invoices={invoices}
         stats={stats}

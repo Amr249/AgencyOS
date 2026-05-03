@@ -5,11 +5,13 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { eq, and, inArray, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { teamMembers, projectMembers } from "@/lib/db/schema";
+import { teamMembers, projectMembers, projects } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { authOptions } from "@/lib/auth";
 import { assertAdminSession, sessionUserRole } from "@/lib/auth-helpers";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 import { getMemberProjectIdsForUser, memberHasProjectAccess } from "@/lib/member-context";
+import { requireAgencyOrganization } from "@/lib/org-session";
 
 export type TeamMemberRow = {
   id: string;
@@ -41,6 +43,7 @@ export async function getTeamMembers(): Promise<
     if (!userId) return { ok: false, error: "Unauthorized" };
 
     if (role === "admin") {
+      const ctx = await requireAgencyOrganization();
       const rows = await db
         .select({
           id: teamMembers.id,
@@ -51,7 +54,9 @@ export async function getTeamMembers(): Promise<
           status: teamMembers.status,
         })
         .from(teamMembers)
-        .where(eq(teamMembers.status, "active"))
+        .where(
+          and(eq(teamMembers.status, "active"), eq(teamMembers.organizationId, ctx.organizationId))
+        )
         .orderBy(asc(teamMembers.name));
       return {
         ok: true,
@@ -67,6 +72,7 @@ export async function getTeamMembers(): Promise<
     }
 
     if (role === "member") {
+      const ctx = await requireAgencyOrganization();
       const projectIds = await getMemberProjectIdsForUser(userId);
       if (projectIds.length === 0) {
         return { ok: true, data: [] };
@@ -82,7 +88,15 @@ export async function getTeamMembers(): Promise<
         })
         .from(projectMembers)
         .innerJoin(teamMembers, eq(projectMembers.teamMemberId, teamMembers.id))
-        .where(and(inArray(projectMembers.projectId, projectIds), eq(teamMembers.status, "active")))
+        .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+        .where(
+          and(
+            inArray(projectMembers.projectId, projectIds),
+            eq(teamMembers.status, "active"),
+            eq(teamMembers.organizationId, ctx.organizationId),
+            eq(projects.organizationId, ctx.organizationId)
+          )
+        )
         .orderBy(asc(teamMembers.name));
       return {
         ok: true,
@@ -118,6 +132,8 @@ export async function getProjectMembers(projectId: string): Promise<
     const userId = session?.user?.id;
     const role = sessionUserRole(session);
     if (!userId) return { ok: false, error: "Unauthorized" };
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     if (role === "member") {
       const allowed = await memberHasProjectAccess(userId, parsed.data);
       if (!allowed) return { ok: false, error: "Forbidden" };
@@ -137,7 +153,10 @@ export async function getProjectMembers(projectId: string): Promise<
       })
       .from(projectMembers)
       .innerJoin(teamMembers, eq(projectMembers.teamMemberId, teamMembers.id))
-      .where(eq(projectMembers.projectId, parsed.data));
+      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+      .where(
+        and(eq(projectMembers.projectId, parsed.data), eq(projects.organizationId, orgId))
+      );
     return {
       ok: true,
       data: rows.map((r) => ({
@@ -165,6 +184,8 @@ export async function getProjectMemberIdsByProjectIds(
 ): Promise<{ ok: true; data: Record<string, { id: string; name: string; avatarUrl: string | null }[]> } | { ok: false; error: string }> {
   if (projectIds.length === 0) return { ok: true, data: {} };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const rows = await db
       .select({
         projectId: projectMembers.projectId,
@@ -174,7 +195,10 @@ export async function getProjectMemberIdsByProjectIds(
       })
       .from(projectMembers)
       .innerJoin(teamMembers, eq(projectMembers.teamMemberId, teamMembers.id))
-      .where(inArray(projectMembers.projectId, projectIds));
+      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+      .where(
+        and(inArray(projectMembers.projectId, projectIds), eq(projects.organizationId, orgId))
+      );
     const data: Record<string, { id: string; name: string; avatarUrl: string | null }[]> = {};
     for (const id of projectIds) data[id] = [];
     for (const r of rows) {
@@ -208,6 +232,22 @@ export async function assignMemberToProject(
   const mParsed = z.string().uuid().safeParse(teamMemberId);
   if (!pParsed.success || !mParsed.success) return { ok: false, error: "Invalid id" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const [projOk] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, pParsed.data), eq(projects.organizationId, orgId)))
+      .limit(1);
+    const [memberOk] = await db
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.id, mParsed.data), eq(teamMembers.organizationId, orgId)))
+      .limit(1);
+    if (!projOk || !memberOk) return { ok: false, error: "Invalid project or team member" };
+
     await db.insert(projectMembers).values({
       projectId: pParsed.data,
       teamMemberId: mParsed.data,
@@ -235,6 +275,17 @@ export async function removeMemberFromProject(
   const pmParsed = z.string().uuid().safeParse(projectMemberId);
   if (!pParsed.success || !pmParsed.success) return { ok: false, error: "Invalid id" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const [projOk] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, pParsed.data), eq(projects.organizationId, orgId)))
+      .limit(1);
+    if (!projOk) return { ok: false, error: "Invalid project" };
+
     await db
       .delete(projectMembers)
       .where(

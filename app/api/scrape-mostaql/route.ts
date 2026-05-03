@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasFeature } from "@/lib/features";
+
+const FEATURE_DENIED = "Feature not available on your plan.";
 
 /** Optional session cookie so Mostaql returns HTML that includes your bid amount (see .env.example). */
 function mostaqlFetchHeaders(): Record<string, string> {
@@ -314,6 +318,23 @@ function extractOfferByBidId(html: string, bidId: string): {
 }
 
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const orgId = session.user.organizationId;
+  if (!orgId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const role = session.user.role;
+  if (role !== "admin" && role !== "member") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  const allowed = await hasFeature(orgId, "scrape_mostaql");
+  if (!allowed) {
+    return NextResponse.json({ error: FEATURE_DENIED }, { status: 403 });
+  }
+
   const url = req.nextUrl.searchParams.get("url");
   if (!url) return NextResponse.json({ error: "No URL" }, { status: 400 });
 

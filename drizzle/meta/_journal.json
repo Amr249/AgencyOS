@@ -113,6 +113,55 @@
       "when": 1777700000000,
       "tag": "0031_folder_access_type_and_exclusions",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777800000000,
+      "tag": "0032_multi_tenant_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777900000000,
+      "tag": "0033_onboarding_wizard",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1778000000000,
+      "tag": "0034_invitation_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1778100000000,
+      "tag": "0035_activity_logs_organization_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1778200000000,
+      "tag": "0036_organizations_onboarding_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1778300000000,
+      "tag": "0037_mostaql_scrape_runs_organization_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1778400000000,
+      "tag": "0038_users_has_seen_welcome",
+      "breakpoints": true
     }
   ]
 }

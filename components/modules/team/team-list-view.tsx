@@ -45,6 +45,7 @@ import { EntityTableShell } from "@/components/ui/entity-table-shell";
 import { NewMemberModal } from "@/components/modules/team/new-member-modal";
 import { assignMemberToProject, deleteTeamMember, type TeamMemberWithProjectCount } from "@/actions/team";
 import { toast } from "sonner";
+import { useLocale, useTranslations } from "next-intl";
 
 type TeamListViewProps = {
   members: TeamMemberWithProjectCount[];
@@ -62,6 +63,9 @@ function getInitials(name: string): string {
 }
 
 export function TeamListView({ members, projects }: TeamListViewProps) {
+  const t = useTranslations("team");
+  const locale = useLocale();
+  const pageDir = locale === "ar" ? "rtl" : "ltr";
   const router = useRouter();
   const [editingMember, setEditingMember] = React.useState<TeamMemberWithProjectCount | null>(null);
   const [memberToDelete, setMemberToDelete] = React.useState<TeamMemberWithProjectCount | null>(null);
@@ -81,10 +85,10 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
     setDeleting(false);
     setMemberToDelete(null);
     if (result.ok) {
-      toast.success("Member deleted");
+      toast.success(t("toastMemberDeleted"));
       router.refresh();
     } else {
-      toast.error(result.error ?? "Delete failed");
+      toast.error(result.error ?? t("toastDeleteFailed"));
     }
   };
 
@@ -139,7 +143,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
             className="h-3.5 w-3.5 rounded accent-neutral-900"
             checked={allVisibleSelected}
             onChange={toggleSelectAll}
-            aria-label="Select all rows"
+            aria-label={t("selectAllRows")}
           />
         ),
         cell: ({ row }) => (
@@ -159,7 +163,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Name {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("name")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -177,7 +181,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Role {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("role")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => <span className="text-muted-foreground">{row.original.role ?? "—"}</span>,
@@ -187,7 +191,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Phone {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("phone")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => <span dir="ltr">{row.original.phone ?? "—"}</span>,
@@ -197,7 +201,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Status {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("status")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -205,7 +209,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
             variant={row.original.status === "active" ? "default" : "secondary"}
             className={row.original.status === "active" ? "bg-blue-600 hover:bg-blue-700" : ""}
           >
-            {row.original.status === "active" ? "Active" : "Inactive"}
+            {row.original.status === "active" ? t("active") : t("inactive")}
           </Badge>
         ),
       },
@@ -214,10 +218,14 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Projects {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("projects")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
-        cell: ({ row }) => <span className="text-muted-foreground text-sm">{row.original.projectCount} projects</span>,
+        cell: ({ row }) => (
+          <span className="text-muted-foreground text-sm">
+            {t("projectsCount", { count: row.original.projectCount })}
+          </span>
+        ),
       },
       {
         id: "actions",
@@ -240,13 +248,15 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
                   }}
                   disabled={projects.length === 0}
                 >
-                  Assign to project
+                  {t("assignToProject")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setEditingMember(member)}>
-                  <IconPencil className="me-2 h-4 w-4" />Edit
+                  <IconPencil className="me-2 h-4 w-4" />
+                  {t("edit")}
                 </DropdownMenuItem>
                 <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setMemberToDelete(member)}>
-                  <IconTrash className="me-2 h-4 w-4" />Delete
+                  <IconTrash className="me-2 h-4 w-4" />
+                  {t("delete")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -254,15 +264,15 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         },
       },
     ],
-    [allVisibleSelected, selectedIds, toggleSelectAll, projects.length]
+    [allVisibleSelected, selectedIds, toggleSelectAll, projects.length, t]
   );
 
   return (
-    <div dir="ltr">
+    <div dir={pageDir}>
       {selectedIds.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-2.5">
           <span className="text-sm font-medium text-neutral-800">
-            {selectedIds.size} selected
+            {t("selectedCount", { count: selectedIds.size })}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -270,7 +280,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
               className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
               onClick={() => setSelectedIds(new Set())}
             >
-              Clear selection
+              {t("clearSelection")}
             </button>
             <button
               type="button"
@@ -278,7 +288,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
               onClick={() => setAssignDialogOpen(true)}
               disabled={projects.length === 0}
             >
-              Assign to project
+              {t("assignToProject")}
             </button>
             <button
               type="button"
@@ -286,15 +296,15 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
               onClick={() => setBulkDeleteOpen(true)}
             >
               <IconTrash className="h-4 w-4" />
-              Delete
+              {t("delete")}
             </button>
           </div>
         </div>
       )}
 
       <EntityTableShell
-      title="Team"
-      dir="ltr"
+      title={t("title")}
+      dir={pageDir}
       topRight={
         <NewMemberModal
           trigger={
@@ -302,7 +312,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
               type="button"
               className="inline-flex items-center gap-1 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
             >
-              + Add Member
+              + {t("addMember")}
             </button>
           }
           asChild
@@ -312,9 +322,9 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
       isEmpty={members.length === 0}
       emptyState={
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
-          <p className="text-muted-foreground mb-4">No team members yet. Add your first member.</p>
+          <p className="text-muted-foreground mb-4">{t("emptyState")}</p>
           <NewMemberModal
-            trigger={<Button>+ Add Member</Button>}
+            trigger={<Button>+ {t("addMember")}</Button>}
             asChild
             onSuccess={refresh}
           />
@@ -342,7 +352,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
                   variant={member.status === "active" ? "default" : "secondary"}
                   className={member.status === "active" ? "bg-blue-600 hover:bg-blue-700" : ""}
                 >
-                  {member.status === "active" ? "Active" : "Inactive"}
+                  {member.status === "active" ? t("active") : t("inactive")}
                 </Badge>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -358,13 +368,15 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
                       }}
                       disabled={projects.length === 0}
                     >
-                      Assign to project
+                      {t("assignToProject")}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setEditingMember(member)}>
-                      <IconPencil className="me-2 h-4 w-4" />Edit
+                      <IconPencil className="me-2 h-4 w-4" />
+                      {t("edit")}
                     </DropdownMenuItem>
                     <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setMemberToDelete(member)}>
-                      <IconTrash className="me-2 h-4 w-4" />Delete
+                      <IconTrash className="me-2 h-4 w-4" />
+                      {t("delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -381,11 +393,11 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
             tableId="team-table"
             getRowId={(m) => m.id}
             columnLabels={{
-              name: "Name",
-              role: "Role",
-              phone: "Phone",
-              status: "Status",
-              projectCount: "Projects",
+              name: t("name"),
+              role: t("role"),
+              phone: t("phone"),
+              status: t("status"),
+              projectCount: t("projects"),
             }}
             enablePagination={false}
             uiVariant="clients"
@@ -405,31 +417,29 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
         }}
       />
       <AlertDialog open={!!memberToDelete} onOpenChange={(o) => !o && setMemberToDelete(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={pageDir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete team member</AlertDialogTitle>
+            <AlertDialogTitle>{t("deleteMemberTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {memberToDelete?.name}? This action cannot be undone.
+              {memberToDelete ? t("deleteMemberDescription", { name: memberToDelete.name }) : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+              {t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={pageDir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete selected team members?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`This will permanently delete ${selectedIds.size} team members. This action cannot be undone.`}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t("bulkDeleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("bulkDeleteDescription", { count: selectedIds.size })}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -444,35 +454,33 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
                 setDeleting(false);
                 const failed = results.find((r) => !r.ok);
                 if (failed && !failed.ok) {
-                  toast.error(failed.error ?? "Bulk delete failed");
+                  toast.error(failed.error ?? t("toastBulkDeleteFailed"));
                   return;
                 }
-                toast.success("Team members deleted");
+                toast.success(t("toastMembersDeleted"));
                 setSelectedIds(new Set());
                 setBulkDeleteOpen(false);
                 router.refresh();
               }}
               disabled={deleting}
             >
-              Delete
+              {t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent className="sm:max-w-md" dir="ltr">
+        <DialogContent className="sm:max-w-md" dir={pageDir}>
           <DialogHeader>
-            <DialogTitle>Assign to project</DialogTitle>
-            <DialogDescription>
-              Assign {selectedIds.size} selected team member(s) to a project.
-            </DialogDescription>
+            <DialogTitle>{t("assignDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("assignDialogDescription", { count: selectedIds.size })}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <label className="block text-sm font-medium">Project</label>
+              <label className="block text-sm font-medium">{t("project")}</label>
               <Select value={assignProjectId} onValueChange={setAssignProjectId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select project" />
+                  <SelectValue placeholder={t("selectProject")} />
                 </SelectTrigger>
                 <SelectContent>
                   {projects.map((project) => (
@@ -484,9 +492,9 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
               </Select>
             </div>
             <div className="space-y-2">
-              <label className="block text-sm font-medium">Role on project (optional)</label>
+              <label className="block text-sm font-medium">{t("roleOnProject")}</label>
               <Input
-                placeholder="e.g. Frontend Developer"
+                placeholder={t("roleOnProjectPlaceholder")}
                 value={roleOnProject}
                 onChange={(e) => setRoleOnProject(e.target.value)}
               />
@@ -494,7 +502,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssignDialogOpen(false)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               onClick={async () => {
@@ -507,7 +515,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
                 setAssigning(false);
                 const failed = results.filter((r) => !r.ok);
                 if (failed.length === 0) {
-                  toast.success("Members assigned to project");
+                  toast.success(t("toastMembersAssigned"));
                   setAssignDialogOpen(false);
                   setAssignProjectId("");
                   setRoleOnProject("");
@@ -516,10 +524,10 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
                   return;
                 }
                 if (failed.length === ids.length) {
-                  toast.error("Failed to assign members");
+                  toast.error(t("toastAssignFailed"));
                   return;
                 }
-                toast.error(`Assigned ${ids.length - failed.length}, failed ${failed.length}`);
+                toast.error(t("toastAssignPartial", { ok: ids.length - failed.length, failed: failed.length }));
                 setAssignDialogOpen(false);
                 setAssignProjectId("");
                 setRoleOnProject("");
@@ -528,7 +536,7 @@ export function TeamListView({ members, projects }: TeamListViewProps) {
               }}
               disabled={assigning || !assignProjectId || selectedIds.size === 0}
             >
-              {assigning ? "Assigning..." : "Assign"}
+              {assigning ? t("assigning") : t("assign")}
             </Button>
           </DialogFooter>
         </DialogContent>

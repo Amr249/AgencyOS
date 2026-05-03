@@ -4,6 +4,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useLocale, useTranslations } from "next-intl";
 import { format } from "date-fns";
 import { createExpense, updateExpense, type ExpenseRow } from "@/actions/expenses";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
@@ -36,7 +37,6 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
-import { CATEGORY_LABELS } from "./expense-category-badge";
 import {
   ClientSelectOptionRow,
   ProjectSelectOptionRow,
@@ -113,7 +113,32 @@ export function NewExpenseDialog({
   defaultProjectId,
   defaultClientId,
 }: NewExpenseDialogProps) {
+  const tv = useTranslations("expenses.validation");
+  const td = useTranslations("expenses.dialog");
+  const tc = useTranslations("expenses.categories");
+  const locale = useLocale();
+  const isRtl = locale === "ar";
+
+  const formSchema = React.useMemo(
+    () =>
+      z.object({
+        title: z.string().min(1, tv("titleRequired")),
+        amount: z.coerce.number().positive(tv("amountPositive")),
+        category: z.enum(categoryValues),
+        date: z.string().min(1, tv("dateRequired")),
+        notes: z.string().optional(),
+        receiptUrl: z.string().url().optional().nullable(),
+        teamMemberId: z.string().uuid().optional().nullable(),
+        projectId: z.union([z.string().uuid(), z.null()]),
+        clientId: z.union([z.string().uuid(), z.null()]),
+        serviceIds: z.array(z.string().uuid()).default([]),
+        isBillable: z.boolean(),
+      }),
+    [tv]
+  );
+
   const [receiptUploading, setReceiptUploading] = React.useState(false);
+  const receiptFileInputRef = React.useRef<HTMLInputElement>(null);
   const isEdit = !!expense;
 
   const form = useForm<FormValues>({
@@ -187,11 +212,11 @@ export function NewExpenseDialog({
       if (expense?.id) formData.set("entityId", expense.id);
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+      if (!res.ok) throw new Error(data.error ?? td("toastUploadFail"));
       form.setValue("receiptUrl", data.url);
-      toast.success("Receipt uploaded");
+      toast.success(td("toastReceiptUploaded"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      toast.error(err instanceof Error ? err.message : td("toastUploadFail"));
     } finally {
       setReceiptUploading(false);
       e.target.value = "";
@@ -218,32 +243,30 @@ export function NewExpenseDialog({
         ...shared,
       });
       if (res.ok) {
-        toast.success("Expense updated");
+        toast.success(td("toastUpdated"));
         onOpenChange(false);
         onSuccess?.();
       } else {
-        toast.error(typeof res.error === "string" ? res.error : "Failed to update expense");
+        toast.error(typeof res.error === "string" ? res.error : td("toastFailedUpdate"));
       }
     } else {
       const res = await createExpense(shared);
       if (res.ok) {
-        toast.success("Expense added");
+        toast.success(td("toastAdded"));
         onOpenChange(false);
         onSuccess?.();
       } else {
-        toast.error(typeof res.error === "string" ? res.error : "Failed to save expense");
+        toast.error(typeof res.error === "string" ? res.error : td("toastFailedSave"));
       }
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" dir="ltr">
+      <DialogContent className="sm:max-w-md" dir={isRtl ? "rtl" : "ltr"}>
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Expense" : "Add Expense"}</DialogTitle>
-          <DialogDescription>
-            {isEdit ? "Update the expense details." : "Enter details for the new expense."}
-          </DialogDescription>
+          <DialogTitle>{isEdit ? td("editTitle") : td("addTitle")}</DialogTitle>
+          <DialogDescription>{isEdit ? td("editDescription") : td("addDescription")}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -252,9 +275,9 @@ export function NewExpenseDialog({
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Title</FormLabel>
+                  <FormLabel>{td("title")}</FormLabel>
                   <FormControl>
-                    <Input placeholder="Example: Adobe Creative Cloud" {...field} />
+                    <Input placeholder={td("titlePlaceholder")} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -266,7 +289,7 @@ export function NewExpenseDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="inline-flex items-center gap-1">
-                    Amount
+                    {td("amount")}
                     <SarCurrencyIcon className="h-3.5 w-3.5 shrink-0" />
                   </FormLabel>
                   <FormControl>
@@ -281,17 +304,17 @@ export function NewExpenseDialog({
               name="category"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Category</FormLabel>
+                  <FormLabel>{td("category")}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
+                        <SelectValue placeholder={td("categoryPlaceholder")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {categoryValues.map((c) => (
                         <SelectItem key={c} value={c}>
-                          {CATEGORY_LABELS[c]}
+                          {tc(c)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -306,18 +329,18 @@ export function NewExpenseDialog({
                 name="projectId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="block text-left">Project</FormLabel>
+                    <FormLabel className="block text-start">{td("project")}</FormLabel>
                     <Select
                       onValueChange={(value) => field.onChange(value === "none" ? null : value)}
                       value={field.value ?? "none"}
                     >
                       <FormControl>
                         <SelectTrigger id="project">
-                          <SelectValue placeholder="Select project (optional)" />
+                          <SelectValue placeholder={td("projectPlaceholder")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="none">No project</SelectItem>
+                        <SelectItem value="none">{td("noProject")}</SelectItem>
                         {projects.map((project) => (
                           <SelectItem key={project.id} value={project.id} textValue={project.name}>
                             <ProjectSelectOptionRow
@@ -340,18 +363,18 @@ export function NewExpenseDialog({
                 name="clientId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="block text-left">Client</FormLabel>
+                    <FormLabel className="block text-start">{td("client")}</FormLabel>
                     <Select
                       onValueChange={(value) => field.onChange(value === "none" ? null : value)}
                       value={field.value ?? "none"}
                     >
                       <FormControl>
                         <SelectTrigger id="client">
-                          <SelectValue placeholder="Select client (optional)" />
+                          <SelectValue placeholder={td("clientPlaceholder")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="none">No client</SelectItem>
+                        <SelectItem value="none">{td("noClient")}</SelectItem>
                         {clients.map((client) => (
                           <SelectItem key={client.id} value={client.id} textValue={client.companyName}>
                             <ClientSelectOptionRow logoUrl={client.logoUrl} label={client.companyName} />
@@ -377,7 +400,7 @@ export function NewExpenseDialog({
                     />
                   </FormControl>
                   <FormLabel htmlFor="billable" className="cursor-pointer text-sm font-normal leading-none">
-                    Billable expense (can be charged to client)
+                    {td("billableLabel")}
                   </FormLabel>
                 </FormItem>
               )}
@@ -388,14 +411,14 @@ export function NewExpenseDialog({
                 name="teamMemberId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="block text-left">Team Member</FormLabel>
+                    <FormLabel className="block text-start">{td("teamMember")}</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select team member" />
+                          <SelectValue placeholder={td("teamMemberPlaceholder")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -433,7 +456,7 @@ export function NewExpenseDialog({
                   };
                   return (
                     <FormItem>
-                      <FormLabel className="block text-left">Services Provided</FormLabel>
+                      <FormLabel className="block text-start">{td("servicesProvided")}</FormLabel>
                       <div className="rounded-md border p-3 space-y-2 max-h-40 overflow-y-auto">
                         {serviceOptions.map((s) => (
                           <label key={s.id} className="flex items-center gap-2 cursor-pointer">
@@ -456,12 +479,12 @@ export function NewExpenseDialog({
               name="date"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Date</FormLabel>
+                  <FormLabel>{td("date")}</FormLabel>
                   <FormControl>
                     <DatePickerAr
                       value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                       onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                      placeholder="Select date"
+                      placeholder={td("datePlaceholder")}
                       popoverAlign="start"
                     />
                   </FormControl>
@@ -474,9 +497,9 @@ export function NewExpenseDialog({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes (optional)</FormLabel>
+                  <FormLabel>{td("notes")}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Additional description or details" className="min-h-[80px]" {...field} />
+                    <Textarea placeholder={td("notesPlaceholder")} className="min-h-[80px]" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -487,15 +510,34 @@ export function NewExpenseDialog({
               name="receiptUrl"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Receipt (optional)</FormLabel>
+                  <FormLabel>{td("receipt")}</FormLabel>
                   <FormControl>
                     <div className="flex flex-col gap-2">
-                      <Input
+                      <input
+                        ref={receiptFileInputRef}
                         type="file"
                         accept="image/*,.pdf"
                         disabled={receiptUploading}
                         onChange={handleReceiptUpload}
+                        className="sr-only"
+                        aria-label={td("chooseFile")}
                       />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={receiptUploading}
+                          onClick={() => receiptFileInputRef.current?.click()}
+                        >
+                          {td("chooseFile")}
+                        </Button>
+                        {(receiptUploading || !field.value) && (
+                          <span className="text-sm text-muted-foreground truncate max-w-[min(100%,14rem)]">
+                            {receiptUploading ? td("uploadingReceipt") : td("noFileChosen")}
+                          </span>
+                        )}
+                      </div>
                       {field.value && (
                         <a
                           href={field.value}
@@ -503,7 +545,7 @@ export function NewExpenseDialog({
                           rel="noopener noreferrer"
                           className="text-sm text-primary underline"
                         >
-                          View receipt
+                          {td("viewReceipt")}
                         </a>
                       )}
                     </div>
@@ -512,11 +554,11 @@ export function NewExpenseDialog({
                 </FormItem>
               )}
             />
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className={`gap-2 sm:gap-0 ${isRtl ? "flex-row-reverse sm:flex-row-reverse" : ""}`}>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {td("cancel")}
               </Button>
-              <Button type="submit">{isEdit ? "Save Changes" : "Add Expense"}</Button>
+              <Button type="submit">{isEdit ? td("saveChanges") : td("addExpense")}</Button>
             </DialogFooter>
           </form>
         </Form>

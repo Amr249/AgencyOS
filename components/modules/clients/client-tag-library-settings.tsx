@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { createTag, deleteTag, updateTag } from "@/actions/client-tags";
@@ -33,6 +34,11 @@ type TagRow = typeof clientTags.$inferSelect;
 
 export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[] }) {
   const router = useRouter();
+  const t = useTranslations("settings.clientTags");
+  const locale = useLocale();
+  const pageDir = locale === "ar" ? "rtl" : "ltr";
+  const fieldAlign = pageDir === "rtl" ? "text-end" : "text-start";
+
   const [name, setName] = React.useState("");
   const [color, setColor] = React.useState<string>("blue");
   const [saving, setSaving] = React.useState(false);
@@ -43,14 +49,14 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
-      toast.error("Tag name is required");
+      toast.error(t("toastNameRequired"));
       return;
     }
     setSaving(true);
     try {
       const res = await createTag({ name: trimmed, color: color as "blue" | "green" | "red" | "purple" | "orange" | "gray" });
       if (res.ok) {
-        toast.success("Tag created");
+        toast.success(t("toastCreated"));
         setName("");
         setColor("blue");
         router.refresh();
@@ -61,7 +67,7 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
             ? err
             : "name" in err && err.name?.[0]
               ? err.name[0]
-              : "Failed to create tag";
+              : t("toastCreateFailed");
         toast.error(msg);
       }
     } finally {
@@ -80,7 +86,7 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
       return rest;
     });
     if (res.ok) {
-      toast.success("Tag updated");
+      toast.success(t("toastUpdated"));
       router.refresh();
     } else {
       const err = res.error;
@@ -89,39 +95,38 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
           ? err
           : err && typeof err === "object" && "_form" in err && Array.isArray((err as { _form?: string[] })._form)
             ? (err as { _form: string[] })._form[0]
-            : "Failed to update";
+            : t("toastUpdateFailed");
       toast.error(msg);
     }
   }
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Client tags</CardTitle>
-          <CardDescription>
-            Create tags with colors. Assign them on each client or from the client form.
-          </CardDescription>
+      <Card dir={pageDir}>
+        <CardHeader className={fieldAlign}>
+          <CardTitle className="text-base">{t("title")}</CardTitle>
+          <CardDescription>{t("description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <form onSubmit={onCreate} className="flex flex-wrap items-end gap-3">
-            <div className="grid min-w-[160px] flex-1 gap-1.5">
-              <Label htmlFor="new-tag-name">New tag name</Label>
+            <div className={`grid min-w-[160px] flex-1 gap-1.5 ${fieldAlign}`}>
+              <Label htmlFor="new-tag-name">{t("newTagName")}</Label>
               <Input
                 id="new-tag-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Enterprise"
+                placeholder={t("namePlaceholder")}
                 maxLength={120}
+                className={fieldAlign}
               />
             </div>
-            <div className="grid w-36 gap-1.5">
-              <Label>Color</Label>
+            <div className={`grid w-36 gap-1.5 ${fieldAlign}`}>
+              <Label>{t("color")}</Label>
               <Select value={color} onValueChange={setColor}>
-                <SelectTrigger>
+                <SelectTrigger className={fieldAlign}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent dir={pageDir}>
                   {CLIENT_TAG_COLOR_OPTIONS.map((c) => (
                     <SelectItem key={c.value} value={c.value}>
                       {c.label}
@@ -131,32 +136,32 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
               </Select>
             </div>
             <Button type="submit" disabled={saving}>
-              {saving ? "Adding…" : "Add tag"}
+              {saving ? t("adding") : t("addTag")}
             </Button>
           </form>
 
-          <div className="space-y-2">
-            <Label>Existing tags</Label>
+          <div className={`space-y-2 ${fieldAlign}`}>
+            <Label>{t("existingTags")}</Label>
             {initialTags.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No tags yet.</p>
+              <p className="text-muted-foreground text-sm">{t("noTagsYet")}</p>
             ) : (
               <ul className="divide-y rounded-lg border">
-                {initialTags.map((t) => (
+                {initialTags.map((tag) => (
                   <li
-                    key={t.id}
-                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5"
+                    key={tag.id}
+                    className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 ${pageDir === "rtl" ? "flex-row-reverse" : ""}`}
                   >
-                    <span className="text-sm font-medium">{t.name}</span>
+                    <span className="text-sm font-medium">{tag.name}</span>
                     <div className="flex items-center gap-2">
                       <Select
-                        value={t.color}
-                        disabled={!!pendingColorById[t.id]}
-                        onValueChange={(v) => onColorChange(t.id, v)}
+                        value={tag.color}
+                        disabled={!!pendingColorById[tag.id]}
+                        onValueChange={(v) => onColorChange(tag.id, v)}
                       >
                         <SelectTrigger className="h-8 w-32">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent dir={pageDir}>
                           {CLIENT_TAG_COLOR_OPTIONS.map((c) => (
                             <SelectItem key={c.value} value={c.value}>
                               {c.label}
@@ -169,8 +174,8 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
                         variant="ghost"
                         size="icon"
                         className="text-destructive hover:text-destructive"
-                        aria-label={`Delete ${t.name}`}
-                        onClick={() => setDeleteId(t.id)}
+                        aria-label={t("deleteAriaLabel", { name: tag.name })}
+                        onClick={() => setDeleteId(tag.id)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -184,15 +189,13 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
       </Card>
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this tag?</AlertDialogTitle>
-            <AlertDialogDescription>
-              It will be removed from all clients. This cannot be undone.
-            </AlertDialogDescription>
+        <AlertDialogContent dir={pageDir}>
+          <AlertDialogHeader className={fieldAlign}>
+            <AlertDialogTitle>{t("deleteTagTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("deleteTagDescription")}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className={pageDir === "rtl" ? "sm:flex-row-reverse sm:justify-start" : undefined}>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -201,14 +204,14 @@ export function ClientTagLibrarySettings({ initialTags }: { initialTags: TagRow[
                 const res = await deleteTag(deleteId);
                 setDeleteId(null);
                 if (res.ok) {
-                  toast.success("Tag deleted");
+                  toast.success(t("toastDeleted"));
                   router.refresh();
                 } else {
-                  toast.error(typeof res.error === "string" ? res.error : "Failed to delete");
+                  toast.error(typeof res.error === "string" ? res.error : t("toastDeleteFailed"));
                 }
               }}
             >
-              Delete
+              {t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

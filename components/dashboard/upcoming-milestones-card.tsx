@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import {
   Card,
   CardContent,
@@ -8,13 +11,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-
-const MILESTONE_STATUS_LABELS: Record<string, string> = {
-  pending: "Pending",
-  in_progress: "In Progress",
-  completed: "Completed",
-  cancelled: "Cancelled",
-};
 
 export type UpcomingMilestoneDashboardItem = {
   id: string;
@@ -27,11 +23,21 @@ export type UpcomingMilestoneDashboardItem = {
 };
 
 export function UpcomingMilestonesCard({ items }: { items: UpcomingMilestoneDashboardItem[] }) {
+  const t = useTranslations("dashboardHome.milestones");
+
+  function statusLabel(status: string): string {
+    const key = status as "pending" | "in_progress" | "completed" | "cancelled";
+    if (key === "pending" || key === "in_progress" || key === "completed" || key === "cancelled") {
+      return t(key);
+    }
+    return status;
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Upcoming Milestones</CardTitle>
-        <CardDescription>Due in the next 14 days (includes overdue)</CardDescription>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent>
         {items.length > 0 ? (
@@ -60,17 +66,17 @@ export function UpcomingMilestonesCard({ items }: { items: UpcomingMilestoneDash
                     m.overdue && "font-medium text-red-700 dark:text-red-400"
                   )}
                 >
-                  {m.projectName} · Due {m.dueDate}
-                  {m.overdue ? " · Overdue" : ""}
+                  {t("lineDue", { project: m.projectName, date: m.dueDate })}
+                  {m.overdue ? t("overdueSuffix") : ""}
                 </span>
                 <Badge variant="outline" className="w-fit text-xs">
-                  {MILESTONE_STATUS_LABELS[m.status] ?? m.status}
+                  {statusLabel(m.status)}
                 </Badge>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-muted-foreground text-sm">No upcoming milestones</p>
+          <p className="text-muted-foreground text-sm">{t("empty")}</p>
         )}
       </CardContent>
     </Card>

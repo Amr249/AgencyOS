@@ -1,17 +1,8 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import type { ExpenseCategory } from "@/actions/expenses";
-
-const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
-  software: "Software",
-  hosting: "Hosting",
-  marketing: "Marketing",
-  salaries: "Salaries",
-  equipment: "Equipment",
-  office: "Office",
-  other: "Other",
-};
 
 const CATEGORY_BADGE_CLASS: Record<ExpenseCategory, string> = {
   software: "bg-blue-500/15 text-blue-700 border-blue-200",
@@ -24,11 +15,12 @@ const CATEGORY_BADGE_CLASS: Record<ExpenseCategory, string> = {
 };
 
 export function ExpenseCategoryBadge({ category }: { category: ExpenseCategory }) {
+  const t = useTranslations("expenses.categories");
   return (
     <Badge variant="outline" className={CATEGORY_BADGE_CLASS[category]}>
-      {CATEGORY_LABELS[category]}
+      {t(category)}
     </Badge>
   );
 }
 
-export { CATEGORY_LABELS, CATEGORY_BADGE_CLASS };
+export { CATEGORY_BADGE_CLASS };

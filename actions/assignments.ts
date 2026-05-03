@@ -11,6 +11,8 @@ import { getTeamMemberIdsForSessionUser, memberMayViewTaskById } from "@/lib/mem
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { getTeamMembers as loadTeamMembersForSession } from "@/actions/team-members";
 import { notifyTaskAssigned } from "@/actions/notifications";
+import { requireAgencyOrganization } from "@/lib/org-session";
+import { TRIAL_EXPIRED_ERROR, requireWriteAccess } from "@/lib/trial";
 
 // ── Active team members (assignee picker; scoped for members) ──────────────────
 export async function getTeamMembers() {
@@ -39,10 +41,31 @@ export async function assignTask(taskId: string, teamMemberId: string) {
       return { success: false, error: "Forbidden." };
     }
 
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return { success: false, error: TRIAL_EXPIRED_ERROR };
+
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+
+    const [taskRow] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.organizationId, orgId)))
+      .limit(1);
+    if (!taskRow) {
+      return { success: false, error: "Task not found." };
+    }
+
     const [member] = await db
       .select({ id: teamMembers.id })
       .from(teamMembers)
-      .where(and(eq(teamMembers.id, teamMemberId), eq(teamMembers.status, "active")))
+      .where(
+        and(
+          eq(teamMembers.id, teamMemberId),
+          eq(teamMembers.status, "active"),
+          eq(teamMembers.organizationId, orgId)
+        )
+      )
       .limit(1);
     if (!member) {
       return { success: false, error: "Invalid or inactive team member." };
@@ -97,6 +120,21 @@ export async function unassignTask(taskId: string, teamMemberId: string) {
       return { success: false, error: "Forbidden." };
     }
 
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return { success: false, error: TRIAL_EXPIRED_ERROR };
+
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+
+    const [taskRow] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.organizationId, orgId)))
+      .limit(1);
+    if (!taskRow) {
+      return { success: false, error: "Task not found." };
+    }
+
     await db
       .delete(taskAssignments)
       .where(
@@ -109,7 +147,13 @@ export async function unassignTask(taskId: string, teamMemberId: string) {
     await db
       .update(tasks)
       .set({ assigneeId: null })
-      .where(and(eq(tasks.id, taskId), eq(tasks.assigneeId, teamMemberId)));
+      .where(
+        and(
+          eq(tasks.id, taskId),
+          eq(tasks.assigneeId, teamMemberId),
+          eq(tasks.organizationId, orgId)
+        )
+      );
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/my-tasks");

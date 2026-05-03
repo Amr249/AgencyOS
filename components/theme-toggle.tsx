@@ -2,10 +2,12 @@
 
 import { useTheme } from "next-themes";
 import { Moon, Sun, Monitor } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 
 export function ThemeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme();
+  const t = useTranslations("common");
 
   const cycle = () => {
     if (theme === "light") setTheme("dark");
@@ -23,7 +25,7 @@ export function ThemeToggle() {
     );
 
   return (
-    <Button variant="ghost" size="icon" onClick={cycle} aria-label="تبديل المظهر">
+    <Button variant="ghost" size="icon" onClick={cycle} aria-label={t("themeToggle")}>
       {icon}
     </Button>
   );

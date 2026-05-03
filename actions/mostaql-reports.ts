@@ -2,13 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db, mostaqlScrapeRuns, mostaqlProjects } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireAgencyOrganization } from "@/lib/org-session";
 import {
   crawlMostaql,
   type MostaqlScrapedProject,
 } from "@/lib/mostaql/scraper";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 
 const PAGES_VALUES = ["1", "3", "5", "all"] as const;
 const DEFAULT_CATEGORIES = ["development", "ai-machine-learning"] as const;
@@ -44,11 +46,15 @@ export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
     pagesValue === "all" ? 0 : pagesValue * DEFAULT_CATEGORIES.length;
   const categories = [...DEFAULT_CATEGORIES];
 
+  const waRun = await requireWriteAccess();
+  if (!waRun.ok) return trialExpiredPlain();
+
   let runId: string;
   try {
     const [row] = await db
       .insert(mostaqlScrapeRuns)
       .values({
+        organizationId: waRun.organizationId,
         status: "running",
         pagesRequested,
         categoriesJson: categories,
@@ -72,7 +78,9 @@ export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
         mostaqlId: mostaqlProjects.mostaqlId,
         url: mostaqlProjects.url,
       })
-      .from(mostaqlProjects);
+      .from(mostaqlProjects)
+      .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
+      .where(eq(mostaqlScrapeRuns.organizationId, waRun.organizationId));
     skipMostaqlIds = new Set(
       existing
         .map((e) => e.mostaqlId)
@@ -200,9 +208,11 @@ export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
 
 export async function getMostaqlScrapeRuns(limit = 20) {
   try {
+    const ctx = await requireAgencyOrganization();
     const rows = await db
       .select()
       .from(mostaqlScrapeRuns)
+      .where(eq(mostaqlScrapeRuns.organizationId, ctx.organizationId))
       .orderBy(desc(mostaqlScrapeRuns.startedAt))
       .limit(limit);
     return { ok: true as const, data: rows };
@@ -225,7 +235,19 @@ export async function getMostaqlProjects(params?: {
   endDate?: Date;
 }) {
   try {
-    const conditions = [];
+    const ctx = await requireAgencyOrganization();
+    const runIdRows = await db
+      .select({ id: mostaqlScrapeRuns.id })
+      .from(mostaqlScrapeRuns)
+      .where(eq(mostaqlScrapeRuns.organizationId, ctx.organizationId));
+    if (runIdRows.length === 0) {
+      return {
+        ok: true as const,
+        data: { runId: params?.runId ?? null, projects: [] },
+      };
+    }
+
+    const conditions = [inArray(mostaqlProjects.runId, runIdRows.map((r) => r.id))];
     if (params?.runId) {
       conditions.push(eq(mostaqlProjects.runId, params.runId));
     }
@@ -235,7 +257,7 @@ export async function getMostaqlProjects(params?: {
     if (params?.endDate) {
       conditions.push(lte(mostaqlProjects.publishedAt, params.endDate));
     }
-    const where = conditions.length === 0 ? undefined : and(...conditions);
+    const where = and(...conditions);
 
     const rows = await db
       .select()
@@ -260,7 +282,13 @@ export async function deleteMostaqlScrapeRun(id: string) {
     return { ok: false as const, error: "Invalid run id" };
   }
   try {
-    await db.delete(mostaqlScrapeRuns).where(eq(mostaqlScrapeRuns.id, parsed.data));
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    await db
+      .delete(mostaqlScrapeRuns)
+      .where(
+        and(eq(mostaqlScrapeRuns.id, parsed.data), eq(mostaqlScrapeRuns.organizationId, wa.organizationId))
+      );
     revalidatePath("/dashboard/proposals/mostaql-reports");
     return { ok: true as const };
   } catch (e) {

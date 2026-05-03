@@ -19,6 +19,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { AssistantMarkdown } from "@/components/modules/ai-chat/assistant-markdown";
+import { inferTextDirection } from "@/lib/text-dir";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,8 +57,6 @@ import { waitForUtterance } from "@/lib/ai-chat/wait-for-utterance";
 import { useAiChatVoiceInput } from "@/hooks/use-ai-chat-voice-input";
 
 export type { ChatAttachment } from "@/lib/ai-chat/openrouter-messages";
-
-const STORAGE_KEY = "agencyos.ai-chat.v1";
 
 function isImageAttachment(a: Pick<ChatAttachment, "mimeType" | "name">): boolean {
   const mime = a.mimeType?.toLowerCase() ?? "";
@@ -129,10 +128,10 @@ export const OPENROUTER_MODELS: ModelRow[] = [
   },
 ];
 
-function loadSessions(): ChatSession[] {
+function loadSessions(storageKey: string): ChatSession[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ChatSession[];
     return Array.isArray(parsed) ? parsed : [];
@@ -141,9 +140,9 @@ function loadSessions(): ChatSession[] {
   }
 }
 
-function saveSessions(sessions: ChatSession[]) {
+function saveSessions(storageKey: string, sessions: ChatSession[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    localStorage.setItem(storageKey, JSON.stringify(sessions));
   } catch {
     /* quota */
   }
@@ -196,9 +195,22 @@ async function consumeOpenAIStream(
   }
 }
 
-export function AiChatView() {
+export type AiChatViewProps = {
+  /** Current agency organization id — isolates chat history in localStorage per tenant. */
+  storageOrganizationId: string;
+};
+
+export function AiChatView({ storageOrganizationId }: AiChatViewProps) {
   const t = useTranslations("aiChat");
   const locale = useLocale();
+  /** Match root layout (`locale === "ar"`) and tolerate future `ar-*` tags. */
+  const isAr = locale.startsWith("ar");
+  const uiDir = isAr ? "rtl" : "ltr";
+
+  const storageKey = React.useMemo(
+    () => `agencyos.ai-chat.v1.${storageOrganizationId}`,
+    [storageOrganizationId]
+  );
 
   const [sessions, setSessions] = React.useState<ChatSession[]>([]);
   const [hydrated, setHydrated] = React.useState(false);
@@ -269,7 +281,7 @@ export function AiChatView() {
   );
 
   React.useEffect(() => {
-    const list = loadSessions();
+    const list = loadSessions(storageKey);
     const normalized = list.map((s) => ({
       ...s,
       model: allowedModelIds.has(s.model) ? s.model : OPENROUTER_MODELS[0].id,
@@ -288,12 +300,12 @@ export function AiChatView() {
     if (normalized.length > 0)
       setActiveId(normalized.sort((a, b) => b.updatedAt - a.updatedAt)[0].id);
     setHydrated(true);
-  }, [allowedModelIds]);
+  }, [allowedModelIds, storageKey]);
 
   React.useEffect(() => {
     if (!hydrated) return;
-    saveSessions(sessions);
-  }, [sessions, hydrated]);
+    saveSessions(storageKey, sessions);
+  }, [sessions, hydrated, storageKey]);
 
   const active = sessions.find((s) => s.id === activeId) ?? null;
 
@@ -589,6 +601,8 @@ export function AiChatView() {
 
   return (
     <div
+      dir={uiDir}
+      lang={locale}
       className={cn(
         "flex flex-col gap-0 overflow-hidden rounded-xl border border-border bg-background",
         /* Fixed viewport height so only inner regions scroll — not the dashboard page */
@@ -597,13 +611,19 @@ export function AiChatView() {
       )}
     >
       {/* Inner chat sidebar: New chat, search, history */}
-      <aside className="flex min-h-0 w-full max-h-[min(280px,42vh)] shrink-0 flex-col border-b border-border bg-muted/30 md:max-h-none md:w-[280px] md:border-e md:border-b-0">
+      <aside
+        dir={uiDir}
+        lang={locale}
+        className="flex min-h-0 w-full max-h-[min(280px,42vh)] shrink-0 flex-col border-b border-border bg-muted/30 md:max-h-none md:w-[280px] md:border-e md:border-b-0"
+      >
         <div className="p-3 pb-2">
           <div className="relative">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("searchChatsPlaceholder")}
+              dir={uiDir}
+              lang={locale}
               className="h-10 rounded-xl bg-background ps-9"
               aria-label={t("searchChatsPlaceholder")}
             />
@@ -611,12 +631,17 @@ export function AiChatView() {
           </div>
         </div>
 
-        <div className="text-muted-foreground px-3 pb-1 text-xs font-semibold uppercase tracking-wide">
+        <div
+          className={cn(
+            "text-muted-foreground px-3 pb-1 text-xs font-semibold tracking-wide",
+            !isAr && "uppercase"
+          )}
+        >
           {t("chatHistory")}
         </div>
 
         <ScrollArea className="min-h-0 flex-1 px-2 pb-2">
-          <div className="space-y-4 pb-2">
+          <div dir={uiDir} lang={locale} className="space-y-4 pb-2">
             {sessions.length === 0 ? (
               <p className="text-muted-foreground px-2 py-2 text-sm">{t("noChatsYet")}</p>
             ) : filtered.length === 0 ? (
@@ -627,7 +652,12 @@ export function AiChatView() {
                 if (list.length === 0) return null;
                 return (
                   <div key={key}>
-                    <p className="text-muted-foreground mb-2 px-2 text-xs font-semibold uppercase tracking-wide">
+                    <p
+                      className={cn(
+                        "text-muted-foreground mb-2 px-2 text-xs font-semibold tracking-wide",
+                        !isAr && "uppercase"
+                      )}
+                    >
                       {t(`group.${key}`)}
                     </p>
                     <div className="space-y-0.5">
@@ -635,6 +665,7 @@ export function AiChatView() {
                         <button
                           key={s.id}
                           type="button"
+                          dir="auto"
                           onClick={() => selectSession(s.id)}
                           className={cn(
                             "hover:bg-muted/80 line-clamp-2 w-full rounded-lg px-3 py-2 text-start text-sm transition-colors",
@@ -664,7 +695,7 @@ export function AiChatView() {
       </aside>
 
       {/* Main */}
-      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+      <main dir={uiDir} lang={locale} className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {showHero ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10">
@@ -696,8 +727,15 @@ export function AiChatView() {
             </div>
           ) : (
             <ScrollArea className="min-h-0 flex-1 px-4 pt-6">
-              <div className="mx-auto max-w-3xl space-y-6 pb-4">
-                {active?.messages.map((m, i) => (
+              <div dir={uiDir} lang={locale} className="mx-auto max-w-3xl space-y-6 pb-4">
+                {active?.messages.map((m, i) => {
+                  const textDir =
+                    m.content.trim().length > 0
+                      ? inferTextDirection(m.content)
+                      : isAr
+                        ? "rtl"
+                        : "ltr";
+                  return (
                   <div
                     key={i}
                     className={cn(
@@ -714,7 +752,12 @@ export function AiChatView() {
                       )}
                     >
                       {m.role === "assistant" && m.content.trim() ? (
-                        <div className="mb-2 flex justify-end">
+                        <div
+                          className={cn(
+                            "mb-2 flex",
+                            textDir === "rtl" ? "justify-start" : "justify-end"
+                          )}
+                        >
                           <Button
                             type="button"
                             variant="ghost"
@@ -773,16 +816,23 @@ export function AiChatView() {
                       ) : null}
                       {m.role === "assistant" ? (
                         m.content.trim() ? (
-                          <AssistantMarkdown content={m.content} />
+                          <AssistantMarkdown content={m.content} contentDir={textDir} />
                         ) : streaming && i === active.messages.length - 1 ? (
                           <p className="text-muted-foreground text-sm">…</p>
                         ) : null
                       ) : (
-                        <div className="whitespace-pre-wrap">{m.content}</div>
+                        <div
+                          className="whitespace-pre-wrap"
+                          dir={textDir}
+                          lang={textDir === "rtl" ? "ar" : locale}
+                        >
+                          {m.content}
+                        </div>
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 <div ref={scrollRef} />
               </div>
             </ScrollArea>
@@ -864,6 +914,8 @@ export function AiChatView() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={t("inputPlaceholder")}
+                  dir={isAr ? "rtl" : "ltr"}
+                  lang={locale}
                   className="max-h-[100px] min-h-[36px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 md:min-h-[40px]"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -898,7 +950,11 @@ export function AiChatView() {
                       <SelectTrigger className="h-9 w-fit max-w-[260px] rounded-full border-border bg-background text-xs md:text-sm">
                         <SelectValue placeholder={selectedModelRow.label} />
                       </SelectTrigger>
-                      <SelectContent position="popper" className="max-h-[min(320px,50vh)]">
+                      <SelectContent
+                        position="popper"
+                        dir={isAr ? "rtl" : "ltr"}
+                        className="max-h-[min(320px,50vh)]"
+                      >
                         {OPENROUTER_MODELS.map((m) => (
                           <SelectItem key={m.id} value={m.id} textValue={m.label}>
                             <span className="flex items-center gap-2">
@@ -978,7 +1034,7 @@ export function AiChatView() {
                   className="rounded-full border-border bg-background"
                   onClick={() => applyQuick("summary")}
                 >
-                  <Brain className="mr-2 size-4" />
+                  <Brain className="me-2 size-4" />
                   {t("pillSummary")}
                 </Button>
                 <Button
@@ -1004,6 +1060,8 @@ export function AiChatView() {
       >
         <DialogContent
           showCloseButton
+          dir={isAr ? "rtl" : "ltr"}
+          lang={locale}
           className={cn(
             "gap-3 sm:max-h-[calc(100vh-4rem)]",
             attachmentPreview?.kind === "image" || attachmentPreview?.kind === "pdf"

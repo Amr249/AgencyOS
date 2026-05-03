@@ -66,7 +66,7 @@ type InvoiceData = {
 };
 
 type ProjectOption = { id: string; name: string };
-type SettingsRow = { id: number } | null;
+type SettingsRow = { id: string } | null;
 
 export function EditInvoiceForm({
   invoice,

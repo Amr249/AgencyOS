@@ -11,5 +11,10 @@ export default async function AiChatPageRoute() {
     redirect("/dashboard");
   }
 
-  return <AiChatView />;
+  const orgId = session?.user?.organizationId;
+  if (!orgId) {
+    redirect("/dashboard");
+  }
+
+  return <AiChatView storageOrganizationId={orgId} />;
 }

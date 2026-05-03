@@ -128,6 +128,7 @@ export function ExpenseAttachments({ expenseId, initialFiles }: ExpenseAttachmen
       }
 
       const createResult = await createFile({
+        skipStorageAccount: true,
         name: res.name ?? file.name,
         r2Key: res.key,
         mimeType: res.mimeType ?? null,

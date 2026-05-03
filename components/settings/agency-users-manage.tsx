@@ -65,171 +65,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
+import { useLocale, useTranslations } from "next-intl";
 
-/** English copy for settings → users (matches former en.json `settings.users`). */
-const U = {
-  showPassword: "Show password",
-  hidePassword: "Hide password",
-  backToSettings: "Back to settings",
-  addTitle: "Add user",
-  addDescription:
-    "Choose whether this is a dashboard team login or a client portal login. For team members, create manually or pick from the team roster. For clients, pick a CRM client or enter everything manually.",
-  userKindTeam: "Team member (dashboard)",
-  userKindClient: "Client portal",
-  userKindHint:
-    "Dashboard users sign in here with admin or member roles. Client portal users sign in on the client portal with access to their organization’s projects.",
-  addModeManual: "Enter details manually",
-  addModeTeam: "Choose from team members",
-  clientAddModePick: "Choose client — use CRM contact when available",
-  clientAddModeManual: "Enter details manually",
-  clientCompanyLabel: "Client",
-  clientPlaceholder: "Select a client…",
-  clientsLoading: "Loading clients…",
-  clientsEmpty: "No clients found. Add a client in CRM first.",
-  pickClientError: "Please select a client.",
-  clientPrefillHint:
-    "Name and email are prefilled from the client record when possible; you can edit them before creating the login.",
-  createClientSuccess:
-    "Client portal user created. Portal access is enabled for this client. They can sign in with the email and password you set.",
-  teamMemberLabel: "Team member",
-  teamMemberPlaceholder: "Select a team member…",
-  teamPreviewHint: "Name, email, and photo come from the team roster.",
-  inviteesLoading: "Loading team roster…",
-  inviteesEmpty:
-    "No eligible team members (need an email, no login yet, and email not already used for a user).",
-  pickTeamMemberError: "Please select a team member.",
-  team_member_not_found: "That team member was not found.",
-  team_member_no_email: "That team member has no email on file.",
-  team_member_already_linked: "That team member already has a dashboard login.",
-  name: "Name",
-  email: "Email",
-  password: "Password",
-  role: "Role",
-  roleMember: "Member",
-  roleAdmin: "Admin",
-  createButton: "Create user",
-  creating: "Creating…",
-  createSuccess: "User created. They can sign in with the email and password you set.",
-  roleUpdated: "Role updated.",
-  listTitle: "Dashboard users",
-  listDescription:
-    "Admin and member accounts for this workspace. Client portal logins are listed in the section below.",
-  loading: "Loading users…",
-  empty: "No dashboard users yet.",
-  portalUsersTitle: "Client portal users",
-  portalUsersDescription:
-    "Clients who sign in on the portal (linked to a CRM company). Open the client record for full portal controls.",
-  portalLoading: "Loading client portal users…",
-  portalEmpty: "No client portal users yet.",
-  portalColClient: "Client",
-  portalColStatus: "Status",
-  portalColLastLogin: "Last login",
-  portalStatusActive: "Active",
-  portalStatusInactive: "Inactive",
-  portalOpenClient: "Client record",
-  portalDeactivate: "Deactivate",
-  portalSetPassword: "Set password",
-  portalDeactivateTitle: "Deactivate portal access?",
-  portalDeactivateDescription:
-    "They will no longer be able to sign in to the client portal until you invite them again.",
-  portalDeactivateSuccess: "Portal access deactivated.",
-  portalPwdTitle: "Set portal password",
-  portalPwdDescription: "Minimum 8 characters. The user signs in with their email and this password.",
-  portalPwdSave: "Save password",
-  portalPwdSuccess: "Password updated.",
-  portalPwdError: "Could not set password.",
-  you: "You",
-  actions: "Actions",
-  edit: "Edit user",
-  delete: "Delete user",
-  editTitle: "Edit user",
-  editDescription: "Update name, email, or set a new password.",
-  optionalNewPassword: "New password",
-  optionalNewPasswordHint: "Leave blank to keep the current password.",
-  cancel: "Cancel",
-  saving: "Saving…",
-  saveChanges: "Save changes",
-  updateSuccess: "User updated.",
-  deleteSuccess: "User removed.",
-  deleting: "Deleting…",
-  deleteConfirmTitle: "Delete this user?",
-  deleteConfirmDescription:
-    "This will remove their dashboard access. This cannot be undone.",
-  deleteConfirmDescriptionNamed: (name: string) =>
-    `This will remove dashboard access for ${name}. This cannot be undone.`,
-  errors: {
-    forbidden: "You don’t have permission.",
-    unauthorized: "Please sign in again.",
-    validation: "Check all fields (password at least 8 characters).",
-    email_exists: "A user with this email already exists.",
-    last_admin: "Keep at least one admin account.",
-    self_delete: "You can’t delete your own account here.",
-    unknown: "Something went wrong.",
-  },
-  globalErrors: {
-    connectionTimeout: "Database connection timed out. Please try again.",
-    fetchFailed: "Failed to fetch data. Check your connection.",
-  },
-} as const;
 
-function formatClientInviteError(err: unknown): string {
-  if (typeof err === "string") {
-    if (
-      err === "connectionTimeout" ||
-      err === "fetchFailed" ||
-      err === "unauthorized" ||
-      err === "forbidden"
-    ) {
-      return mapActionError(err);
-    }
-    return err;
-  }
-  if (err && typeof err === "object") {
-    const values = Object.values(err as Record<string, string[] | undefined>)
-      .flat()
-      .filter(Boolean);
-    if (values.length) return values.join(" ");
-  }
-  return U.errors.unknown;
-}
-
-function mapActionError(code: string): string {
-  switch (code) {
-    case "forbidden":
-      return U.errors.forbidden;
-    case "unauthorized":
-      return U.errors.unauthorized;
-    case "validation":
-      return U.errors.validation;
-    case "email_exists":
-      return U.errors.email_exists;
-    case "last_admin":
-      return U.errors.last_admin;
-    case "self_delete":
-      return U.errors.self_delete;
-    case "team_member_not_found":
-      return U.team_member_not_found;
-    case "team_member_no_email":
-      return U.team_member_no_email;
-    case "team_member_already_linked":
-      return U.team_member_already_linked;
-    case "connectionTimeout":
-      return U.globalErrors.connectionTimeout;
-    case "fetchFailed":
-      return U.globalErrors.fetchFailed;
-    case "unknown":
-      return U.errors.unknown;
-    default:
-      return U.errors.unknown;
-  }
-}
-
-function fmtPortalTs(value: Date | string | null | undefined): string {
-  if (value == null) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" });
-}
 
 type AgencyUsersManageProps = {
   currentUserId: string;
@@ -239,6 +77,83 @@ type AgencyUsersManageProps = {
 
 export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersManageProps) {
   const router = useRouter();
+  const t = useTranslations("settings.users");
+  const te = useTranslations("errors");
+  const tAuth = useTranslations("auth");
+  const locale = useLocale();
+  const pageDir = locale === "ar" ? "rtl" : "ltr";
+
+  const mapActionError = React.useCallback(
+    (code: string) => {
+      switch (code) {
+        case "forbidden":
+          return t("errors.forbidden");
+        case "unauthorized":
+          return t("errors.unauthorized");
+        case "validation":
+          return t("errors.validation");
+        case "email_exists":
+          return t("errors.email_exists");
+        case "last_admin":
+          return t("errors.last_admin");
+        case "self_delete":
+          return t("errors.self_delete");
+        case "team_member_not_found":
+          return t("errors.teamMemberNotFound");
+        case "team_member_no_email":
+          return t("errors.teamMemberNoEmail");
+        case "team_member_already_linked":
+          return t("errors.teamMemberAlreadyLinked");
+        case "connectionTimeout":
+          return te("connectionTimeout");
+        case "fetchFailed":
+          return te("fetchFailed");
+        case "unknown":
+          return t("errors.unknown");
+        default:
+          return t("errors.unknown");
+      }
+    },
+    [t, te]
+  );
+
+  const formatClientInviteError = React.useCallback(
+    (err: unknown): string => {
+      if (typeof err === "string") {
+        if (
+          err === "connectionTimeout" ||
+          err === "fetchFailed" ||
+          err === "unauthorized" ||
+          err === "forbidden"
+        ) {
+          return mapActionError(err);
+        }
+        return err;
+      }
+      if (err && typeof err === "object") {
+        const values = Object.values(err as Record<string, string[] | undefined>)
+          .flat()
+          .filter(Boolean);
+        if (values.length) return values.join(" ");
+      }
+      return t("errors.unknown");
+    },
+    [mapActionError, t]
+  );
+
+  const fmtPortalTs = React.useCallback(
+    (value: Date | string | null | undefined): string => {
+      if (value == null) return "—";
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleString(locale === "ar" ? "ar" : "en-US", {
+        dateStyle: "short",
+        timeStyle: "short",
+      });
+    },
+    [locale]
+  );
+
   const [rows, setRows] = React.useState<AgencyUserRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [portalRows, setPortalRows] = React.useState<ClientPortalUserListRow[]>([]);
@@ -286,7 +201,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     } else {
       toast.error(mapActionError(res.error));
     }
-  }, []);
+  }, [mapActionError]);
 
   const refreshPortalUsers = React.useCallback(async () => {
     const res = await listAllClientPortalUsers();
@@ -295,7 +210,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     } else {
       toast.error(mapActionError(res.error));
     }
-  }, []);
+  }, [mapActionError]);
 
   const loadInvitees = React.useCallback(async () => {
     setInviteesLoading(true);
@@ -309,7 +224,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     } finally {
       setInviteesLoading(false);
     }
-  }, []);
+  }, [mapActionError]);
 
   const loadClients = React.useCallback(async () => {
     setClientsLoading(true);
@@ -323,7 +238,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     } finally {
       setClientsLoading(false);
     }
-  }, []);
+  }, [mapActionError]);
 
   React.useEffect(() => {
     void loadInvitees();
@@ -366,7 +281,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mapActionError]);
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -374,17 +289,17 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     if (userKind === "team") {
       if (addMode === "team_member") {
         if (!selectedTeamMemberId) {
-          toast.error(U.pickTeamMemberError);
+          toast.error(t("pickTeamMemberError"));
           return;
         }
       }
     } else {
       if (!selectedClientId) {
-        toast.error(U.pickClientError);
+        toast.error(t("pickClientError"));
         return;
       }
       if (!newName.trim() || !newEmail.trim()) {
-        toast.error(U.errors.validation);
+        toast.error(t("errors.validation"));
         return;
       }
     }
@@ -400,7 +315,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
               ? pe === "connectionTimeout" || pe === "fetchFailed"
                 ? mapActionError(pe)
                 : pe
-              : U.errors.unknown
+              : t("errors.unknown")
           );
           return;
         }
@@ -412,7 +327,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
           ...(pwdTrim.length >= 8 ? { initialPassword: pwdTrim } : {}),
         });
         if (inv.ok) {
-          toast.success(U.createClientSuccess);
+          toast.success(t("createClientSuccess"));
           setNewName("");
           setNewEmail("");
           setNewPassword("");
@@ -442,7 +357,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
               role: newRole,
             });
       if (res.ok) {
-        toast.success(U.createSuccess);
+        toast.success(t("createSuccess"));
         setNewName("");
         setNewEmail("");
         setNewPassword("");
@@ -473,7 +388,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
   async function onRoleChange(userId: string, role: "admin" | "member") {
     const res = await updateAgencyUserRole({ userId, role });
     if (res.ok) {
-      toast.success(U.roleUpdated);
+      toast.success(t("roleUpdated"));
       setRows((prev) => prev.map((r) => (r.id === userId ? { ...r, role } : r)));
       router.refresh();
     } else {
@@ -502,7 +417,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
         password: editPassword.trim() || undefined,
       });
       if (res.ok) {
-        toast.success(U.updateSuccess);
+        toast.success(t("updateSuccess"));
         setEditOpen(false);
         setEditing(null);
         await refreshUsers();
@@ -521,7 +436,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     try {
       const res = await deleteAgencyUser(deleteId);
       if (res.ok) {
-        toast.success(U.deleteSuccess);
+        toast.success(t("deleteSuccess"));
         setDeleteId(null);
         await refreshUsers();
         router.refresh();
@@ -541,12 +456,12 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
     try {
       const res = await deactivateClientUser(deactivatePortalId);
       if (res.ok) {
-        toast.success(U.portalDeactivateSuccess);
+        toast.success(t("portalDeactivateSuccess"));
         setDeactivatePortalId(null);
         await refreshPortalUsers();
         router.refresh();
       } else {
-        toast.error(typeof res.error === "string" ? res.error : U.errors.unknown);
+        toast.error(typeof res.error === "string" ? res.error : t("errors.unknown"));
       }
     } finally {
       setDeactivatingPortal(false);
@@ -563,7 +478,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
   async function onSavePortalPassword(e: React.FormEvent) {
     e.preventDefault();
     if (!portalPwdUserId || portalPwdValue.trim().length < 8) {
-      toast.error(U.errors.validation);
+      toast.error(t("errors.validation"));
       return;
     }
     setPortalPwdSaving(true);
@@ -573,7 +488,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
         password: portalPwdValue.trim(),
       });
       if (res.ok) {
-        toast.success(U.portalPwdSuccess);
+        toast.success(t("portalPwdSuccess"));
         setPortalPwdOpen(false);
         setPortalPwdUserId(null);
         setPortalPwdValue("");
@@ -596,20 +511,20 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
       {showBackLink ? (
         <p className="text-muted-foreground text-sm">
           <Link href="/dashboard/settings" className="text-primary underline-offset-4 hover:underline">
-            {U.backToSettings}
+            {t("backToSettings")}
           </Link>
         </p>
       ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{U.addTitle}</CardTitle>
-          <CardDescription>{U.addDescription}</CardDescription>
+          <CardTitle className="text-base">{t("addTitle")}</CardTitle>
+          <CardDescription>{t("addDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onCreate} className="grid max-w-xl gap-4 sm:grid-cols-2">
             <div className="space-y-3 sm:col-span-2">
-              <Label className="text-foreground">User type</Label>
+              <Label className="text-foreground">{t("userTypeLabel")}</Label>
               <RadioGroup
                 value={userKind}
                 onValueChange={(v) => {
@@ -628,17 +543,17 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="team" id="user-kind-team" />
                   <Label htmlFor="user-kind-team" className="cursor-pointer font-normal">
-                    {U.userKindTeam}
+                    {t("userKindTeam")}
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="client" id="user-kind-client" />
                   <Label htmlFor="user-kind-client" className="cursor-pointer font-normal">
-                    {U.userKindClient}
+                    {t("userKindClient")}
                   </Label>
                 </div>
               </RadioGroup>
-              <p className="text-muted-foreground text-sm">{U.userKindHint}</p>
+              <p className="text-muted-foreground text-sm">{t("userKindHint")}</p>
             </div>
 
             {userKind === "team" ? (
@@ -656,13 +571,13 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="manual" id="add-mode-manual" />
                       <Label htmlFor="add-mode-manual" className="cursor-pointer font-normal">
-                        {U.addModeManual}
+                        {t("addModeManual")}
                       </Label>
                     </div>
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="team_member" id="add-mode-team" />
                       <Label htmlFor="add-mode-team" className="cursor-pointer font-normal">
-                        {U.addModeTeam}
+                        {t("addModeTeam")}
                       </Label>
                     </div>
                   </RadioGroup>
@@ -671,7 +586,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 {addMode === "manual" ? (
                   <>
                     <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="new-user-name">{U.name}</Label>
+                      <Label htmlFor="new-user-name">{t("name")}</Label>
                       <Input
                         id="new-user-name"
                         value={newName}
@@ -681,7 +596,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                       />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="new-user-email">{U.email}</Label>
+                      <Label htmlFor="new-user-email">{t("email")}</Label>
                       <Input
                         id="new-user-email"
                         type="email"
@@ -695,15 +610,15 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 ) : (
                   <div className="space-y-3 sm:col-span-2">
                     <div className="space-y-2">
-                      <Label>{U.teamMemberLabel}</Label>
+                      <Label>{t("teamMemberLabel")}</Label>
                       {inviteesLoading ? (
-                        <p className="text-muted-foreground text-sm">{U.inviteesLoading}</p>
+                        <p className="text-muted-foreground text-sm">{t("inviteesLoading")}</p>
                       ) : invitees.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">{U.inviteesEmpty}</p>
+                        <p className="text-muted-foreground text-sm">{t("inviteesEmpty")}</p>
                       ) : (
                         <Select value={selectedTeamMemberId} onValueChange={setSelectedTeamMemberId}>
                           <SelectTrigger className="w-full">
-                            <SelectValue placeholder={U.teamMemberPlaceholder} />
+                            <SelectValue placeholder={t("teamMemberPlaceholder")} />
                           </SelectTrigger>
                           <SelectContent>
                             {invitees.map((m) => (
@@ -726,7 +641,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                           <p className="text-muted-foreground truncate text-sm" dir="ltr">
                             {selectedInvitee.email}
                           </p>
-                          <p className="text-muted-foreground mt-1 text-xs">{U.teamPreviewHint}</p>
+                          <p className="text-muted-foreground mt-1 text-xs">{t("teamPreviewHint")}</p>
                         </div>
                       </div>
                     ) : null}
@@ -754,24 +669,24 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="pick" id="client-add-pick" />
                       <Label htmlFor="client-add-pick" className="cursor-pointer font-normal">
-                        {U.clientAddModePick}
+                        {t("clientAddModePick")}
                       </Label>
                     </div>
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="manual" id="client-add-manual" />
                       <Label htmlFor="client-add-manual" className="cursor-pointer font-normal">
-                        {U.clientAddModeManual}
+                        {t("clientAddModeManual")}
                       </Label>
                     </div>
                   </RadioGroup>
                 </div>
 
                 <div className="space-y-2 sm:col-span-2">
-                  <Label>{U.clientCompanyLabel}</Label>
+                  <Label>{t("clientCompanyLabel")}</Label>
                   {clientsLoading ? (
-                    <p className="text-muted-foreground text-sm">{U.clientsLoading}</p>
+                    <p className="text-muted-foreground text-sm">{t("clientsLoading")}</p>
                   ) : clientsList.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">{U.clientsEmpty}</p>
+                    <p className="text-muted-foreground text-sm">{t("clientsEmpty")}</p>
                   ) : (
                     <Select
                       value={selectedClientId}
@@ -783,7 +698,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                       }}
                     >
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder={U.clientPlaceholder} />
+                        <SelectValue placeholder={t("clientPlaceholder")} />
                       </SelectTrigger>
                       <SelectContent>
                         {clientsList.map((c) => (
@@ -797,11 +712,11 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 </div>
 
                 {clientAddMode === "pick" ? (
-                  <p className="text-muted-foreground text-sm sm:col-span-2">{U.clientPrefillHint}</p>
+                  <p className="text-muted-foreground text-sm sm:col-span-2">{t("clientPrefillHint")}</p>
                 ) : null}
 
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="client-user-name">{U.name}</Label>
+                  <Label htmlFor="client-user-name">{t("name")}</Label>
                   <Input
                     id="client-user-name"
                     value={newName}
@@ -811,7 +726,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                   />
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="client-user-email">{U.email}</Label>
+                  <Label htmlFor="client-user-email">{t("email")}</Label>
                   <Input
                     id="client-user-email"
                     type="email"
@@ -825,8 +740,8 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
             )}
 
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="new-user-password">{U.password}</Label>
-              <div className="relative">
+              <Label htmlFor="new-user-password">{t("password")}</Label>
+              <div className="relative" dir="ltr">
                 <Input
                   id="new-user-password"
                   type={showNewPassword ? "text" : "password"}
@@ -841,8 +756,8 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                   type="button"
                   onClick={() => setShowNewPassword((v) => !v)}
                   className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
-                  aria-label={showNewPassword ? U.hidePassword : U.showPassword}
-                  title={showNewPassword ? U.hidePassword : U.showPassword}
+                  aria-label={showNewPassword ? tAuth("hidePassword") : tAuth("showPassword")}
+                  title={showNewPassword ? tAuth("hidePassword") : tAuth("showPassword")}
                 >
                   {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -851,14 +766,14 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
 
             {userKind === "team" ? (
               <div className="space-y-2 sm:col-span-2">
-                <Label>{U.role}</Label>
+                <Label>{t("role")}</Label>
                 <Select value={newRole} onValueChange={(v) => setNewRole(v as "admin" | "member")}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="member">{U.roleMember}</SelectItem>
-                    <SelectItem value="admin">{U.roleAdmin}</SelectItem>
+                    <SelectItem value="member">{t("roleMember")}</SelectItem>
+                    <SelectItem value="admin">{t("roleAdmin")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -866,7 +781,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
 
             <div className="flex items-end sm:col-span-2">
               <Button type="submit" disabled={creating}>
-                {creating ? U.creating : U.createButton}
+                {creating ? t("creating") : t("createButton")}
               </Button>
             </div>
           </form>
@@ -875,22 +790,22 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{U.listTitle}</CardTitle>
-          <CardDescription>{U.listDescription}</CardDescription>
+          <CardTitle className="text-base">{t("listTitle")}</CardTitle>
+          <CardDescription>{t("listDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-muted-foreground text-sm">{U.loading}</p>
+            <p className="text-muted-foreground text-sm">{t("loading")}</p>
           ) : rows.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{U.empty}</p>
+            <p className="text-muted-foreground text-sm">{t("empty")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{U.name}</TableHead>
-                  <TableHead>{U.email}</TableHead>
-                  <TableHead className="w-[160px]">{U.role}</TableHead>
-                  <TableHead className="w-[140px] text-end">{U.actions}</TableHead>
+                  <TableHead>{t("name")}</TableHead>
+                  <TableHead>{t("email")}</TableHead>
+                  <TableHead className="w-[160px]">{t("role")}</TableHead>
+                  <TableHead className="w-[140px] text-end">{t("actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -907,12 +822,12 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="member">{U.roleMember}</SelectItem>
-                          <SelectItem value="admin">{U.roleAdmin}</SelectItem>
+                          <SelectItem value="member">{t("roleMember")}</SelectItem>
+                          <SelectItem value="admin">{t("roleAdmin")}</SelectItem>
                         </SelectContent>
                       </Select>
                       {u.id === currentUserId ? (
-                        <p className="text-muted-foreground mt-1 text-xs">{U.you}</p>
+                        <p className="text-muted-foreground mt-1 text-xs">{t("you")}</p>
                       ) : null}
                     </TableCell>
                     <TableCell className="text-end">
@@ -923,7 +838,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                           size="icon"
                           className="h-8 w-8"
                           onClick={() => openEdit(u)}
-                          aria-label={U.edit}
+                          aria-label={t("edit")}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -934,7 +849,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                           className="text-destructive hover:text-destructive h-8 w-8"
                           disabled={u.id === currentUserId}
                           onClick={() => setDeleteId(u.id)}
-                          aria-label={U.delete}
+                          aria-label={t("delete")}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -950,24 +865,24 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{U.portalUsersTitle}</CardTitle>
-          <CardDescription>{U.portalUsersDescription}</CardDescription>
+          <CardTitle className="text-base">{t("portalUsersTitle")}</CardTitle>
+          <CardDescription>{t("portalUsersDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           {portalLoading ? (
-            <p className="text-muted-foreground text-sm">{U.portalLoading}</p>
+            <p className="text-muted-foreground text-sm">{t("portalLoading")}</p>
           ) : portalRows.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{U.portalEmpty}</p>
+            <p className="text-muted-foreground text-sm">{t("portalEmpty")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{U.name}</TableHead>
-                  <TableHead>{U.email}</TableHead>
-                  <TableHead>{U.portalColClient}</TableHead>
-                  <TableHead>{U.portalColStatus}</TableHead>
-                  <TableHead>{U.portalColLastLogin}</TableHead>
-                  <TableHead className="text-end">{U.actions}</TableHead>
+                  <TableHead>{t("name")}</TableHead>
+                  <TableHead>{t("email")}</TableHead>
+                  <TableHead>{t("portalColClient")}</TableHead>
+                  <TableHead>{t("portalColStatus")}</TableHead>
+                  <TableHead>{t("portalColLastLogin")}</TableHead>
+                  <TableHead className="text-end">{t("actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -978,7 +893,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                     <TableCell>{u.companyName}</TableCell>
                     <TableCell>
                       <Badge variant={u.isActive ? "default" : "secondary"}>
-                        {u.isActive ? U.portalStatusActive : U.portalStatusInactive}
+                        {u.isActive ? t("portalStatusActive") : t("portalStatusInactive")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm tabular-nums">
@@ -992,7 +907,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                             className="inline-flex items-center gap-1.5"
                           >
                             <Building2 className="size-3.5 shrink-0" />
-                            {U.portalOpenClient}
+                            {t("portalOpenClient")}
                           </Link>
                         </Button>
                         {u.isActive ? (
@@ -1003,7 +918,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                               size="sm"
                               onClick={() => openPortalPasswordDialog(u.id)}
                             >
-                              {U.portalSetPassword}
+                              {t("portalSetPassword")}
                             </Button>
                             <Button
                               type="button"
@@ -1012,7 +927,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                               className="text-destructive hover:text-destructive"
                               onClick={() => setDeactivatePortalId(u.id)}
                             >
-                              {U.portalDeactivate}
+                              {t("portalDeactivate")}
                             </Button>
                           </>
                         ) : null}
@@ -1033,15 +948,15 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
           if (!open) setEditing(null);
         }}
       >
-        <DialogContent className="sm:max-w-md" dir="ltr" lang="en">
+        <DialogContent className="sm:max-w-md" dir={pageDir}>
           <form onSubmit={onSaveEdit}>
             <DialogHeader>
-              <DialogTitle>{U.editTitle}</DialogTitle>
-              <DialogDescription>{U.editDescription}</DialogDescription>
+              <DialogTitle>{t("editTitle")}</DialogTitle>
+              <DialogDescription>{t("editDescription")}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-name">{U.name}</Label>
+                <Label htmlFor="edit-name">{t("name")}</Label>
                 <Input
                   id="edit-name"
                   value={editName}
@@ -1050,7 +965,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-email">{U.email}</Label>
+                <Label htmlFor="edit-email">{t("email")}</Label>
                 <Input
                   id="edit-email"
                   type="email"
@@ -1060,8 +975,8 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-password">{U.optionalNewPassword}</Label>
-                <div className="relative">
+                <Label htmlFor="edit-password">{t("optionalNewPassword")}</Label>
+                <div className="relative" dir="ltr">
                   <Input
                     id="edit-password"
                     type={showEditPassword ? "text" : "password"}
@@ -1076,12 +991,12 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                     type="button"
                     onClick={() => setShowEditPassword((v) => !v)}
                     className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
-                    aria-label={showEditPassword ? U.hidePassword : U.showPassword}
+                    aria-label={showEditPassword ? tAuth("hidePassword") : tAuth("showPassword")}
                   >
                     {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="text-muted-foreground text-xs">{U.optionalNewPasswordHint}</p>
+                <p className="text-muted-foreground text-xs">{t("optionalNewPasswordHint")}</p>
               </div>
             </div>
             <DialogFooter className="gap-2 sm:gap-0">
@@ -1093,10 +1008,10 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                   setEditing(null);
                 }}
               >
-                {U.cancel}
+                {t("cancel")}
               </Button>
               <Button type="submit" disabled={savingEdit}>
-                {savingEdit ? U.saving : U.saveChanges}
+                {savingEdit ? t("saving") : t("saveChanges")}
               </Button>
             </DialogFooter>
           </form>
@@ -1113,16 +1028,16 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
           }
         }}
       >
-        <DialogContent className="sm:max-w-md" dir="ltr" lang="en">
+        <DialogContent className="sm:max-w-md" dir={pageDir}>
           <form onSubmit={onSavePortalPassword}>
             <DialogHeader>
-              <DialogTitle>{U.portalPwdTitle}</DialogTitle>
-              <DialogDescription>{U.portalPwdDescription}</DialogDescription>
+              <DialogTitle>{t("portalPwdTitle")}</DialogTitle>
+              <DialogDescription>{t("portalPwdDescription")}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="portal-new-password">{U.password}</Label>
-                <div className="relative">
+                <Label htmlFor="portal-new-password">{t("password")}</Label>
+                <div className="relative" dir="ltr">
                   <Input
                     id="portal-new-password"
                     type={showPortalPwd ? "text" : "password"}
@@ -1137,7 +1052,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                     type="button"
                     onClick={() => setShowPortalPwd((v) => !v)}
                     className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
-                    aria-label={showPortalPwd ? U.hidePassword : U.showPassword}
+                    aria-label={showPortalPwd ? tAuth("hidePassword") : tAuth("showPassword")}
                   >
                     {showPortalPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -1154,10 +1069,10 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                   setPortalPwdValue("");
                 }}
               >
-                {U.cancel}
+                {t("cancel")}
               </Button>
               <Button type="submit" disabled={portalPwdSaving}>
-                {portalPwdSaving ? U.saving : U.portalPwdSave}
+                {portalPwdSaving ? t("saving") : t("portalPwdSave")}
               </Button>
             </DialogFooter>
           </form>
@@ -1165,17 +1080,17 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
       </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
-        <AlertDialogContent dir="ltr" lang="en">
+        <AlertDialogContent dir={pageDir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>{U.deleteConfirmTitle}</AlertDialogTitle>
+            <AlertDialogTitle>{t("deleteConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget
-                ? U.deleteConfirmDescriptionNamed(deleteTarget.name)
-                : U.deleteConfirmDescription}
+                ? t("deleteConfirmDescriptionNamed", { name: deleteTarget.name })
+                : t("deleteConfirmDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>{U.cancel}</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleting}
@@ -1184,7 +1099,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 void onConfirmDelete();
               }}
             >
-              {deleting ? U.deleting : U.delete}
+              {deleting ? t("deleting") : t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1194,17 +1109,17 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
         open={!!deactivatePortalId}
         onOpenChange={(o) => !o && setDeactivatePortalId(null)}
       >
-        <AlertDialogContent dir="ltr" lang="en">
+        <AlertDialogContent dir={pageDir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>{U.portalDeactivateTitle}</AlertDialogTitle>
+            <AlertDialogTitle>{t("portalDeactivateTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {deactivatePortalTarget
-                ? `${deactivatePortalTarget.name ?? deactivatePortalTarget.email} (${deactivatePortalTarget.companyName}). ${U.portalDeactivateDescription}`
-                : U.portalDeactivateDescription}
+                ? `${deactivatePortalTarget.name ?? deactivatePortalTarget.email} (${deactivatePortalTarget.companyName}). ${t("portalDeactivateDescription")}`
+                : t("portalDeactivateDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deactivatingPortal}>{U.cancel}</AlertDialogCancel>
+            <AlertDialogCancel disabled={deactivatingPortal}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deactivatingPortal}
@@ -1213,7 +1128,7 @@ export function AgencyUsersManage({ currentUserId, showBackLink }: AgencyUsersMa
                 void onConfirmDeactivatePortal();
               }}
             >
-              {deactivatingPortal ? U.deleting : U.portalDeactivate}
+              {deactivatingPortal ? t("deleting") : t("portalDeactivate")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

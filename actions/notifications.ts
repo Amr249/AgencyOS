@@ -8,6 +8,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { notifications, projects, tasks, users } from "@/lib/db/schema";
 import { resolveUserIdForTeamMember } from "@/lib/member-context";
+import { TRIAL_EXPIRED_ERROR, requireWriteAccess } from "@/lib/trial";
 
 const TASK_STATUS_LABELS_EN: Record<string, string> = {
   todo: "To do",
@@ -357,11 +358,13 @@ const markReadSchema = z.object({
 
 export async function markNotificationsRead(
   input: z.infer<typeof markReadSchema>
-): Promise<{ ok: true } | { ok: false; error: "unauthorized" | "validation" | "unknown" }> {
+): Promise<{ ok: true } | { ok: false; error: "unauthorized" | "validation" | "unknown" | "trial_expired" }> {
   const userId = await currentUserId();
   if (!userId) return { ok: false, error: "unauthorized" };
   const parsed = markReadSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: TRIAL_EXPIRED_ERROR };
   try {
     const now = new Date();
     if (parsed.data.all) {
@@ -392,11 +395,13 @@ const deleteSchema = z.object({
 
 export async function deleteNotifications(
   input: z.infer<typeof deleteSchema>
-): Promise<{ ok: true } | { ok: false; error: "unauthorized" | "validation" | "unknown" }> {
+): Promise<{ ok: true } | { ok: false; error: "unauthorized" | "validation" | "unknown" | "trial_expired" }> {
   const userId = await currentUserId();
   if (!userId) return { ok: false, error: "unauthorized" };
   const parsed = deleteSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: TRIAL_EXPIRED_ERROR };
   try {
     if (parsed.data.all) {
       await db.delete(notifications).where(eq(notifications.userId, userId));

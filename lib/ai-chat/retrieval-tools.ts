@@ -1,5 +1,6 @@
 /**
  * Whitelisted read-only queries for AI chat context. No model-generated SQL.
+ * Every query is scoped by organizationId from the server session (see executeAiChatTool).
  */
 
 import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
@@ -14,13 +15,14 @@ import {
   mostaqlScrapeRuns,
   settings,
 } from "@/lib/db";
+import { getOrganizationIdForAiDataAccess } from "@/lib/ai-chat/ai-chat-org";
 
 export function cleanLikeToken(raw: string): string | null {
   const t = raw.replace(/[%_\\]/g, "").trim().slice(0, 64);
   return t.length >= 2 ? t : null;
 }
 
-export async function getSettingsSnapshot() {
+export async function getSettingsSnapshot(organizationId: string) {
   const [row] = await db
     .select({
       agencyName: settings.agencyName,
@@ -29,31 +31,32 @@ export async function getSettingsSnapshot() {
       defaultCurrency: settings.defaultCurrency,
     })
     .from(settings)
-    .where(eq(settings.id, 1))
+    .where(eq(settings.organizationId, organizationId))
     .limit(1);
   return row ?? null;
 }
 
-export async function getProjectStatusCounts() {
+export async function getProjectStatusCounts(organizationId: string) {
   const rows = await db
     .select({
       status: projects.status,
       total: sql<number>`cast(count(*) as int)`.as("total"),
     })
     .from(projects)
-    .where(isNull(projects.deletedAt))
+    .where(and(isNull(projects.deletedAt), eq(projects.organizationId, organizationId)))
     .groupBy(projects.status);
   return rows;
 }
 
 /** Job proposals (Mostaql etc.) — `status` includes applied | viewed | shortlisted | won | lost | cancelled. */
-export async function getProposalStatusCounts() {
+export async function getProposalStatusCounts(organizationId: string) {
   const rows = await db
     .select({
       status: proposals.status,
       total: sql<number>`cast(count(*) as int)`.as("total"),
     })
     .from(proposals)
+    .where(eq(proposals.organizationId, organizationId))
     .groupBy(proposals.status);
   return rows;
 }
@@ -66,7 +69,11 @@ export type ProposalOutcomeStatus =
   | "lost"
   | "cancelled";
 
-export async function listProposalsByOutcomeStatus(status: ProposalOutcomeStatus, limit = 25) {
+export async function listProposalsByOutcomeStatus(
+  organizationId: string,
+  status: ProposalOutcomeStatus,
+  limit = 25
+) {
   return db
     .select({
       id: proposals.id,
@@ -78,12 +85,16 @@ export async function listProposalsByOutcomeStatus(status: ProposalOutcomeStatus
       url: proposals.url,
     })
     .from(proposals)
-    .where(eq(proposals.status, status))
+    .where(and(eq(proposals.organizationId, organizationId), eq(proposals.status, status)))
     .orderBy(desc(proposals.appliedAt))
     .limit(limit);
 }
 
-export async function listProjectsByStatus(status: "lead" | "active" | "on_hold" | "review" | "completed" | "cancelled", limit = 25) {
+export async function listProjectsByStatus(
+  organizationId: string,
+  status: "lead" | "active" | "on_hold" | "review" | "completed" | "cancelled",
+  limit = 25
+) {
   return db
     .select({
       id: projects.id,
@@ -97,13 +108,19 @@ export async function listProjectsByStatus(status: "lead" | "active" | "on_hold"
     .from(projects)
     .innerJoin(clients, eq(projects.clientId, clients.id))
     .where(
-      and(eq(projects.status, status), isNull(projects.deletedAt), isNull(clients.deletedAt))
+      and(
+        eq(projects.organizationId, organizationId),
+        eq(clients.organizationId, organizationId),
+        eq(projects.status, status),
+        isNull(projects.deletedAt),
+        isNull(clients.deletedAt)
+      )
     )
     .orderBy(desc(projects.createdAt))
     .limit(limit);
 }
 
-export async function searchClients(pattern: string, limit = 15) {
+export async function searchClients(organizationId: string, pattern: string, limit = 15) {
   const p = `%${pattern}%`;
   return db
     .select({
@@ -116,6 +133,7 @@ export async function searchClients(pattern: string, limit = 15) {
     .from(clients)
     .where(
       and(
+        eq(clients.organizationId, organizationId),
         isNull(clients.deletedAt),
         or(ilike(clients.companyName, p), ilike(clients.contactName, p), ilike(clients.contactEmail, p))
       )
@@ -124,7 +142,7 @@ export async function searchClients(pattern: string, limit = 15) {
     .limit(limit);
 }
 
-export async function searchProjects(pattern: string, limit = 15) {
+export async function searchProjects(organizationId: string, pattern: string, limit = 15) {
   const p = `%${pattern}%`;
   return db
     .select({
@@ -138,6 +156,8 @@ export async function searchProjects(pattern: string, limit = 15) {
     .innerJoin(clients, eq(projects.clientId, clients.id))
     .where(
       and(
+        eq(projects.organizationId, organizationId),
+        eq(clients.organizationId, organizationId),
         isNull(projects.deletedAt),
         isNull(clients.deletedAt),
         or(ilike(projects.name, p), ilike(projects.description, p))
@@ -147,7 +167,7 @@ export async function searchProjects(pattern: string, limit = 15) {
     .limit(limit);
 }
 
-export async function searchTasks(pattern: string, limit = 15) {
+export async function searchTasks(organizationId: string, pattern: string, limit = 15) {
   const p = `%${pattern}%`;
   return db
     .select({
@@ -161,6 +181,8 @@ export async function searchTasks(pattern: string, limit = 15) {
     .innerJoin(projects, eq(tasks.projectId, projects.id))
     .where(
       and(
+        eq(tasks.organizationId, organizationId),
+        eq(projects.organizationId, organizationId),
         isNull(tasks.deletedAt),
         isNull(projects.deletedAt),
         or(ilike(tasks.title, p), ilike(tasks.description, p))
@@ -170,7 +192,7 @@ export async function searchTasks(pattern: string, limit = 15) {
     .limit(limit);
 }
 
-export async function recentInvoices(limit = 10) {
+export async function recentInvoices(organizationId: string, limit = 10) {
   return db
     .select({
       id: invoices.id,
@@ -184,11 +206,12 @@ export async function recentInvoices(limit = 10) {
     })
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
+    .where(and(eq(invoices.organizationId, organizationId), eq(clients.organizationId, organizationId)))
     .orderBy(desc(invoices.issueDate))
     .limit(limit);
 }
 
-export async function searchProposals(pattern: string, limit = 12) {
+export async function searchProposals(organizationId: string, pattern: string, limit = 12) {
   const p = `%${pattern}%`;
   return db
     .select({
@@ -203,18 +226,21 @@ export async function searchProposals(pattern: string, limit = 12) {
     })
     .from(proposals)
     .where(
-      or(
-        ilike(proposals.title, p),
-        ilike(proposals.description, p),
-        ilike(proposals.skillsTags, p),
-        ilike(proposals.notes, p)
+      and(
+        eq(proposals.organizationId, organizationId),
+        or(
+          ilike(proposals.title, p),
+          ilike(proposals.description, p),
+          ilike(proposals.skillsTags, p),
+          ilike(proposals.notes, p)
+        )
       )
     )
     .orderBy(desc(proposals.appliedAt))
     .limit(limit);
 }
 
-export async function latestMostaqlScrapeRuns(limit = 5) {
+export async function latestMostaqlScrapeRuns(organizationId: string, limit = 5) {
   return db
     .select({
       id: mostaqlScrapeRuns.id,
@@ -229,11 +255,12 @@ export async function latestMostaqlScrapeRuns(limit = 5) {
       errorMessage: mostaqlScrapeRuns.errorMessage,
     })
     .from(mostaqlScrapeRuns)
+    .where(eq(mostaqlScrapeRuns.organizationId, organizationId))
     .orderBy(desc(mostaqlScrapeRuns.startedAt))
     .limit(limit);
 }
 
-export async function searchMostaqlProjects(pattern: string, limit = 12) {
+export async function searchMostaqlProjects(organizationId: string, pattern: string, limit = 12) {
   const p = `%${pattern}%`;
   return db
     .select({
@@ -247,11 +274,15 @@ export async function searchMostaqlProjects(pattern: string, limit = 12) {
       scrapedAt: mostaqlProjects.scrapedAt,
     })
     .from(mostaqlProjects)
+    .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
     .where(
-      or(
-        ilike(mostaqlProjects.title, p),
-        ilike(mostaqlProjects.description, p),
-        ilike(mostaqlProjects.clientName, p)
+      and(
+        eq(mostaqlScrapeRuns.organizationId, organizationId),
+        or(
+          ilike(mostaqlProjects.title, p),
+          ilike(mostaqlProjects.description, p),
+          ilike(mostaqlProjects.clientName, p)
+        )
       )
     )
     .orderBy(desc(mostaqlProjects.scrapedAt))
@@ -268,11 +299,21 @@ export type ListProjectsArgs = { status?: "lead" | "active" | "on_hold" | "revie
 
 /**
  * Structured "tool" dispatch without OpenRouter — same whitelist the model would use in a tool loop.
+ * organizationId is always taken from the server session (never from tool args).
  */
 export async function executeAiChatTool(
   name: WhitelistedToolName,
   args: unknown
 ): Promise<string> {
+  const org = await getOrganizationIdForAiDataAccess();
+  if (!org.ok) {
+    return JSON.stringify({
+      error: "forbidden",
+      message: "AI data tools require an authenticated admin session with an organization.",
+    });
+  }
+  const organizationId = org.organizationId;
+
   switch (name) {
     case "list_projects": {
       const allowed = ["lead", "active", "on_hold", "review", "completed", "cancelled"] as const;
@@ -286,7 +327,7 @@ export async function executeAiChatTool(
           : undefined;
       const st: ProjectListStatus =
         raw && (allowed as readonly string[]).includes(raw) ? (raw as ProjectListStatus) : "active";
-      const rows = await listProjectsByStatus(st, 30);
+      const rows = await listProjectsByStatus(organizationId, st, 30);
       return JSON.stringify({ tool: name, status: st, projects: rows });
     }
     case "list_clients": {
@@ -298,15 +339,15 @@ export async function executeAiChatTool(
       if (!token) {
         return JSON.stringify({ tool: name, query: q, clients: [], note: "query too short or empty" });
       }
-      const rows = await searchClients(token, 25);
+      const rows = await searchClients(organizationId, token, 25);
       return JSON.stringify({ tool: name, query: q, clients: rows });
     }
     case "recent_invoices": {
-      const rows = await recentInvoices(12);
+      const rows = await recentInvoices(organizationId, 12);
       return JSON.stringify({ tool: name, invoices: rows });
     }
     case "mostaql_latest_runs": {
-      const rows = await latestMostaqlScrapeRuns(5);
+      const rows = await latestMostaqlScrapeRuns(organizationId, 5);
       return JSON.stringify({ tool: name, runs: rows });
     }
     default:
@@ -320,7 +361,7 @@ export const AI_CHAT_OPENROUTER_TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "list_projects",
-      description: "List projects filtered by status (default active). Admin-only.",
+      description: "List projects filtered by status (default active). Admin-only; scoped to the signed-in organization.",
       parameters: {
         type: "object",
         properties: {
@@ -336,7 +377,7 @@ export const AI_CHAT_OPENROUTER_TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "list_clients",
-      description: "Search clients by company or contact substring.",
+      description: "Search clients by company or contact substring within the signed-in organization only.",
       parameters: {
         type: "object",
         properties: { query: { type: "string", description: "Search substring" } },
@@ -348,7 +389,7 @@ export const AI_CHAT_OPENROUTER_TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "recent_invoices",
-      description: "Recent invoices with client names and totals.",
+      description: "Recent invoices with client names and totals for the signed-in organization only.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -356,7 +397,7 @@ export const AI_CHAT_OPENROUTER_TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "mostaql_latest_runs",
-      description: "Latest Mostaql scrape runs (counts, status, errors).",
+      description: "Latest Mostaql scrape runs for this organization only (counts, status, errors).",
       parameters: { type: "object", properties: {} },
     },
   },

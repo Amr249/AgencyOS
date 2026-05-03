@@ -170,11 +170,18 @@ export const TASK_PRIORITY_BORDER = {
   urgent: "border-l-red-500",
 } as const;
 
-// Invoice status — pending | partial | paid
+// Invoice status — pending | partial | paid (English)
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   partial: "Partially Paid",
   paid: "Paid",
+};
+
+/** Arabic invoice status labels (RTL dashboards, invoices lists). */
+export const INVOICE_STATUS_LABELS_AR: Record<string, string> = {
+  pending: "قيد الانتظار",
+  partial: "مدفوعة جزئياً",
+  paid: "مدفوعة",
 };
 
 export const INVOICE_STATUS_BADGE_CLASS: Record<string, string> = {

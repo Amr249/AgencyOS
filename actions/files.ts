@@ -17,6 +17,18 @@ import { sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, memberIsAssignedToTask } from "@/lib/member-context";
 import { getMemberDriveContentFolderIdsForUser, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 import { getDriveFolders } from "@/actions/folders";
+import {
+  getOrganizationIdForClient,
+  getOrganizationIdForExpense,
+  getOrganizationIdForInvoice,
+  getOrganizationIdForProject,
+  getOrganizationIdForTask,
+  getOrganizationIdForTeamMember,
+} from "@/lib/db/default-organization";
+import { requireAgencyOrganization } from "@/lib/org-session";
+import { hasFeature, FEATURE_NOT_AVAILABLE_MESSAGE } from "@/lib/features";
+import { addStorageUsage, removeStorageUsage } from "@/lib/usage";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 export type DriveFolderDirectFileStat = {
   folderId: string;
@@ -65,6 +77,7 @@ export async function getDriveFolderDirectFileStats(): Promise<
   if (!scope.ok) return { ok: false, error: scope.error, data: [] };
   if (scope.contentIds.length === 0) return { ok: true, data: [] };
   try {
+    const ctx = await requireAgencyOrganization();
     const rows = await withDbReadRetry("getDriveFolderDirectFileStats", () =>
       db
         .select({
@@ -75,7 +88,12 @@ export async function getDriveFolderDirectFileStats(): Promise<
         })
         .from(files)
         .where(
-          and(isNull(files.deletedAt), isNotNull(files.folderId), inArray(files.folderId, scope.contentIds))
+          and(
+            isNull(files.deletedAt),
+            isNotNull(files.folderId),
+            inArray(files.folderId, scope.contentIds),
+            eq(files.organizationId, ctx.organizationId)
+          )
         )
         .groupBy(files.folderId)
     );
@@ -124,6 +142,8 @@ const createFileSchema = z.object({
   r2Key: z.string().min(1),
   mimeType: z.string().nullable().optional(),
   sizeBytes: z.number().int().min(0).nullable().optional(),
+  /** When true, skips quota increment (e.g. row is created right after `POST /api/upload`, which already counted bytes). */
+  skipStorageAccount: z.boolean().optional(),
   clientId: z.string().uuid().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
   taskId: z.string().uuid().nullable().optional(),
@@ -227,7 +247,9 @@ export async function getFiles(params: {
     takeLimit,
   } = parsed.data;
   try {
-    const conditions = [isNull(files.deletedAt)];
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const conditions = [isNull(files.deletedAt), eq(files.organizationId, orgId)];
 
     if (driveView) {
       const scope = await driveViewScopedFolderIdsForUser();
@@ -390,7 +412,11 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   }
   const d = parsed.data;
+  let reservedStorageBytes = 0;
+  let storageQuotaOrgId: string | null = null;
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id ?? null;
     const role = sessionUserRole(session);
@@ -469,8 +495,54 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
       }
     }
 
+    let organizationId: string | null = null;
+    if (d.projectId) organizationId = await getOrganizationIdForProject(d.projectId);
+    if (!organizationId && d.clientId) organizationId = await getOrganizationIdForClient(d.clientId);
+    if (!organizationId && d.invoiceId) organizationId = await getOrganizationIdForInvoice(d.invoiceId);
+    if (!organizationId && d.expenseId) organizationId = await getOrganizationIdForExpense(d.expenseId);
+    if (!organizationId && d.taskId) organizationId = await getOrganizationIdForTask(d.taskId);
+    if (!organizationId && folder?.projectId) {
+      organizationId = await getOrganizationIdForProject(folder.projectId);
+    }
+    if (!organizationId && folder?.clientId) {
+      organizationId = await getOrganizationIdForClient(folder.clientId);
+    }
+    if (!organizationId && folder?.teamMemberId) {
+      organizationId = await getOrganizationIdForTeamMember(folder.teamMemberId);
+    }
+    const ctx = await requireAgencyOrganization();
+    if (!organizationId) organizationId = ctx.organizationId;
+    else if (organizationId !== ctx.organizationId) {
+      return { ok: false as const, error: { _form: ["forbidden"] } };
+    }
+
+    const fileStorageOk = await hasFeature(organizationId, "file_storage");
+    if (!fileStorageOk) {
+      return { ok: false as const, error: { _form: [FEATURE_NOT_AVAILABLE_MESSAGE] } };
+    }
+
+    storageQuotaOrgId = organizationId;
+    const quotaBytes = Math.floor(Number(d.sizeBytes ?? 0));
+    const skipStorage = d.skipStorageAccount === true;
+    if (!skipStorage && quotaBytes > 0) {
+      try {
+        await addStorageUsage(organizationId, quotaBytes);
+        reservedStorageBytes = quotaBytes;
+      } catch (e) {
+        return {
+          ok: false as const,
+          error: {
+            _form: [
+              e instanceof Error ? e.message : "Storage limit reached for your plan.",
+            ],
+          },
+        };
+      }
+    }
+
     const inserted = await db.execute(sql`
       insert into files (
+        organization_id,
         name,
         mime_type,
         size_bytes,
@@ -485,6 +557,7 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
         folder_id,
         r2_key
       ) values (
+        ${organizationId},
         ${d.name},
         ${d.mimeType ?? null},
         ${d.sizeBytes ?? null},
@@ -634,6 +707,9 @@ export async function createFile(data: z.infer<typeof createFileSchema>) {
 
     return { ok: true as const, data };
   } catch (e) {
+    if (reservedStorageBytes > 0 && storageQuotaOrgId) {
+      await removeStorageUsage(storageQuotaOrgId, reservedStorageBytes).catch(() => {});
+    }
     console.error("createFile", e);
     if (isDbConnectionError(e)) {
       return { ok: false as const, error: { _form: [getDbErrorKey(e)] } };
@@ -648,10 +724,17 @@ export async function deleteFile(id: string) {
     return { ok: false as const, error: "Invalid file id" };
   }
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
+
+  const ctx = await requireAgencyOrganization();
+
   const [row] = await db
     .select({
       id: files.id,
       r2Key: files.r2Key,
+      organizationId: files.organizationId,
+      sizeBytes: files.sizeBytes,
       clientId: files.clientId,
       projectId: files.projectId,
       taskId: files.taskId,
@@ -661,7 +744,7 @@ export async function deleteFile(id: string) {
       folderId: files.folderId,
     })
     .from(files)
-    .where(eq(files.id, parsed.data));
+    .where(and(eq(files.id, parsed.data), eq(files.organizationId, ctx.organizationId)));
 
   if (!row) {
     return { ok: false as const, error: "File not found" };
@@ -699,7 +782,16 @@ export async function deleteFile(id: string) {
     }
   }
 
-  await db.delete(files).where(eq(files.id, parsed.data));
+  await db
+    .delete(files)
+    .where(and(eq(files.id, parsed.data), eq(files.organizationId, ctx.organizationId)));
+
+  const removedBytes = Math.floor(Number(row.sizeBytes ?? 0));
+  if (removedBytes > 0 && row.organizationId) {
+    await removeStorageUsage(row.organizationId, removedBytes).catch((err) =>
+      console.error("removeStorageUsage after deleteFile", err)
+    );
+  }
 
   const isStandaloneScope =
     !row.clientId &&
@@ -742,7 +834,11 @@ export async function moveFile(fileId: string, folderId: string | null) {
   const uid = session.user.id;
   const role = sessionUserRole(session);
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
+
   try {
+    const ctx = await requireAgencyOrganization();
     const [fileRow] = await db
       .select({
         id: files.id,
@@ -750,7 +846,13 @@ export async function moveFile(fileId: string, folderId: string | null) {
         folderId: files.folderId,
       })
       .from(files)
-      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.id, parsed.data.fileId),
+          isNull(files.deletedAt),
+          eq(files.organizationId, ctx.organizationId)
+        )
+      )
       .limit(1);
     if (!fileRow) return { ok: false as const, error: { _form: ["File not found"] } };
 
@@ -768,7 +870,7 @@ export async function moveFile(fileId: string, folderId: string | null) {
     const updated = await db.execute(sql`
       update files
       set folder_id = ${parsed.data.folderId}
-      where id = ${parsed.data.fileId} and deleted_at is null
+      where id = ${parsed.data.fileId} and deleted_at is null and organization_id = ${ctx.organizationId}::uuid
       returning id, client_id, project_id, folder_id
     `);
     const row = updated.rows[0] as
@@ -803,7 +905,11 @@ export async function renameFile(fileId: string, newName: string) {
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
   const role = sessionUserRole(session);
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
+
   try {
+    const ctx = await requireAgencyOrganization();
     const [existing] = await db
       .select({
         id: files.id,
@@ -811,7 +917,13 @@ export async function renameFile(fileId: string, newName: string) {
         folderId: files.folderId,
       })
       .from(files)
-      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.id, parsed.data.fileId),
+          isNull(files.deletedAt),
+          eq(files.organizationId, ctx.organizationId)
+        )
+      )
       .limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["File not found"] } };
     if (role === "member" && existing.projectId) {
@@ -823,7 +935,13 @@ export async function renameFile(fileId: string, newName: string) {
     const [row] = await db
       .update(files)
       .set({ name: parsed.data.newName.trim() })
-      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.id, parsed.data.fileId),
+          isNull(files.deletedAt),
+          eq(files.organizationId, ctx.organizationId)
+        )
+      )
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["File not found"] } };
     revalidatePath("/dashboard/clients");
@@ -846,11 +964,15 @@ export async function toggleFilePublic(fileId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
+
   try {
+    const ctx = await requireAgencyOrganization();
     const existingRes = await db.execute(sql`
       select id, is_public, share_token, share_expires_at, project_id, folder_id
       from files
-      where id = ${parsed.data} and deleted_at is null
+      where id = ${parsed.data} and deleted_at is null and organization_id = ${ctx.organizationId}::uuid
       limit 1
     `);
     const existing = existingRes.rows[0] as
@@ -883,7 +1005,7 @@ export async function toggleFilePublic(fileId: string) {
     const updateRes = await db.execute(sql`
       update files
       set is_public = ${nextPublic}, share_token = ${shareToken}, share_expires_at = ${shareExpiresAt}
-      where id = ${parsed.data}
+      where id = ${parsed.data} and organization_id = ${ctx.organizationId}::uuid
       returning id, is_public, share_token, share_expires_at
     `);
     const row = updateRes.rows[0] as
@@ -925,6 +1047,9 @@ export async function createShareLink(fileId: string, expiresInDays?: number) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
+
   let shareExpiresAt: Date | null = null;
   if (parsed.data.expiresInDays != null) {
     const d = new Date();
@@ -933,10 +1058,11 @@ export async function createShareLink(fileId: string, expiresInDays?: number) {
   }
 
   try {
+    const ctx = await requireAgencyOrganization();
     const existingRes = await db.execute(sql`
       select id, is_public, share_token, project_id, folder_id
       from files
-      where id = ${parsed.data.fileId} and deleted_at is null
+      where id = ${parsed.data.fileId} and deleted_at is null and organization_id = ${ctx.organizationId}::uuid
       limit 1
     `);
     const existing = existingRes.rows[0] as
@@ -963,7 +1089,7 @@ export async function createShareLink(fileId: string, expiresInDays?: number) {
     const updateRes = await db.execute(sql`
       update files
       set share_token = ${token}, share_expires_at = ${shareExpiresAt}, is_public = true
-      where id = ${parsed.data.fileId} and deleted_at is null
+      where id = ${parsed.data.fileId} and deleted_at is null and organization_id = ${ctx.organizationId}::uuid
       returning id, is_public, share_token, share_expires_at
     `);
     const row = updateRes.rows[0] as
@@ -1009,6 +1135,9 @@ export async function setShareLinkExpiryDays(fileId: string, expiresInDays: numb
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
+
   let shareExpiresAt: Date | null = null;
   if (parsed.data.expiresInDays != null) {
     const d = new Date();
@@ -1017,10 +1146,17 @@ export async function setShareLinkExpiryDays(fileId: string, expiresInDays: numb
   }
 
   try {
+    const ctx = await requireAgencyOrganization();
     const [before] = await db
       .select({ projectId: files.projectId, folderId: files.folderId })
       .from(files)
-      .where(and(eq(files.id, parsed.data.fileId), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.id, parsed.data.fileId),
+          isNull(files.deletedAt),
+          eq(files.organizationId, ctx.organizationId)
+        )
+      )
       .limit(1);
     if (!before) return { ok: false as const, error: { _form: ["File not found"] } };
     if (sessionUserRole(session) === "member" && before.projectId) {
@@ -1034,6 +1170,7 @@ export async function setShareLinkExpiryDays(fileId: string, expiresInDays: numb
       set share_expires_at = ${shareExpiresAt}
       where id = ${parsed.data.fileId}
         and deleted_at is null
+        and organization_id = ${ctx.organizationId}::uuid
         and is_public = true
         and share_token is not null
       returning id, is_public, share_token, share_expires_at
@@ -1069,11 +1206,15 @@ export async function revokeShareLink(fileId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
+
   try {
+    const ctx = await requireAgencyOrganization();
     const updateRes = await db.execute(sql`
       update files
       set share_token = null, share_expires_at = null, is_public = false
-      where id = ${parsed.data} and deleted_at is null
+      where id = ${parsed.data} and deleted_at is null and organization_id = ${ctx.organizationId}::uuid
       returning id, is_public, share_token, share_expires_at
     `);
     const row = updateRes.rows[0] as
@@ -1108,6 +1249,7 @@ export type SharedFileGuestPayload = {
   mimeType: string | null;
   sizeBytes: number | null;
   shareExpiresAt: Date | null;
+  organizationId: string;
 };
 
 export type ShareTokenFailureReason = "invalid" | "not_found" | "expired" | "forbidden";
@@ -1134,6 +1276,7 @@ export async function getFileByShareToken(
         isPublic: files.isPublic,
         shareToken: files.shareToken,
         shareExpiresAt: files.shareExpiresAt,
+        organizationId: files.organizationId,
       })
       .from(files)
       .where(
@@ -1164,6 +1307,7 @@ export async function getFileByShareToken(
         mimeType: row.mimeType,
         sizeBytes: row.sizeBytes,
         shareExpiresAt: row.shareExpiresAt,
+        organizationId: row.organizationId,
       },
     };
   } catch (e) {
@@ -1228,6 +1372,7 @@ export async function getRecentUploadsForDashboard(limit = 10) {
   }
   const lim = Math.min(Math.max(1, limit), 50);
   try {
+    const ctx = await requireAgencyOrganization();
     const rows = await db
       .select({
         id: files.id,
@@ -1253,7 +1398,7 @@ export async function getRecentUploadsForDashboard(limit = 10) {
       })
       .from(files)
       .leftJoin(teamMembers, eq(teamMembers.userId, files.uploadedBy))
-      .where(isNull(files.deletedAt))
+      .where(and(isNull(files.deletedAt), eq(files.organizationId, ctx.organizationId)))
       .orderBy(desc(files.createdAt))
       .limit(lim);
 
@@ -1275,7 +1420,8 @@ export async function getTotalFilesStorageBytes(input?: { standaloneDrive?: bool
     return { ok: false as const, error: "Not authorized", total: 0 };
   }
   try {
-    const conditions = [isNull(files.deletedAt)];
+    const ctx = await requireAgencyOrganization();
+    const conditions = [isNull(files.deletedAt), eq(files.organizationId, ctx.organizationId)];
     if (input?.driveView) {
       const scope = await driveViewScopedFolderIdsForUser();
       if (!scope.ok) {

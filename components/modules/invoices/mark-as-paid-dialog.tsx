@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import { arSA, enUS } from "date-fns/locale";
 import {
   Dialog,
   DialogContent,
@@ -22,9 +24,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { markAsPaid } from "@/actions/invoices";
 import { toast } from "sonner";
-import { PAYMENT_METHOD_LABELS } from "@/types";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
-import { enUS } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 
 const PAYMENT_METHOD_VALUES = ["bank_transfer", "cash", "credit_card", "cheque", "other"] as const;
 
@@ -47,6 +48,13 @@ export function MarkAsPaidDialog({
   remainingAmountSar,
 }: MarkAsPaidDialogProps) {
   const router = useRouter();
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const t = useTranslations("invoices.markAsPaidDialog");
+  const selectDir = isAr ? "rtl" : "ltr";
+  const dateLocale = isAr ? arSA : enUS;
+  const numberLocale = isAr ? "ar-SA" : "en-US";
+
   const [paidAt, setPaidAt] = React.useState<Date | undefined>(() => new Date());
   const [paymentMethod, setPaymentMethod] = React.useState<string>("other");
   const [loading, setLoading] = React.useState(false);
@@ -70,37 +78,45 @@ export function MarkAsPaidDialog({
     });
     setLoading(false);
     if (res.ok) {
-      toast.success("Payment recorded successfully");
+      toast.success(t("toastSuccess"));
       onOpenChange(false);
       onSuccess?.();
       router.refresh();
     } else {
       const err = (res as { error?: unknown }).error;
-      const msg = typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? "Failed to record payment";
+      const msg =
+        typeof err === "string" ? err : (err as { _form?: string[] })?._form?.[0] ?? t("toastErrorFallback");
       toast.error(msg);
     }
   };
 
   const formattedAmount =
     remainingAmountSar != null && Number.isFinite(remainingAmountSar)
-      ? remainingAmountSar.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      ? remainingAmountSar.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" dir="ltr">
-        <DialogHeader className="text-left">
-          <DialogTitle>Record Full Payment</DialogTitle>
-          <DialogDescription className="text-left">
-            {invoiceNumber ? <>Invoice {invoiceNumber}</> : null}
-            {invoiceNumber ? <br /> : null}
-            Enter the payment date and method. The remaining balance will be recorded as a single payment that closes the
-            invoice.
+      <DialogContent
+        className="sm:max-w-md"
+        dir={isAr ? "rtl" : "ltr"}
+        lang={isAr ? "ar" : "en"}
+      >
+        <DialogHeader className="text-start">
+          <DialogTitle className="text-start">{t("title")}</DialogTitle>
+          <DialogDescription className="text-start">
+            {invoiceNumber ? (
+              <>
+                {t("invoiceRef", { number: invoiceNumber })}
+                <br />
+              </>
+            ) : null}
+            {t("description")}
           </DialogDescription>
         </DialogHeader>
         {formattedAmount ? (
           <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-primary/30 bg-muted/40 px-3 py-2 text-sm">
-            <span className="text-muted-foreground">This will record a payment of</span>
+            <span className="text-muted-foreground">{t("amountBanner")}</span>
             <span className="inline-flex items-center gap-1 font-semibold tabular-nums">
               {formattedAmount}
               <SarCurrencyIcon className="h-4 w-4 shrink-0" />
@@ -109,38 +125,38 @@ export function MarkAsPaidDialog({
         ) : null}
         <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <Label className="text-left">Payment Date</Label>
+            <Label className="text-start">{t("paymentDateLabel")}</Label>
             <DatePickerAr
-              popoverAlign="start"
-              direction="ltr"
-              locale={enUS}
+              popoverAlign={isAr ? "end" : "start"}
+              direction={isAr ? "rtl" : "ltr"}
+              locale={dateLocale}
               value={paidAt}
               onChange={setPaidAt}
-              placeholder="Pick a date"
+              placeholder={t("pickDate")}
             />
           </div>
           <div className="grid gap-2">
-            <Label className="text-left">Payment Method (optional)</Label>
+            <Label className="text-start">{t("paymentMethodLabel")}</Label>
             <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-              <SelectTrigger className="text-left">
-                <SelectValue placeholder="Select method" />
+              <SelectTrigger className="text-start">
+                <SelectValue placeholder={t("paymentMethodPlaceholder")} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent dir={selectDir}>
                 {PAYMENT_METHOD_VALUES.map((m) => (
                   <SelectItem key={m} value={m}>
-                    {PAYMENT_METHOD_LABELS[m]}
+                    {t(`methods.${m}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         </div>
-        <DialogFooter className="gap-2 sm:justify-end">
+        <DialogFooter className={cn("gap-2", isAr ? "flex-row-reverse sm:justify-start" : "sm:justify-end")}>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button onClick={handleConfirm} disabled={loading}>
-            Record Payment
+            {t("recordPayment")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -2,13 +2,14 @@
 
 import { format } from "date-fns";
 import { getServerSession } from "next-auth";
-import { and, gt, inArray, isNotNull, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { expenses, milestones, projects, tasks, timeLogs } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
+import { requireAgencyOrganization } from "@/lib/org-session";
 
 export type ProjectHealthStatus = "on_track" | "at_risk" | "over_budget";
 
@@ -118,18 +119,29 @@ export async function getProjectsHealthMap(
   const todayStr = format(new Date(), "yyyy-MM-dd");
 
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const owned = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(inArray(projects.id, unique), eq(projects.organizationId, orgId)));
+    const scopedIds = owned.map((r) => r.id);
+    if (scopedIds.length === 0) {
+      return { ok: true as const, data: {} };
+    }
+
     const [budgetRows, expenseRows, timeRows, overdueTasksRows, overdueMsRows] = await Promise.all([
       db
         .select({ id: projects.id, budget: projects.budget })
         .from(projects)
-        .where(inArray(projects.id, unique)),
+        .where(and(inArray(projects.id, scopedIds), eq(projects.organizationId, orgId))),
       db
         .select({
           projectId: expenses.projectId,
           total: sql<string>`coalesce(sum(${expenses.amount}), 0)`,
         })
         .from(expenses)
-        .where(inArray(expenses.projectId, unique))
+        .where(and(inArray(expenses.projectId, scopedIds), eq(expenses.organizationId, orgId)))
         .groupBy(expenses.projectId),
       db
         .select({
@@ -137,7 +149,14 @@ export async function getProjectsHealthMap(
           total: sql<string>`coalesce(sum(cast(${timeLogs.hours} as numeric) * coalesce(cast(${timeLogs.hourlyRate} as numeric), 0)), 0)`,
         })
         .from(timeLogs)
-        .where(and(inArray(timeLogs.projectId, unique), gt(timeLogs.hours, "0")))
+        .innerJoin(tasks, eq(timeLogs.taskId, tasks.id))
+        .where(
+          and(
+            inArray(timeLogs.projectId, scopedIds),
+            eq(tasks.organizationId, orgId),
+            gt(timeLogs.hours, "0")
+          )
+        )
         .groupBy(timeLogs.projectId),
       db
         .select({
@@ -147,7 +166,8 @@ export async function getProjectsHealthMap(
         .from(tasks)
         .where(
           and(
-            inArray(tasks.projectId, unique),
+            inArray(tasks.projectId, scopedIds),
+            eq(tasks.organizationId, orgId),
             isNull(tasks.deletedAt),
             isNotNull(tasks.dueDate),
             lt(tasks.dueDate, todayStr),
@@ -161,9 +181,11 @@ export async function getProjectsHealthMap(
           n: sql<number>`count(*)::int`,
         })
         .from(milestones)
+        .innerJoin(projects, eq(milestones.projectId, projects.id))
         .where(
           and(
-            inArray(milestones.projectId, unique),
+            inArray(milestones.projectId, scopedIds),
+            eq(projects.organizationId, orgId),
             lt(milestones.dueDate, todayStr),
             notInArray(milestones.status, ["completed", "cancelled"])
           )

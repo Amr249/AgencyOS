@@ -48,6 +48,7 @@ import { ChevronDown, Download, MoreHorizontal, PlusCircle, Trash2 } from "lucid
 import { NewInvoiceDialog } from "./new-invoice-dialog";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { format } from "date-fns";
+import { useLocale, useTranslations } from "next-intl";
 
 type InvoiceRow = {
   id: string;
@@ -86,13 +87,6 @@ type InvoicesListViewProps = {
   nextInvoiceNumber: string;
 };
 
-const STATUS_OPTIONS = [
-  { value: "all", label: "All" },
-  { value: "pending", label: "Pending" },
-  { value: "partial", label: "Partially paid" },
-  { value: "paid", label: "Paid" },
-];
-
 function isDueDateOverdue(dueDate: string | null | undefined, status: string): boolean {
   if (status === "paid" || !dueDate) return false;
   const today = new Date();
@@ -102,29 +96,6 @@ function isDueDateOverdue(dueDate: string | null | undefined, status: string): b
   const todayStr = `${y}-${m}-${d}`;
   return dueDate < todayStr;
 }
-
-const DATE_RANGE_OPTIONS = [
-  { value: "all", label: "All time" },
-  { value: "this_month", label: "This month" },
-  { value: "last_month", label: "Last month" },
-  { value: "this_year", label: "This year" },
-];
-
-const EXPORT_COLUMNS: { key: keyof InvoiceExportRow; header: string }[] = [
-  { key: "invoiceNumber", header: "Invoice number" },
-  { key: "clientName", header: "Client name" },
-  { key: "projectName", header: "Project name" },
-  { key: "status", header: "Status" },
-  { key: "issueDate", header: "Issue date" },
-  { key: "dueDate", header: "Due date" },
-  { key: "subtotal", header: "Subtotal" },
-  { key: "taxAmount", header: "Tax amount" },
-  { key: "total", header: "Total" },
-  { key: "paidAmount", header: "Paid amount" },
-  { key: "outstandingAmount", header: "Outstanding amount" },
-  { key: "paidAt", header: "Paid at" },
-  { key: "paymentMethod", header: "Payment method" },
-];
 
 function escapeCsvCell(val: string | number): string {
   if (typeof val === "number" && Number.isFinite(val)) {
@@ -137,11 +108,9 @@ function escapeCsvCell(val: string | number): string {
   return s;
 }
 
-function invoicesToCsv(rows: InvoiceExportRow[]): string {
-  const header = EXPORT_COLUMNS.map((c) => escapeCsvCell(c.header)).join(",");
-  const lines = rows.map((r) =>
-    EXPORT_COLUMNS.map((c) => escapeCsvCell(r[c.key])).join(",")
-  );
+function invoicesToCsv(rows: InvoiceExportRow[], columns: { key: keyof InvoiceExportRow; header: string }[]): string {
+  const header = columns.map((c) => escapeCsvCell(c.header)).join(",");
+  const lines = rows.map((r) => columns.map((c) => escapeCsvCell(r[c.key])).join(","));
   return [header, ...lines].join("\n");
 }
 
@@ -157,15 +126,19 @@ function triggerFileDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-async function invoicesToXlsxBuffer(rows: InvoiceExportRow[]): Promise<ArrayBuffer> {
+async function invoicesToXlsxBuffer(
+  rows: InvoiceExportRow[],
+  columns: { key: keyof InvoiceExportRow; header: string }[],
+  sheetName: string
+): Promise<ArrayBuffer> {
   const XLSX = await import("xlsx");
   const aoa: (string | number)[][] = [
-    EXPORT_COLUMNS.map((c) => c.header),
-    ...rows.map((r) => EXPORT_COLUMNS.map((c) => r[c.key])),
+    columns.map((c) => c.header),
+    ...rows.map((r) => columns.map((c) => r[c.key])),
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Invoices");
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
   const u8 = new Uint8Array(XLSX.write(wb, { bookType: "xlsx", type: "array" }));
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
 }
@@ -204,8 +177,53 @@ export function InvoicesListView({
   settings,
   nextInvoiceNumber,
 }: InvoicesListViewProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const dir = isAr ? "rtl" : "ltr";
+  const selectDir = isAr ? "rtl" : "ltr";
+  const numLocale = isAr ? "ar-SA" : "en-US";
+  const tl = useTranslations("invoices.list");
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const statusOptions = React.useMemo(
+    () => [
+      { value: "all", label: tl("filterStatusAll") },
+      { value: "pending", label: tl("filterStatusPending") },
+      { value: "partial", label: tl("filterStatusPartial") },
+      { value: "paid", label: tl("filterStatusPaid") },
+    ],
+    [tl]
+  );
+
+  const dateRangeOptions = React.useMemo(
+    () => [
+      { value: "all", label: tl("dateRangeAll") },
+      { value: "this_month", label: tl("dateRangeThisMonth") },
+      { value: "last_month", label: tl("dateRangeLastMonth") },
+      { value: "this_year", label: tl("dateRangeThisYear") },
+    ],
+    [tl]
+  );
+
+  const exportColumns = React.useMemo(
+    (): { key: keyof InvoiceExportRow; header: string }[] => [
+      { key: "invoiceNumber", header: tl("exportColInvoiceNumber") },
+      { key: "clientName", header: tl("exportColClientName") },
+      { key: "projectName", header: tl("exportColProjectName") },
+      { key: "status", header: tl("exportColStatus") },
+      { key: "issueDate", header: tl("exportColIssueDate") },
+      { key: "dueDate", header: tl("exportColDueDate") },
+      { key: "subtotal", header: tl("exportColSubtotal") },
+      { key: "taxAmount", header: tl("exportColTaxAmount") },
+      { key: "total", header: tl("exportColTotal") },
+      { key: "paidAmount", header: tl("exportColPaidAmount") },
+      { key: "outstandingAmount", header: tl("exportColOutstandingAmount") },
+      { key: "paidAt", header: tl("exportColPaidAt") },
+      { key: "paymentMethod", header: tl("exportColPaymentMethod") },
+    ],
+    [tl]
+  );
   const [invoiceToDelete, setInvoiceToDelete] = React.useState<{
     id: string;
     invoiceNumber: string;
@@ -259,51 +277,51 @@ export function InvoicesListView({
     try {
       const res = await getInvoicesExportData(buildExportFilters());
       if (!res.ok) {
-        toast.error(typeof res.error === "string" ? res.error : "Export failed");
+        toast.error(typeof res.error === "string" ? res.error : tl("toastExportFailed"));
         return;
       }
       if (res.data.length === 0) {
-        toast.info("No invoices match your filters.");
+        toast.info(tl("toastNoMatches"));
         return;
       }
       const stamp = format(new Date(), "yyyy-MM-dd");
-      const csv = `\uFEFF${invoicesToCsv(res.data)}`;
+      const csv = `\uFEFF${invoicesToCsv(res.data, exportColumns)}`;
       triggerFileDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `invoices-${stamp}.csv`);
-      toast.success("CSV downloaded");
+      toast.success(tl("toastCsvDownloaded"));
     } catch {
-      toast.error("Export failed");
+      toast.error(tl("toastExportFailed"));
     } finally {
       setExporting(false);
     }
-  }, [buildExportFilters]);
+  }, [buildExportFilters, exportColumns, tl]);
 
   const handleExportExcel = React.useCallback(async () => {
     setExporting(true);
     try {
       const res = await getInvoicesExportData(buildExportFilters());
       if (!res.ok) {
-        toast.error(typeof res.error === "string" ? res.error : "Export failed");
+        toast.error(typeof res.error === "string" ? res.error : tl("toastExportFailed"));
         return;
       }
       if (res.data.length === 0) {
-        toast.info("No invoices match your filters.");
+        toast.info(tl("toastNoMatches"));
         return;
       }
       const stamp = format(new Date(), "yyyy-MM-dd");
-      const buffer = await invoicesToXlsxBuffer(res.data);
+      const buffer = await invoicesToXlsxBuffer(res.data, exportColumns, tl("exportSheetName"));
       triggerFileDownload(
         new Blob([buffer], {
           type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }),
         `invoices-${stamp}.xlsx`
       );
-      toast.success("Excel file downloaded");
+      toast.success(tl("toastExcelDownloaded"));
     } catch {
-      toast.error("Export failed");
+      toast.error(tl("toastExportFailed"));
     } finally {
       setExporting(false);
     }
-  }, [buildExportFilters]);
+  }, [buildExportFilters, exportColumns, tl]);
 
   React.useEffect(() => {
     const el = headerCheckboxRef.current;
@@ -387,12 +405,12 @@ export function InvoicesListView({
     }
     const res = await deleteInvoices(ids);
     if (res.ok) {
-      toast.success("Invoices deleted");
+      toast.success(tl("toastInvoicesDeleted"));
       setSelectedIds(new Set());
       setBulkDeleteOpen(false);
       router.refresh();
     } else {
-      toast.error(typeof res.error === "string" ? res.error : "Failed to delete selected invoices");
+      toast.error(typeof res.error === "string" ? res.error : tl("toastBulkDeleteFailed"));
     }
   }
 
@@ -408,7 +426,7 @@ export function InvoicesListView({
             className="h-3.5 w-3.5 rounded accent-neutral-900"
             checked={allVisibleSelected}
             onChange={toggleSelectAll}
-            aria-label="Select all rows"
+            aria-label={tl("selectAllAria")}
           />
         ),
         cell: ({ row }) => (
@@ -427,9 +445,9 @@ export function InvoicesListView({
         accessorKey: "invoiceNumber",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">
-              Invoice # {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-start">
+              {tl("colInvoiceNumber")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -443,9 +461,9 @@ export function InvoicesListView({
         accessorKey: "clientName",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">
-              Client {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-start">
+              {tl("colClient")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -463,9 +481,9 @@ export function InvoicesListView({
         accessorKey: "projectName",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">
-              Project {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-start">
+              {tl("colProject")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -475,9 +493,9 @@ export function InvoicesListView({
         accessorKey: "total",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">
-              Amount {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-start">
+              {tl("colAmount")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -487,9 +505,9 @@ export function InvoicesListView({
         accessorKey: "amountDue",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-end items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-right">
-              Amount Due {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-end">
+              {tl("colAmountDue")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -502,7 +520,7 @@ export function InvoicesListView({
           return (
             <div className="flex items-center justify-end gap-1">
               <span className={amountDue > 0 ? "font-medium text-amber-600" : ""}>
-                {amountDue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {amountDue.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <SarCurrencyIcon className="h-3 w-3 text-neutral-500" />
             </div>
@@ -513,9 +531,9 @@ export function InvoicesListView({
         accessorKey: "status",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">
-              Status {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-start">
+              {tl("colStatus")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -529,9 +547,14 @@ export function InvoicesListView({
               onRequestMarkAsPaid={(invoice) => setPayDialogInvoice(invoice)}
             />
             {row.original.status === "paid" && row.original.paidAt && (
-              <span className="text-xs text-muted-foreground">
-                Paid on:{" "}
-                {formatDateDDMMYYYY(row.original.paidAt instanceof Date ? row.original.paidAt.toISOString().slice(0, 10) : String(row.original.paidAt).slice(0, 10))}
+              <span className="text-muted-foreground text-xs">
+                {tl("paidOn", {
+                  date: formatDateDDMMYYYY(
+                    row.original.paidAt instanceof Date
+                      ? row.original.paidAt.toISOString().slice(0, 10)
+                      : String(row.original.paidAt).slice(0, 10)
+                  ),
+                })}
               </span>
             )}
           </div>
@@ -541,9 +564,9 @@ export function InvoicesListView({
         accessorKey: "issueDate",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">
-              Issue date {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-start">
+              {tl("colIssueDate")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -553,9 +576,9 @@ export function InvoicesListView({
         accessorKey: "dueDate",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">
-              Due date {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+          <Button variant="ghost" className="-ms-3 flex w-full items-end justify-start gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            <span className="text-start">
+              {tl("colDueDate")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
             </span>
           </Button>
         ),
@@ -583,9 +606,13 @@ export function InvoicesListView({
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent
+                align="end"
+                style={{ direction: isAr ? "rtl" : "ltr" }}
+                className="text-start"
+              >
                 <DropdownMenuItem asChild>
-                  <Link href={`/dashboard/invoices/${inv.id}`}>View</Link>
+                  <Link href={`/dashboard/invoices/${inv.id}`}>{tl("view")}</Link>
                 </DropdownMenuItem>
                 {(inv.status === "pending" || inv.status === "partial") && (
                   <DropdownMenuItem
@@ -597,12 +624,12 @@ export function InvoicesListView({
                       })
                     }
                   >
-                    Mark as paid
+                    {tl("markAsPaid")}
                   </DropdownMenuItem>
                 )}
                 {inv.status === "pending" && (
                   <DropdownMenuItem asChild>
-                    <Link href={`/dashboard/invoices/${inv.id}/edit`}>Edit</Link>
+                    <Link href={`/dashboard/invoices/${inv.id}/edit`}>{tl("edit")}</Link>
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
@@ -612,7 +639,7 @@ export function InvoicesListView({
                     setInvoiceToDelete({ id: inv.id, invoiceNumber: inv.invoiceNumber, status: inv.status });
                   }}
                 >
-                  Delete
+                  {tl("deleteRow")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -620,13 +647,13 @@ export function InvoicesListView({
         },
       },
     ],
-    [allVisibleSelected, selectedIds]
+    [allVisibleSelected, selectedIds, tl, numLocale, selectDir]
   );
 
   return (
-    <div className="space-y-6" dir="ltr">
+    <div className="space-y-6" dir={dir} lang={appLocale}>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{tl("pageTitle")}</h1>
         <NewInvoiceDialog
           clients={clients}
           settings={settings}
@@ -636,7 +663,7 @@ export function InvoicesListView({
           trigger={
             <Button variant="secondary" className="w-full sm:w-auto">
               <PlusCircle className="me-2 h-4 w-4" />
-              New invoice
+              {tl("newInvoiceCta")}
             </Button>
           }
           onSuccess={() => router.refresh()}
@@ -646,9 +673,9 @@ export function InvoicesListView({
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="border-[#e5e5e5] bg-[rgba(164,254,25,1)]">
           <CardHeader className="pb-2">
-            <CardTitle className="text-left text-sm font-bold">Total invoiced</CardTitle>
+            <CardTitle className="text-start text-sm font-bold">{tl("totalInvoiced")}</CardTitle>
           </CardHeader>
-          <CardContent className="text-left">
+          <CardContent className="text-start">
             <p className="text-2xl font-bold">
               <AmountWithSarIcon value={String(stats.totalInvoiced)} />
             </p>
@@ -656,9 +683,9 @@ export function InvoicesListView({
         </Card>
         <Card className="border-[#e5e5e5]">
           <CardHeader className="pb-2">
-            <CardTitle className="text-left text-sm font-bold">Collected</CardTitle>
+            <CardTitle className="text-start text-sm font-bold">{tl("collected")}</CardTitle>
           </CardHeader>
-          <CardContent className="text-left">
+          <CardContent className="text-start">
             <p className="text-2xl font-bold">
               <AmountWithSarIcon value={String(stats.collected)} />
             </p>
@@ -666,12 +693,12 @@ export function InvoicesListView({
         </Card>
         <Card className="rounded-lg border border-[#e5e5e5] bg-[#ededed] p-4 text-black shadow-sm">
           <CardHeader className="p-0 pb-0">
-            <CardTitle className="text-left text-sm font-normal text-black">Outstanding</CardTitle>
+            <CardTitle className="text-start text-sm font-normal text-black">{tl("outstanding")}</CardTitle>
           </CardHeader>
           <CardContent className="p-0 pt-1">
             <div className="flex items-center gap-1">
               <span className="text-2xl font-bold text-black">
-                {stats.outstanding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {stats.outstanding.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <SarCurrencyIcon className="h-5 w-5 text-black" />
             </div>
@@ -683,7 +710,13 @@ export function InvoicesListView({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <form onSubmit={handleSearchSubmit} className="w-full flex-1 sm:max-w-sm">
-              <Input name="search" placeholder="Search by invoice # or client…" defaultValue={searchParam} className="w-full text-left" dir="ltr" />
+              <Input
+                name="search"
+                placeholder={tl("searchPlaceholder")}
+                defaultValue={searchParam}
+                className="w-full text-start"
+                dir="ltr"
+              />
             </form>
             <Select
               value={hasCustomDateRange ? "__custom__" : dateRangeParam || "all"}
@@ -692,26 +725,26 @@ export function InvoicesListView({
                 updateParams({ dateRange: v, dateFrom: null, dateTo: null });
               }}
             >
-              <SelectTrigger className="w-full text-left sm:w-[180px]">
-                <SelectValue placeholder="Period" />
+              <SelectTrigger className="w-full text-start sm:w-[180px]">
+                <SelectValue placeholder={tl("periodPlaceholder")} />
               </SelectTrigger>
-              <SelectContent>
-                {DATE_RANGE_OPTIONS.map((o) => (
+              <SelectContent dir={selectDir}>
+                {dateRangeOptions.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
                     {o.label}
                   </SelectItem>
                 ))}
                 <SelectItem value="__custom__" disabled className="text-muted-foreground">
-                  Custom range (use dates below)
+                  {tl("customRangeHint")}
                 </SelectItem>
               </SelectContent>
             </Select>
             <Select value={statusParam} onValueChange={(v) => updateParams({ status: v })}>
-              <SelectTrigger className="w-full text-left sm:w-[160px]">
-                <SelectValue placeholder="Status" />
+              <SelectTrigger className="w-full text-start sm:w-[160px]">
+                <SelectValue placeholder={tl("statusPlaceholder")} />
               </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((o) => (
+              <SelectContent dir={selectDir}>
+                {statusOptions.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
                     {o.label}
                   </SelectItem>
@@ -729,17 +762,21 @@ export function InvoicesListView({
                 aria-busy={exporting}
               >
                 {exporting ? (
-                  <span className="text-muted-foreground">Exporting…</span>
+                  <span className="text-muted-foreground">{tl("exporting")}</span>
                 ) : (
                   <>
                     <Download className="me-2 h-4 w-4" />
-                    Export
+                    {tl("export")}
                     <ChevronDown className="ms-1 h-4 w-4 opacity-70" />
                   </>
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent
+              align="end"
+              className="w-48 text-start"
+              style={{ direction: isAr ? "rtl" : "ltr" }}
+            >
               <DropdownMenuItem
                 disabled={exporting}
                 onSelect={(e) => {
@@ -747,7 +784,7 @@ export function InvoicesListView({
                   void handleExportCsv();
                 }}
               >
-                Export CSV
+                {tl("exportCsv")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={exporting}
@@ -756,18 +793,18 @@ export function InvoicesListView({
                   void handleExportExcel();
                 }}
               >
-                Export Excel
+                {tl("exportExcel")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
           <div className="grid w-full gap-1 sm:w-auto">
-            <span className="text-xs font-medium text-muted-foreground">Start date</span>
+            <span className="text-muted-foreground text-xs font-medium">{tl("startDate")}</span>
             <DatePickerAr
               className="w-full sm:w-[160px]"
-              popoverAlign="start"
-              placeholder="From"
+              popoverAlign={isAr ? "end" : "start"}
+              placeholder={tl("dateFromPlaceholder")}
               value={dateFromParam ? new Date(`${dateFromParam}T12:00:00`) : undefined}
               onChange={(date) =>
                 updateParams({
@@ -777,11 +814,11 @@ export function InvoicesListView({
             />
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
-            <span className="text-xs font-medium text-muted-foreground">End date</span>
+            <span className="text-muted-foreground text-xs font-medium">{tl("endDate")}</span>
             <DatePickerAr
               className="w-full sm:w-[160px]"
-              popoverAlign="start"
-              placeholder="To"
+              popoverAlign={isAr ? "end" : "start"}
+              placeholder={tl("dateToPlaceholder")}
               value={dateToParam ? new Date(`${dateToParam}T12:00:00`) : undefined}
               onChange={(date) =>
                 updateParams({
@@ -798,7 +835,7 @@ export function InvoicesListView({
               className="text-muted-foreground sm:mb-0.5"
               onClick={() => updateParams({ dateFrom: null, dateTo: null })}
             >
-              Clear dates
+              {tl("clearDates")}
             </Button>
           ) : null}
         </div>
@@ -806,14 +843,14 @@ export function InvoicesListView({
 
       {selectedIds.size > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-2.5">
-          <span className="text-sm font-medium text-neutral-800">{selectedIds.size} selected</span>
+          <span className="text-sm font-medium text-neutral-800">{tl("selectedCount", { count: selectedIds.size })}</span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
               onClick={() => setSelectedIds(new Set())}
             >
-              Clear selection
+              {tl("clearSelection")}
             </button>
             <button
               type="button"
@@ -821,7 +858,7 @@ export function InvoicesListView({
               onClick={() => setBulkDeleteOpen(true)}
             >
               <Trash2 className="h-4 w-4" />
-              Delete
+              {tl("delete")}
             </button>
           </div>
         </div>
@@ -829,7 +866,7 @@ export function InvoicesListView({
 
       <div className="md:hidden">
         {invoices.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No invoices match your filters.</p>
+          <p className="text-muted-foreground py-8 text-center text-sm">{tl("emptyList")}</p>
         ) : (
           <div className="space-y-2">
             {invoices.map((inv) => (
@@ -868,7 +905,7 @@ export function InvoicesListView({
                 </div>
                 <div className="flex gap-2 pt-1">
                   <Button variant="outline" size="sm" asChild className="flex-1">
-                    <Link href={`/dashboard/invoices/${inv.id}`}>View</Link>
+                    <Link href={`/dashboard/invoices/${inv.id}`}>{tl("view")}</Link>
                   </Button>
                   {(inv.status === "pending" || inv.status === "partial") && (
                     <Button
@@ -882,7 +919,7 @@ export function InvoicesListView({
                         })
                       }
                     >
-                      Mark as paid
+                      {tl("markAsPaid")}
                     </Button>
                   )}
                 </div>
@@ -892,7 +929,7 @@ export function InvoicesListView({
         )}
       </div>
 
-      <div className="hidden overflow-hidden rounded-xl border border-neutral-100 bg-white md:block" dir="ltr">
+      <div className="hidden overflow-hidden rounded-xl border border-neutral-100 bg-white md:block">
         <CardContent className="pt-4">
           <SortableDataTable<InvoiceRow>
             columns={invoiceTableColumns}
@@ -900,15 +937,16 @@ export function InvoicesListView({
             tableId="invoices-table"
             getRowId={(inv) => inv.id}
             uiVariant="clients"
+            tableDir={isAr ? "rtl" : undefined}
             columnLabels={{
-              invoiceNumber: "Invoice #",
-              clientName: "Client",
-              projectName: "Project",
-              total: "Amount",
-              amountDue: "Amount Due",
-              status: "Status",
-              issueDate: "Issue date",
-              dueDate: "Due date",
+              invoiceNumber: tl("colInvoiceNumber"),
+              clientName: tl("colClient"),
+              projectName: tl("colProject"),
+              total: tl("colAmount"),
+              amountDue: tl("colAmountDue"),
+              status: tl("colStatus"),
+              issueDate: tl("colIssueDate"),
+              dueDate: tl("colDueDate"),
             }}
             enablePagination={false}
           />
@@ -916,17 +954,15 @@ export function InvoicesListView({
       </div>
 
       <AlertDialog open={!!invoiceToDelete} onOpenChange={(open) => !open && setInvoiceToDelete(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={dir} lang={appLocale} className="text-start">
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>{tl("deleteConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {invoiceToDelete
-                ? `This will permanently delete invoice ${invoiceToDelete.invoiceNumber}. This action cannot be undone.`
-                : ""}
+              {invoiceToDelete ? tl("deleteConfirmBody", { number: invoiceToDelete.invoiceNumber }) : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className={isAr ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
+            <AlertDialogCancel>{tl("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -936,29 +972,27 @@ export function InvoicesListView({
                 setInvoiceToDelete(null);
                 const res = await deleteInvoice(id);
                 if (res.ok) {
-                  toast.success("Invoice deleted");
+                  toast.success(tl("toastInvoiceDeleted"));
                   router.refresh();
                 } else {
                   toast.error(res.error);
                 }
               }}
             >
-              Delete
+              {tl("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={dir} lang={appLocale} className="text-start">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete selected invoices?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`This will permanently delete ${selectedIds.size} selected invoices. This action cannot be undone.`}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{tl("bulkDeleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{tl("bulkDeleteBody", { count: selectedIds.size })}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className={isAr ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
+            <AlertDialogCancel>{tl("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -966,7 +1000,7 @@ export function InvoicesListView({
                 await handleBulkDelete();
               }}
             >
-              Delete
+              {tl("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -983,8 +1017,11 @@ export function InvoicesListView({
 
       <button
         type="button"
-        className="fixed bottom-24 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-primary-foreground shadow-lg md:hidden"
-        aria-label="New invoice"
+        className={cn(
+          "fixed bottom-24 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-primary-foreground shadow-lg md:hidden",
+          isAr ? "right-6" : "left-6"
+        )}
+        aria-label={tl("fabNewInvoiceAria")}
         onClick={() => setNewInvoiceOpen(true)}
       >
         +

@@ -3,12 +3,38 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { db, settings } from "@/lib/db";
+import { clients, db, folders, projects, settings } from "@/lib/db";
 import { getSharedFolderBrowse } from "@/lib/shared-folder-access";
 import { SharedFolderBrowser } from "@/components/guest/shared-folder-browser";
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
+
+async function organizationIdForSharedFolderRoot(rootFolderId: string): Promise<string | null> {
+  const [f] = await db
+    .select({ clientId: folders.clientId, projectId: folders.projectId })
+    .from(folders)
+    .where(eq(folders.id, rootFolderId))
+    .limit(1);
+  if (!f) return null;
+  if (f.clientId) {
+    const [c] = await db
+      .select({ organizationId: clients.organizationId })
+      .from(clients)
+      .where(eq(clients.id, f.clientId))
+      .limit(1);
+    return c?.organizationId ?? null;
+  }
+  if (f.projectId) {
+    const [p] = await db
+      .select({ organizationId: projects.organizationId })
+      .from(projects)
+      .where(eq(projects.id, f.projectId))
+      .limit(1);
+    return p?.organizationId ?? null;
+  }
+  return null;
+}
 
 type Props = {
   params: Promise<{ token: string }>;
@@ -38,7 +64,10 @@ export default async function SharedFolderPage({ params, searchParams }: Props) 
     });
   }
 
-  const [settingsRow] = await db.select().from(settings).where(eq(settings.id, 1)).limit(1);
+  const orgId = browse.ok ? await organizationIdForSharedFolderRoot(browse.data.root.id) : null;
+  const [settingsRow] = orgId
+    ? await db.select().from(settings).where(eq(settings.organizationId, orgId)).limit(1)
+    : [];
   const logoUrl = settingsRow?.agencyLogoUrl?.trim() || null;
 
   if (!browse.ok) {

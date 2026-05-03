@@ -23,6 +23,8 @@ import {
 } from "@/lib/client-loss";
 import { rollupRevenueByClient } from "@/lib/client-revenue-stats";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireAgencyOrganization, requireAgencyWriteContext } from "@/lib/org-session";
+import { trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 import { logActivityWithActor } from "@/actions/activity-log";
 import { ensureSystemFoldersInternal, recordClientLogoInBrandFolder } from "@/actions/system-folders";
 import { authOptions } from "@/lib/auth";
@@ -35,7 +37,11 @@ export async function deleteClient(id: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
-    await db.delete(clients).where(eq(clients.id, parsed.data));
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
+    await db
+      .delete(clients)
+      .where(and(eq(clients.id, parsed.data), eq(clients.organizationId, ctx.organizationId)));
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/crm/pipeline");
     revalidatePath("/dashboard");
@@ -59,7 +65,13 @@ export async function deleteClients(ids: string[]) {
     return { ok: false as const, error: "Invalid client ids" };
   }
   try {
-    await db.delete(clients).where(inArray(clients.id, parsed.data));
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
+    await db
+      .delete(clients)
+      .where(
+        and(inArray(clients.id, parsed.data), eq(clients.organizationId, ctx.organizationId))
+      );
     revalidatePath("/dashboard/clients");
     revalidatePath("/dashboard/crm/pipeline");
     revalidatePath("/dashboard");
@@ -178,9 +190,23 @@ export async function createClient(input: CreateClientInput) {
           })
         : (data.notes ?? null);
 
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredForm();
+    let uniqueServiceIds: string[] | undefined;
+    if (data.serviceIds?.length) {
+      uniqueServiceIds = [...new Set(data.serviceIds)];
+      const svcRows = await db
+        .select({ id: services.id })
+        .from(services)
+        .where(and(inArray(services.id, uniqueServiceIds), eq(services.organizationId, ctx.organizationId)));
+      if (svcRows.length !== uniqueServiceIds.length) {
+        return { ok: false as const, error: { _form: ["Invalid service selection"] } };
+      }
+    }
     const [row] = await db
       .insert(clients)
       .values({
+        organizationId: ctx.organizationId,
         companyName: data.companyName,
         status: data.status,
         contactName: data.contactName ?? null,
@@ -203,9 +229,9 @@ export async function createClient(input: CreateClientInput) {
     if (!row) {
       return { ok: false as const, error: { _form: ["Failed to create client"] } };
     }
-    if (data.serviceIds?.length) {
+    if (uniqueServiceIds?.length) {
       await db.insert(clientServices).values(
-        data.serviceIds.map((serviceId) => ({
+        uniqueServiceIds.map((serviceId) => ({
           clientId: row.id,
           serviceId,
         }))
@@ -249,10 +275,12 @@ export async function updateClient(input: UpdateClientInput) {
   }
   const { id, ...data } = parsed.data;
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredForm();
     const [prev] = await db
       .select({ status: clients.status, notes: clients.notes })
       .from(clients)
-      .where(eq(clients.id, id))
+      .where(and(eq(clients.id, id), eq(clients.organizationId, ctx.organizationId)))
       .limit(1);
     if (!prev) {
       return { ok: false as const, error: { _form: ["Client not found"] } };
@@ -311,7 +339,7 @@ export async function updateClient(input: UpdateClientInput) {
     const [row] = await db
       .update(clients)
       .set(updatePayload as typeof clients.$inferInsert)
-      .where(eq(clients.id, id))
+      .where(and(eq(clients.id, id), eq(clients.organizationId, ctx.organizationId)))
       .returning();
     if (!row) {
       return { ok: false as const, error: { _form: ["Client not found"] } };
@@ -338,10 +366,20 @@ export async function updateClient(input: UpdateClientInput) {
       }
     }
     if (serviceIds !== undefined) {
+      if (serviceIds.length) {
+        const uniqueSvc = [...new Set(serviceIds)];
+        const svcRows = await db
+          .select({ id: services.id })
+          .from(services)
+          .where(and(inArray(services.id, uniqueSvc), eq(services.organizationId, ctx.organizationId)));
+        if (svcRows.length !== uniqueSvc.length) {
+          return { ok: false as const, error: { _form: ["Invalid service selection"] } };
+        }
+      }
       await db.delete(clientServices).where(eq(clientServices.clientId, id));
       if (serviceIds.length) {
         await db.insert(clientServices).values(
-          serviceIds.map((serviceId) => ({
+          [...new Set(serviceIds)].map((serviceId) => ({
             clientId: id,
             serviceId,
           }))
@@ -383,10 +421,12 @@ export async function archiveClient(id: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
     const [row] = await db
       .update(clients)
       .set({ deletedAt: new Date() })
-      .where(eq(clients.id, parsed.data))
+      .where(and(eq(clients.id, parsed.data), eq(clients.organizationId, ctx.organizationId)))
       .returning();
     if (!row) {
       return { ok: false as const, error: "Client not found" };
@@ -408,7 +448,8 @@ export async function archiveClient(id: string) {
 }
 
 async function loadPaymentSumByInvoiceIds(
-  invoiceIds: string[]
+  invoiceIds: string[],
+  organizationId: string
 ): Promise<Map<string, number>> {
   if (invoiceIds.length === 0) return new Map();
   const rows = await db
@@ -417,13 +458,15 @@ async function loadPaymentSumByInvoiceIds(
       paid: sum(payments.amount),
     })
     .from(payments)
-    .where(inArray(payments.invoiceId, invoiceIds))
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(and(inArray(payments.invoiceId, invoiceIds), eq(invoices.organizationId, organizationId)))
     .groupBy(payments.invoiceId);
   return new Map(rows.map((r) => [r.invoiceId, Number(r.paid ?? 0)]));
 }
 
 async function mergeProjectCounts<T extends { id: string }>(
-  rows: T[]
+  rows: T[],
+  organizationId: string
 ): Promise<Array<T & { projectCount: number }>> {
   if (rows.length === 0) return [];
   const countRows = await db
@@ -432,7 +475,7 @@ async function mergeProjectCounts<T extends { id: string }>(
       n: count(),
     })
     .from(projects)
-    .where(isNull(projects.deletedAt))
+    .where(and(isNull(projects.deletedAt), eq(projects.organizationId, organizationId)))
     .groupBy(projects.clientId);
   const countMap = new Map(countRows.map((r) => [r.clientId, Number(r.n)]));
   return rows.map((c) => ({
@@ -458,11 +501,26 @@ export async function getClientRevenueStats(clientId: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
+    const ctx = await requireAgencyOrganization();
     const id = parsed.data;
+    const [clientOk] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(and(eq(clients.id, id), eq(clients.organizationId, ctx.organizationId)))
+      .limit(1);
+    if (!clientOk) {
+      return { ok: false as const, error: "Client not found" };
+    }
     const [projectRow] = await db
       .select({ n: count() })
       .from(projects)
-      .where(and(eq(projects.clientId, id), isNull(projects.deletedAt)));
+      .where(
+        and(
+          eq(projects.clientId, id),
+          isNull(projects.deletedAt),
+          eq(projects.organizationId, ctx.organizationId)
+        )
+      );
     const projectCount = Number(projectRow?.n ?? 0);
 
     const invRows = await db
@@ -474,9 +532,9 @@ export async function getClientRevenueStats(clientId: string) {
         issueDate: invoices.issueDate,
       })
       .from(invoices)
-      .where(eq(invoices.clientId, id));
+      .where(and(eq(invoices.clientId, id), eq(invoices.organizationId, ctx.organizationId)));
 
-    const payMap = await loadPaymentSumByInvoiceIds(invRows.map((r) => r.id));
+    const payMap = await loadPaymentSumByInvoiceIds(invRows.map((r) => r.id), ctx.organizationId);
     const rollup = rollupRevenueByClient(invRows, payMap).get(id);
 
     const totalInvoiced = rollup?.totalInvoiced ?? 0;
@@ -522,7 +580,8 @@ export type ClientWithStatsRow = typeof clients.$inferSelect & {
 };
 
 async function attachRevenueStatsToClients<T extends { id: string }>(
-  rows: T[]
+  rows: T[],
+  organizationId: string
 ): Promise<
   Array<
     T & {
@@ -535,7 +594,7 @@ async function attachRevenueStatsToClients<T extends { id: string }>(
     }
   >
 > {
-  const withProjects = await mergeProjectCounts(rows);
+  const withProjects = await mergeProjectCounts(rows, organizationId);
   if (withProjects.length === 0) return [];
 
   const clientIds = withProjects.map((c) => c.id);
@@ -548,9 +607,9 @@ async function attachRevenueStatsToClients<T extends { id: string }>(
       issueDate: invoices.issueDate,
     })
     .from(invoices)
-    .where(inArray(invoices.clientId, clientIds));
+    .where(and(inArray(invoices.clientId, clientIds), eq(invoices.organizationId, organizationId)));
 
-  const payMap = await loadPaymentSumByInvoiceIds(invRows.map((r) => r.id));
+  const payMap = await loadPaymentSumByInvoiceIds(invRows.map((r) => r.id), organizationId);
   const rollup = rollupRevenueByClient(invRows, payMap);
 
   return withProjects.map((c) => {
@@ -604,7 +663,8 @@ async function mergeClientTagSummaries<T extends { id: string }>(
 }
 
 async function mergePipelinePotentialValue<T extends { id: string }>(
-  rows: T[]
+  rows: T[],
+  organizationId: string
 ): Promise<Array<T & { potentialValue: string | null }>> {
   if (rows.length === 0) return [];
   const clientIds = rows.map((r) => r.id);
@@ -614,7 +674,13 @@ async function mergePipelinePotentialValue<T extends { id: string }>(
       total: sum(projects.budget),
     })
     .from(projects)
-    .where(and(isNull(projects.deletedAt), inArray(projects.clientId, clientIds)))
+    .where(
+      and(
+        isNull(projects.deletedAt),
+        inArray(projects.clientId, clientIds),
+        eq(projects.organizationId, organizationId)
+      )
+    )
     .groupBy(projects.clientId);
   const map = new Map<string, string | null>();
   for (const r of sumRows) {
@@ -640,22 +706,23 @@ export async function getAllClientsWithStats() {
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const ctx = await requireAgencyOrganization();
 
     const [activeList, archivedList] = await Promise.all([
       db
         .select()
         .from(clients)
-        .where(isNull(clients.deletedAt))
+        .where(and(isNull(clients.deletedAt), eq(clients.organizationId, ctx.organizationId)))
         .orderBy(clients.companyName),
       db
         .select()
         .from(clients)
-        .where(isNotNull(clients.deletedAt))
+        .where(and(isNotNull(clients.deletedAt), eq(clients.organizationId, ctx.organizationId)))
         .orderBy(clients.companyName),
     ]);
     const [active, archived] = await Promise.all([
-      attachRevenueStatsToClients(activeList),
-      attachRevenueStatsToClients(archivedList),
+      attachRevenueStatsToClients(activeList, ctx.organizationId),
+      attachRevenueStatsToClients(archivedList, ctx.organizationId),
     ]);
     const [activeWithTags, archivedWithTags] = await Promise.all([
       mergeClientTagSummaries(active),
@@ -677,13 +744,14 @@ export async function getClientsList() {
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const ctx = await requireAgencyOrganization();
 
     const list = await db
       .select()
       .from(clients)
-      .where(isNull(clients.deletedAt))
+      .where(and(isNull(clients.deletedAt), eq(clients.organizationId, ctx.organizationId)))
       .orderBy(clients.companyName);
-    const data = await mergeProjectCounts(list);
+    const data = await mergeProjectCounts(list, ctx.organizationId);
     return { ok: true as const, data };
   } catch (e) {
     console.error("getClientsList", e);
@@ -701,13 +769,14 @@ export async function getClientsWithTags() {
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const ctx = await requireAgencyOrganization();
 
     const list = await db
       .select()
       .from(clients)
-      .where(isNull(clients.deletedAt))
+      .where(and(isNull(clients.deletedAt), eq(clients.organizationId, ctx.organizationId)))
       .orderBy(clients.companyName);
-    const withCounts = await mergeProjectCounts(list);
+    const withCounts = await mergeProjectCounts(list, ctx.organizationId);
     const data = await mergeClientTagSummaries(withCounts);
     return { ok: true as const, data };
   } catch (e) {
@@ -726,14 +795,16 @@ export async function getClientsForPipeline() {
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const ctx = await requireAgencyOrganization();
 
     const list = await db
       .select()
       .from(clients)
+      .where(eq(clients.organizationId, ctx.organizationId))
       .orderBy(clients.companyName);
-    const withCounts = await mergeProjectCounts(list);
+    const withCounts = await mergeProjectCounts(list, ctx.organizationId);
     const withTags = await mergeClientTagSummaries(withCounts);
-    const data = await mergePipelinePotentialValue(withTags);
+    const data = await mergePipelinePotentialValue(withTags, ctx.organizationId);
     return { ok: true as const, data };
   } catch (e) {
     console.error("getClientsForPipeline", e);
@@ -750,13 +821,14 @@ export async function getArchivedClientsList() {
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const ctx = await requireAgencyOrganization();
 
     const list = await db
       .select()
       .from(clients)
-      .where(isNotNull(clients.deletedAt))
+      .where(and(isNotNull(clients.deletedAt), eq(clients.organizationId, ctx.organizationId)))
       .orderBy(clients.companyName);
-    const data = await mergeProjectCounts(list);
+    const data = await mergeProjectCounts(list, ctx.organizationId);
     return { ok: true as const, data };
   } catch (e) {
     console.error("getArchivedClientsList", e);
@@ -774,13 +846,14 @@ export async function getArchivedClientsWithTags() {
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const ctx = await requireAgencyOrganization();
 
     const list = await db
       .select()
       .from(clients)
-      .where(isNotNull(clients.deletedAt))
+      .where(and(isNotNull(clients.deletedAt), eq(clients.organizationId, ctx.organizationId)))
       .orderBy(clients.companyName);
-    const withCounts = await mergeProjectCounts(list);
+    const withCounts = await mergeProjectCounts(list, ctx.organizationId);
     const data = await mergeClientTagSummaries(withCounts);
     return { ok: true as const, data };
   } catch (e) {
@@ -799,10 +872,12 @@ export async function unarchiveClient(id: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
     const [row] = await db
       .update(clients)
       .set({ deletedAt: null })
-      .where(eq(clients.id, parsed.data))
+      .where(and(eq(clients.id, parsed.data), eq(clients.organizationId, ctx.organizationId)))
       .returning();
     if (!row) {
       return { ok: false as const, error: "Client not found" };
@@ -835,11 +910,12 @@ export async function getClientById(id: string) {
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const ctx = await requireAgencyOrganization();
 
     const [row] = await db
       .select()
       .from(clients)
-      .where(eq(clients.id, parsed.data));
+      .where(and(eq(clients.id, parsed.data), eq(clients.organizationId, ctx.organizationId)));
     if (!row) {
       return { ok: false as const, error: "Client not found" };
     }
@@ -859,10 +935,17 @@ export async function getClientServiceIds(clientId: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
+    const ctx = await requireAgencyOrganization();
     const rows = await db
       .select({ serviceId: clientServices.serviceId })
       .from(clientServices)
-      .where(eq(clientServices.clientId, parsed.data));
+      .innerJoin(clients, eq(clientServices.clientId, clients.id))
+      .where(
+        and(
+          eq(clientServices.clientId, parsed.data),
+          eq(clients.organizationId, ctx.organizationId)
+        )
+      );
     return { ok: true as const, data: rows.map((r) => r.serviceId) };
   } catch (e) {
     console.error("getClientServiceIds", e);
@@ -878,6 +961,7 @@ export async function getServiceIdsByClientIds(clientIds: string[]) {
   const parsed = z.array(z.string().uuid()).safeParse(clientIds);
   if (!parsed.success) return { ok: false as const, error: "Invalid client ids" };
   try {
+    const ctx = await requireAgencyOrganization();
     const rows = await db
       .select({
         clientId: clientServices.clientId,
@@ -887,7 +971,14 @@ export async function getServiceIdsByClientIds(clientIds: string[]) {
       })
       .from(clientServices)
       .innerJoin(services, eq(clientServices.serviceId, services.id))
-      .where(inArray(clientServices.clientId, parsed.data));
+      .innerJoin(clients, eq(clientServices.clientId, clients.id))
+      .where(
+        and(
+          inArray(clientServices.clientId, parsed.data),
+          eq(clients.organizationId, ctx.organizationId),
+          eq(services.organizationId, ctx.organizationId)
+        )
+      );
     const data: Record<string, { id: string; name: string; status: string }[]> = {};
     for (const id of parsed.data) data[id] = [];
     for (const row of rows) {

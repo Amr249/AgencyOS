@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -108,6 +109,10 @@ export function ReportTablePaginationBar({
   hidePageSizeSelect = false,
   className,
 }: ReportTablePaginationBarProps) {
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const t = useTranslations("reports.pagination");
+
   if (total === 0 || pageCount <= 1) {
     return null;
   }
@@ -118,16 +123,16 @@ export function ReportTablePaginationBar({
         "flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between",
         className
       )}
-      dir="ltr"
+      dir={isAr ? "rtl" : "ltr"}
     >
       {!hidePageSizeSelect ? (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted-foreground shrink-0">Rows per page</span>
+          <span className="shrink-0 text-muted-foreground">{t("rowsPerPage")}</span>
           <Select
             value={String(pageSize)}
             onValueChange={(v) => onPageSizeChange(Number(v))}
           >
-            <SelectTrigger size="sm" className="h-8 w-[4.5rem]" aria-label="Rows per page">
+            <SelectTrigger size="sm" className="h-8 w-[4.5rem]" aria-label={t("rowsPerPage")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -140,8 +145,8 @@ export function ReportTablePaginationBar({
           </Select>
         </div>
       ) : (
-        <span className="text-muted-foreground text-xs tabular-nums sm:text-sm">
-          {pageSize} per page
+        <span className="text-xs tabular-nums text-muted-foreground sm:text-sm">
+          {t("perPageFixed", { count: pageSize })}
         </span>
       )}
       <div className="flex flex-wrap items-center gap-2">
@@ -153,10 +158,10 @@ export function ReportTablePaginationBar({
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
         >
-          Previous
+          {t("previous")}
         </Button>
-        <span className="text-muted-foreground min-w-[7rem] text-center text-xs tabular-nums sm:text-sm">
-          Page {page} of {pageCount}
+        <span className="min-w-[7rem] text-center text-xs tabular-nums text-muted-foreground sm:text-sm">
+          {t("pageOf", { current: page, total: pageCount })}
         </span>
         <Button
           type="button"
@@ -166,7 +171,7 @@ export function ReportTablePaginationBar({
           disabled={page >= pageCount}
           onClick={() => onPageChange(page + 1)}
         >
-          Next
+          {t("next")}
         </Button>
       </div>
     </div>

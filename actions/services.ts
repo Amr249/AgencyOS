@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { asc, eq, sql } from "drizzle-orm";
-import { db, projectServices, services } from "@/lib/db";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { db, projectServices, projects, services } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireAgencyOrganization } from "@/lib/org-session";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 const serviceStatusValues = ["active", "inactive"] as const;
 
@@ -36,6 +38,7 @@ export async function getServices(): Promise<
   { ok: true; data: ServiceRow[] } | { ok: false; error: string }
 > {
   try {
+    const ctx = await requireAgencyOrganization();
     const query = () =>
       db
         .select({
@@ -45,10 +48,19 @@ export async function getServices(): Promise<
           status: services.status,
           createdAt: services.createdAt,
           updatedAt: services.updatedAt,
-          projectCount: sql<number>`count(${projectServices.id})::int`,
+          projectCount: sql<number>`count(${projects.id})::int`,
         })
         .from(services)
         .leftJoin(projectServices, eq(projectServices.serviceId, services.id))
+        .leftJoin(
+          projects,
+          and(
+            eq(projectServices.projectId, projects.id),
+            eq(projects.organizationId, ctx.organizationId),
+            isNull(projects.deletedAt)
+          )
+        )
+        .where(eq(services.organizationId, ctx.organizationId))
         .groupBy(services.id)
         .orderBy(asc(services.name));
 
@@ -73,7 +85,11 @@ export async function createService(input: z.infer<typeof createServiceSchema>) 
   const parsed = createServiceSchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   try {
+    const ctx = await requireAgencyOrganization();
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const [row] = await db.insert(services).values({
+      organizationId: ctx.organizationId,
       name: parsed.data.name,
       description: parsed.data.description ?? null,
       status: parsed.data.status,
@@ -97,7 +113,14 @@ export async function updateService(input: z.infer<typeof updateServiceSchema>) 
   if (data.description !== undefined) payload.description = data.description ?? null;
   if (data.status !== undefined) payload.status = data.status;
   try {
-    const [row] = await db.update(services).set(payload as typeof services.$inferInsert).where(eq(services.id, id)).returning();
+    const ctx = await requireAgencyOrganization();
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const [row] = await db
+      .update(services)
+      .set(payload as typeof services.$inferInsert)
+      .where(and(eq(services.id, id), eq(services.organizationId, ctx.organizationId)))
+      .returning();
     if (!row) return { ok: false as const, error: { _form: ["Service not found"] } };
     revalidatePath("/dashboard/services");
     revalidatePath("/dashboard/projects");
@@ -113,9 +136,25 @@ export async function deleteService(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid service id" };
   try {
-    const linked = await db.select({ count: sql<number>`count(*)::int` }).from(projectServices).where(eq(projectServices.serviceId, parsed.data));
+    const ctx = await requireAgencyOrganization();
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const linked = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(projectServices)
+      .innerJoin(projects, eq(projectServices.projectId, projects.id))
+      .where(
+        and(
+          eq(projectServices.serviceId, parsed.data),
+          eq(projects.organizationId, ctx.organizationId),
+          isNull(projects.deletedAt)
+        )
+      );
     if ((linked[0]?.count ?? 0) > 0) return { ok: false as const, error: "Cannot delete service linked to projects" };
-    const [row] = await db.delete(services).where(eq(services.id, parsed.data)).returning();
+    const [row] = await db
+      .delete(services)
+      .where(and(eq(services.id, parsed.data), eq(services.organizationId, ctx.organizationId)))
+      .returning();
     if (!row) return { ok: false as const, error: "Service not found" };
     revalidatePath("/dashboard/services");
     return { ok: true as const };

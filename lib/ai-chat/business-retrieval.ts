@@ -1,3 +1,4 @@
+import { getOrganizationIdForAiDataAccess } from "@/lib/ai-chat/ai-chat-org";
 import { shouldSkipRetrieval } from "@/lib/ai-chat/intent-skip";
 import { buildMostaqlDatasetSection, searchMostaqlProjectsFullColumns } from "@/lib/ai-chat/mostaql-full-context";
 import {
@@ -84,10 +85,15 @@ function truncate(s: string): string {
 
 /**
  * Builds Markdown context for the model from the latest user message (admin DB read-only).
+ * All queries are scoped to the server session organization.
  */
 export async function buildBusinessContext(lastUserText: string): Promise<string> {
   if (shouldSkipRetrieval(lastUserText)) return "";
 
+  const org = await getOrganizationIdForAiDataAccess();
+  if (!org.ok) return "";
+
+  const organizationId = org.organizationId;
   const sections: string[] = [];
   const keywords = extractKeywords(lastUserText);
   const likeTokens = keywords.map((k) => cleanLikeToken(k)).filter((x): x is string => Boolean(x));
@@ -95,7 +101,7 @@ export async function buildBusinessContext(lastUserText: string): Promise<string
   if (process.env.AI_CHAT_MOSTAQL_FULL_EXPORT !== "false") {
     let mostaqlExport = "";
     try {
-      mostaqlExport = await buildMostaqlDatasetSection();
+      mostaqlExport = await buildMostaqlDatasetSection(organizationId);
     } catch (e) {
       mostaqlExport = `## Mostaql scrape export (error)\n${e instanceof Error ? e.message : "failed"}`;
     }
@@ -103,9 +109,9 @@ export async function buildBusinessContext(lastUserText: string): Promise<string
   }
 
   const [settingsRow, statusCounts, proposalStatusCounts] = await Promise.all([
-    getSettingsSnapshot(),
-    getProjectStatusCounts(),
-    getProposalStatusCounts(),
+    getSettingsSnapshot(organizationId),
+    getProjectStatusCounts(organizationId),
+    getProposalStatusCounts(organizationId),
   ]);
 
   sections.push("## Agency snapshot");
@@ -129,7 +135,7 @@ export async function buildBusinessContext(lastUserText: string): Promise<string
 
   const outcome = proposalOutcomeFocus(lastUserText);
   if (outcome) {
-    const sample = await listProposalsByOutcomeStatus(outcome, 20);
+    const sample = await listProposalsByOutcomeStatus(organizationId, outcome, 20);
     sections.push(`## Sample proposals (status=${outcome}, up to 20 by most recent applied date)`);
     sections.push(
       sample.length
@@ -154,7 +160,7 @@ export async function buildBusinessContext(lastUserText: string): Promise<string
   }
 
   if (isBroadOverview(lastUserText) || /invoice|فاتور/i.test(lastUserText)) {
-    const inv = await recentInvoices(8);
+    const inv = await recentInvoices(organizationId, 8);
     sections.push("## Recent invoices");
     sections.push(
       inv.length
@@ -174,11 +180,11 @@ export async function buildBusinessContext(lastUserText: string): Promise<string
     const seen = new Set<string>();
     for (const token of likeTokens.slice(0, 5)) {
       const [cRows, pRows, tRows, prRows, mqRows] = await Promise.all([
-        searchClients(token, 8),
-        searchProjects(token, 8),
-        searchTasks(token, 8),
-        searchProposals(token, 6),
-        searchMostaqlProjectsFullColumns(token, 10),
+        searchClients(organizationId, token, 8),
+        searchProjects(organizationId, token, 8),
+        searchTasks(organizationId, token, 8),
+        searchProposals(organizationId, token, 6),
+        searchMostaqlProjectsFullColumns(organizationId, token, 10),
       ]);
 
       const block = [
@@ -231,7 +237,11 @@ export async function buildBusinessContext(lastUserText: string): Promise<string
     }
   }
 
-  const snippets = await retrieveUnstructuredSnippets(likeTokens.length ? likeTokens : keywords, 3);
+  const snippets = await retrieveUnstructuredSnippets(
+    organizationId,
+    likeTokens.length ? likeTokens : keywords,
+    3
+  );
   if (snippets.length) {
     sections.push("## Long text snippets (keyword match, not semantic search)");
     sections.push(snippets.join("\n"));

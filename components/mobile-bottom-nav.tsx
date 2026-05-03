@@ -10,8 +10,12 @@ import {
   IconFolder,
   IconReceipt,
   IconListDetails,
+  IconBriefcase,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { useFeature } from "@/components/org-plan-provider";
+
+type NavItem = { href: string; label: string; icon: typeof IconLayoutDashboard };
 
 type MobileBottomNavProps = {
   userRole?: "admin" | "member" | null;
@@ -23,7 +27,9 @@ export function MobileBottomNav({ userRole = "admin" }: MobileBottomNavProps) {
   const t = useTranslations("nav");
   const dir = locale === "ar" ? "rtl" : "ltr";
 
-  const navItems =
+  const hasProposals = useFeature("proposals");
+
+  const navItems: NavItem[] =
     userRole === "member"
       ? [
           { href: "/dashboard/me", label: t("myDashboard"), icon: IconLayoutDashboard },
@@ -31,13 +37,22 @@ export function MobileBottomNav({ userRole = "admin" }: MobileBottomNavProps) {
           { href: "/dashboard/workspace", label: t("workspace"), icon: IconListDetails },
           { href: "/dashboard/payments", label: t("payments"), icon: IconReceipt },
         ]
-      : [
-          { href: "/dashboard", label: t("dashboard"), icon: IconLayoutDashboard },
-          { href: "/dashboard/clients", label: t("clients"), icon: IconUsers },
-          { href: "/dashboard/projects", label: t("projects"), icon: IconFolder },
-          { href: "/dashboard/invoices", label: t("invoices"), icon: IconReceipt },
-          { href: "/dashboard/workspace", label: t("workspace"), icon: IconListDetails },
-        ];
+      : (() => {
+          const base: NavItem[] = [
+            { href: "/dashboard", label: t("dashboard"), icon: IconLayoutDashboard },
+            { href: "/dashboard/clients", label: t("clients"), icon: IconUsers },
+            { href: "/dashboard/projects", label: t("projects"), icon: IconFolder },
+          ];
+          if (hasProposals) {
+            base.push({ href: "/dashboard/proposals", label: t("proposals"), icon: IconFileText });
+          }
+          base.push(
+            { href: "/dashboard/invoices", label: t("invoices"), icon: IconReceipt },
+            { href: "/dashboard/workspace", label: t("workspace"), icon: IconListDetails },
+            { href: "/dashboard/services", label: t("services"), icon: IconBriefcase }
+          );
+          return base;
+        })();
 
   return (
     <nav

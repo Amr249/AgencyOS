@@ -33,7 +33,7 @@ export const brandingSchema = z.object({
   invoiceColor: hexColor.optional(),
 });
 
-// Section 4 — Change password (validate only; no DB update for now)
+// Section 4 — Change password (current user only; bcrypt update in `actions/settings.ts`)
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, "Current password is required"),
@@ -50,9 +50,10 @@ export type InvoiceDefaultsInput = z.infer<typeof invoiceDefaultsSchema>;
 export type BrandingInput = z.infer<typeof brandingSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
-/** Shape of the single settings row (id = 1). Used by client and server. */
+/** Shape of one tenant settings row (one per organization). Used by client and server. */
 export type SettingsRow = {
-  id: number;
+  id: string;
+  organizationId: string;
   agencyName: string | null;
   agencyEmail: string | null;
   agencyWebsite: string | null;

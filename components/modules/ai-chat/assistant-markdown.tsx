@@ -61,7 +61,7 @@ const components: Components = {
   a: ({ children, href, ...props }) => (
     <a
       href={href}
-      className="text-primary font-medium underline underline-offset-2 hover:opacity-90"
+      className="font-medium text-primary underline underline-offset-2 hover:opacity-90"
       target="_blank"
       rel="noopener noreferrer"
       {...props}
@@ -79,6 +79,7 @@ const components: Components = {
             : "rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] text-foreground",
           className
         )}
+        dir="ltr"
         {...props}
       >
         {children}
@@ -88,6 +89,8 @@ const components: Components = {
   pre: ({ children, ...props }) => (
     <pre
       className="mb-2 max-h-[min(24rem,50vh)] overflow-auto rounded-lg border border-border bg-muted/50 p-3 text-xs leading-relaxed last:mb-0 [&>code]:bg-transparent [&>code]:p-0"
+      dir="ltr"
+      lang="en"
       {...props}
     >
       {children}
@@ -95,7 +98,7 @@ const components: Components = {
   ),
   blockquote: ({ children, ...props }) => (
     <blockquote
-      className="border-muted-foreground/35 text-muted-foreground mb-2 border-s-2 ps-3 text-sm italic last:mb-0"
+      className="mb-2 border-s-2 border-muted-foreground/35 ps-3 text-sm italic text-muted-foreground last:mb-0"
       {...props}
     >
       {children}
@@ -103,7 +106,7 @@ const components: Components = {
   ),
   hr: (props) => <hr className="my-4 border-border" {...props} />,
   table: ({ children, ...props }) => (
-    <div className="mb-2 max-w-full overflow-x-auto last:mb-0">
+    <div className="mb-2 max-w-full overflow-x-auto last:mb-0" dir="ltr">
       <table className="w-full min-w-48 border-collapse border border-border text-sm" {...props}>
         {children}
       </table>
@@ -127,9 +130,21 @@ const components: Components = {
   tbody: ({ children, ...props }) => <tbody {...props}>{children}</tbody>,
 };
 
-export function AssistantMarkdown({ content }: { content: string }) {
+type AssistantMarkdownProps = {
+  content: string;
+  /** Direction for prose; code blocks and tables stay LTR. */
+  contentDir?: "rtl" | "ltr";
+};
+
+export function AssistantMarkdown({ content, contentDir = "ltr" }: AssistantMarkdownProps) {
+  const lang = contentDir === "rtl" ? "ar" : "en";
+
   return (
-    <div className="assistant-markdown wrap-break-word">
+    <div
+      className="assistant-markdown wrap-break-word [unicode-bidi:isolate]"
+      dir={contentDir}
+      lang={lang}
+    >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

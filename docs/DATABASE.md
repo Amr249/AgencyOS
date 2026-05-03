@@ -18,6 +18,8 @@ Neon (PostgreSQL) via Drizzle ORM. All tables use UUID primary keys unless noted
 | `team_member_status` | `active`, `inactive` |
 | `proposal_status` | `applied`, `viewed`, `shortlisted`, `won`, `lost`, `cancelled` |
 | `workspace_view` | `board`, `list`, `timeline` |
+| `org_plan` | `starter`, `pro`, `enterprise`, `internal` |
+| `org_member_role` | `owner`, `admin`, `member` |
 
 **Migrating `invoice_status`:** Older databases may have had only `pending` / `paid`. Current schema uses `pending` | `partial` | `paid` (`partial` = some payments received, balance remaining). Use Drizzle migrations or manual `ALTER TYPE` / data backfill as needed when upgrading.
 
@@ -42,11 +44,43 @@ type AddressJson = {
 
 ## Tables
 
+### organizations
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default `gen_random_uuid()` |
+| name | text | NOT NULL — tenant / agency name |
+| slug | text | NOT NULL, UNIQUE — URL-safe identifier |
+| plan | org_plan | NOT NULL, default `starter` |
+| features | jsonb | NOT NULL, default `{}` — feature flags per tenant |
+| logo_url | text | optional |
+| trial_ends_at | timestamptz | optional |
+| ai_usage_count | int | NOT NULL, default 0 |
+| ai_usage_reset_at | timestamptz | optional |
+| storage_used_bytes | bigint | NOT NULL, default 0 |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+
+**Indexes:** UNIQUE on `slug`, index on `plan`.
+
+### org_members
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK |
+| user_id | uuid | NOT NULL, FK → users.id, ON DELETE CASCADE |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
+| role | org_member_role | NOT NULL, default `member` |
+| joined_at | timestamptz | NOT NULL, default now() |
+
+**Indexes:** UNIQUE (`user_id`, `organization_id`), index on `organization_id`.
+
 ### clients
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | company_name | text | NOT NULL |
 | status | client_status | NOT NULL, default `lead` |
 | contact_name | text | Primary contact full name |
@@ -69,6 +103,7 @@ type AddressJson = {
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | client_id | uuid | NOT NULL, FK → clients.id, ON DELETE CASCADE |
 | name | text | NOT NULL |
 | description | text | |
@@ -90,6 +125,7 @@ type AddressJson = {
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | title | text | NOT NULL — job title |
 | url | text | Mostaql job URL |
 | platform | text | NOT NULL, default `mostaql` (future: other platforms) |
@@ -130,6 +166,7 @@ type AddressJson = {
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | project_id | uuid | NOT NULL, FK → projects.id, ON DELETE CASCADE |
 | phase_id | uuid | FK → phases.id, ON DELETE SET NULL |
 | parent_task_id | uuid | FK → tasks.id, subtasks, ON DELETE CASCADE |
@@ -188,6 +225,7 @@ type AddressJson = {
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | invoice_number | text | NOT NULL, UNIQUE — sequential human-readable format from settings, e.g. **`INV-001`** (prefix + zero-padded number from `settings.invoice_prefix` / `invoice_next_number`) |
 | client_id | uuid | NOT NULL, FK → clients.id, ON DELETE CASCADE |
 | project_id | uuid | FK → projects.id, ON DELETE SET NULL — **primary** linked project (first selected); see **`invoice_projects`** for many-to-many |
@@ -261,6 +299,7 @@ Junction table: an invoice may be linked to **multiple** client projects.
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | name | text | NOT NULL |
 | role | text | e.g. مصمم, مطور, مدير مشروع |
 | email | text | |
@@ -271,7 +310,23 @@ Junction table: an invoice may be linked to **multiple** client projects.
 | created_at | timestamptz | NOT NULL, default now() |
 
 **Relations:** One-to-many to `project_members`; expenses can reference via `team_member_id`.  
-**Indexes:** Primary key on `id`.
+**Indexes:** Primary key on `id`; index on `organization_id`.
+
+---
+
+### services
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
+| name | text | NOT NULL |
+| description | text | optional |
+| status | service_status | NOT NULL, default `active` |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+
+**Indexes:** `services_organization_id_idx`, `services_name_idx`, `services_status_idx`.
 
 ---
 
@@ -295,6 +350,7 @@ Junction table: an invoice may be linked to **multiple** client projects.
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | title | text | NOT NULL (e.g. "Adobe Creative Cloud") |
 | amount | numeric(12,2) | NOT NULL, in SAR |
 | category | expense_category | NOT NULL |
@@ -314,6 +370,7 @@ Junction table: an invoice may be linked to **multiple** client projects.
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, FK → organizations.id, ON DELETE CASCADE |
 | name | text | NOT NULL, original filename |
 | imagekit_file_id | text | NOT NULL, ImageKit internal ID |
 | imagekit_url | text | NOT NULL, full CDN URL |
@@ -334,11 +391,12 @@ Scoped to client, project, task, and/or **invoice** (invoice detail attachments 
 
 ### settings
 
-Single-row table (id always 1). Agency branding and invoice defaults.
+One row per **organization** (tenant). Agency branding and invoice defaults.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| id | int | PK, default 1 (only row) |
+| id | uuid | PK, default `gen_random_uuid()` |
+| organization_id | uuid | NOT NULL, UNIQUE, FK → organizations.id, ON DELETE CASCADE |
 | agency_name | text | |
 | agency_logo_url | text | ImageKit URL |
 | agency_website | text | |
@@ -352,12 +410,13 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 | vat_number | text | |
 | invoice_color | char(7) | Hex for PDF branding |
 
-**No relations.** One row per app.
+**Relations:** Many-to-one **organization**.
 
 ---
 
 ## Relationships summary
 
+- **organizations** → clients, projects, proposals, tasks, invoices, expenses, files, team_members, services, settings; **org_members** links **users**
 - **clients** → projects, invoices, files  
 - **projects** → client, phases, tasks, invoices (via `invoices.project_id` and **`invoice_projects`**), files  
 - **phases** → project, tasks  
@@ -369,7 +428,7 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 - **expenses** → team_member (optional, for salary)
 - **projects** → project_members → team_members  
 - **files** → client, project, task, **invoice**  
-- **settings** — standalone
+- **settings** → organization (tenant-scoped)
 
 ## Current state addendum
 
@@ -382,6 +441,7 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 
 ### Additional tables currently in schema
 
+- `organizations`, `org_members`
 - `users`
 - `services`
 - `project_services`
@@ -396,5 +456,6 @@ Single-row table (id always 1). Agency branding and invoice defaults.
 
 ### Migration note
 
+- **`0032_multi_tenant_foundation.sql`** adds multi-tenant tables/columns and migrates `settings` off the integer singleton PK.
 - SQL migration files in `/drizzle` include later additions (e.g. invoice `due_date`, **`files.invoice_id`**, **`invoice_projects`**, **`payments`**). Apply migrations to match `lib/db/schema.ts`.
 - `drizzle/meta/_journal.json` may not list every SQL file; rely on schema + applied migrations in your environment.

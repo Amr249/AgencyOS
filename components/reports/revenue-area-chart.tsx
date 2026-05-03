@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,17 +21,6 @@ import {
 } from "@/actions/reports";
 import { format, endOfDay, parseISO } from "date-fns";
 
-const chartConfig = {
-  profits: {
-    label: "Profit",
-    color: "var(--chart-1)",
-  },
-  expenses: {
-    label: "Expenses",
-    color: "var(--chart-2)",
-  },
-} satisfies ChartConfig;
-
 export function RevenueAreaChart({
   embedded = false,
   /** Pixel height for the chart when `embedded` (full-width dashboard). */
@@ -39,6 +29,25 @@ export function RevenueAreaChart({
   embedded?: boolean;
   chartHeightPx?: number;
 }) {
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const tr = useTranslations("reports.revenueChart");
+
+  const chartConfig = React.useMemo(
+    () =>
+      ({
+        profits: {
+          label: tr("areaTooltipProfit"),
+          color: "var(--chart-1)",
+        },
+        expenses: {
+          label: tr("areaTooltipExpenses"),
+          color: "var(--chart-2)",
+        },
+      }) satisfies ChartConfig,
+    [tr]
+  );
+
   const [startDate, setStartDate] = React.useState<Date | null>(null);
   const [endDate, setEndDate] = React.useState<Date | null>(null);
   const [data, setData] = React.useState<MonthlyAreaPoint[]>([]);
@@ -92,20 +101,24 @@ export function RevenueAreaChart({
   const embeddedChartHeight = embedded ? (chartHeightPx ?? 240) : 0;
 
   const pickers = (
-    <div className="flex flex-wrap items-center gap-2" dir="ltr">
-      <span className="text-muted-foreground text-xs sm:text-sm">From:</span>
+    <div className="flex flex-wrap items-center gap-2" dir={isAr ? "rtl" : "ltr"}>
+      <span className="text-xs text-muted-foreground sm:text-sm">{tr("areaFrom")}</span>
       <DatePickerAr
         value={startDate ?? undefined}
         onChange={(date) => date && setStartDate(date)}
-        placeholder="From"
+        placeholder={tr("areaPlaceholderFrom")}
+        popoverAlign={isAr ? "end" : "start"}
+        direction={isAr ? "rtl" : "ltr"}
         className={embedded ? "w-[120px]" : "w-[140px]"}
         disabled={!rangeReady}
       />
-      <span className="text-muted-foreground text-xs sm:text-sm">To:</span>
+      <span className="text-xs text-muted-foreground sm:text-sm">{tr("areaTo")}</span>
       <DatePickerAr
         value={endDate ?? undefined}
         onChange={(date) => date && setEndDate(date)}
-        placeholder="To"
+        placeholder={tr("areaPlaceholderTo")}
+        popoverAlign={isAr ? "end" : "start"}
+        direction={isAr ? "rtl" : "ltr"}
         className={embedded ? "w-[120px]" : "w-[140px]"}
         disabled={!rangeReady}
       />
@@ -169,9 +182,9 @@ export function RevenueAreaChart({
                   <div className="flex w-full min-w-[9rem] items-center justify-between gap-4">
                     <span className="text-muted-foreground">
                       {item.dataKey === "profits"
-                        ? "Profit"
+                        ? tr("areaTooltipProfit")
                         : item.dataKey === "expenses"
-                          ? "Expenses"
+                          ? tr("areaTooltipExpenses")
                           : String(item.dataKey ?? "")}
                     </span>
                     <span className="text-popover-foreground font-mono font-medium tabular-nums">
@@ -204,9 +217,9 @@ export function RevenueAreaChart({
 
   if (embedded) {
     return (
-      <div className="flex flex-col gap-2" dir="ltr">
+      <div className="flex flex-col gap-2" dir={isAr ? "rtl" : "ltr"} lang={locale}>
         <div className="flex flex-col gap-2 border-b border-border/60 pb-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-left text-sm font-medium text-foreground">Monthly revenue (area)</p>
+          <p className="text-start text-sm font-medium text-foreground">{tr("areaTitle")}</p>
           {pickers}
         </div>
         {chartBlock}
@@ -215,10 +228,10 @@ export function RevenueAreaChart({
   }
 
   return (
-    <Card className="pt-0">
-      <CardHeader className="flex flex-wrap items-center gap-2 space-y-0 border-b py-5 sm:flex-row" dir="ltr">
-        <div className="grid flex-1 gap-1 text-left">
-          <CardTitle>Monthly revenue (area)</CardTitle>
+    <Card className="pt-0" dir={isAr ? "rtl" : "ltr"} lang={locale}>
+      <CardHeader className="flex flex-wrap items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+        <div className="grid flex-1 gap-1 text-start">
+          <CardTitle>{tr("areaTitle")}</CardTitle>
         </div>
         {pickers}
       </CardHeader>

@@ -7,12 +7,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { INVOICE_STATUS_BADGE_CLASS, INVOICE_STATUS_LABELS } from "@/types";
+import { INVOICE_STATUS_BADGE_CLASS } from "@/types";
 import { updateInvoiceStatus } from "@/actions/invoices";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
 import { Check } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
 
 const INVOICE_STATUS_OPTIONS = [
   { value: "pending" as const, dotClass: "bg-amber-500" },
@@ -44,6 +45,11 @@ export function InvoiceStatusBadge({
   onStatusChange,
   className,
 }: InvoiceStatusBadgeProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const dir = isAr ? "rtl" : "ltr";
+  const tStatus = useTranslations("invoices.status");
+  const tBadge = useTranslations("invoices.badge");
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [updating, setUpdating] = React.useState(false);
@@ -55,7 +61,10 @@ export function InvoiceStatusBadge({
 
   const displayStatus = optimisticStatus;
 
-  const labelFor = (s: string) => INVOICE_STATUS_LABELS[s] ?? s;
+  const labelFor = (s: string) => {
+    if (s === "pending" || s === "partial" || s === "paid") return tStatus(s);
+    return s;
+  };
 
   const handleSelect = async (newStatus: "pending" | "partial" | "paid") => {
     if (newStatus === displayStatus) {
@@ -77,12 +86,12 @@ export function InvoiceStatusBadge({
     const result = await updateInvoiceStatus(invoiceId, newStatus);
     setUpdating(false);
     if (result.ok) {
-      toast.success("Invoice status updated");
+      toast.success(tBadge("statusUpdated"));
       onStatusChange?.(newStatus);
       router.refresh();
     } else {
       setOptimisticStatus(status);
-      toast.error(result.error ?? "Failed to update status");
+      toast.error(result.error ?? tBadge("statusUpdateFailed"));
     }
   };
 
@@ -104,7 +113,7 @@ export function InvoiceStatusBadge({
           <ChevronDown className="h-3 w-3 opacity-70" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-48 p-1" align="start" onClick={(e) => e.stopPropagation()}>
+      <PopoverContent className="w-48 p-1" align="start" dir={dir} onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col">
           {INVOICE_STATUS_OPTIONS.map((opt) => (
             <button
@@ -113,13 +122,13 @@ export function InvoiceStatusBadge({
               disabled={updating}
               onClick={() => handleSelect(opt.value)}
               className={cn(
-                "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+                "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm hover:bg-accent",
                 opt.value === displayStatus && "bg-accent font-medium"
               )}
             >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", opt.dotClass)} />
               {labelFor(opt.value)}
-              {opt.value === displayStatus && <Check className="ml-auto h-4 w-4 shrink-0" />}
+              {opt.value === displayStatus && <Check className="ms-auto h-4 w-4 shrink-0" />}
             </button>
           ))}
         </div>

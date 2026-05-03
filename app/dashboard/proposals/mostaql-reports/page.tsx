@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import {
   getMostaqlProjects,
   getMostaqlScrapeRuns,
 } from "@/actions/mostaql-reports";
 import { MostaqlReportsView } from "@/components/modules/proposals/mostaql-reports-view";
+import { hasFeature } from "@/lib/features";
+import { requireAgencyOrganization } from "@/lib/org-session";
 
 export const metadata: Metadata = {
   title: "Mostaql Reports",
@@ -38,6 +41,12 @@ function parseDateParam(s: string | undefined, endOfDay = false): Date | undefin
 }
 
 export default async function MostaqlReportsPage({ searchParams }: PageProps) {
+  const ctx = await requireAgencyOrganization();
+  const allowed = await hasFeature(ctx.organizationId, "proposals");
+  if (!allowed) {
+    redirect("/dashboard");
+  }
+
   const { run: runParam, start: startParam, end: endParam } = await searchParams;
   const startDate = parseDateParam(startParam, false);
   const endDate = parseDateParam(endParam, true);

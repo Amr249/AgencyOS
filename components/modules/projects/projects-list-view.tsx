@@ -48,11 +48,49 @@ import { cn, formatAmount, formatDate } from "@/lib/utils";
 import { AvatarStack } from "@/components/ui/avatar-stack";
 import { MoreHorizontal, Pencil, Trash2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
+import { useLocale, useTranslations } from "next-intl";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { ClientSelectOptionRow } from "@/components/entity-select-option";
-import { PROJECT_STATUS_LABELS_EN, PROJECT_STATUS_PILL_CLASS } from "@/types";
+import { PROJECT_STATUS_PILL_CLASS } from "@/types";
 
 const STATUS_LIST = ["lead", "active", "on_hold", "review", "completed", "cancelled"] as const;
+
+const STATUS_COVER_COLOR: Record<string, string> = {
+  lead: "#3b82f6",
+  active: "#22c55e",
+  on_hold: "#f59e0b",
+  review: "#a855f7",
+  completed: "#6b7280",
+  cancelled: "#ef4444",
+};
+
+const STATUS_DOT_CLASS: Record<string, string> = {
+  lead: "bg-blue-500",
+  active: "bg-blue-500",
+  on_hold: "bg-amber-500",
+  review: "bg-purple-500",
+  completed: "bg-green-500",
+  cancelled: "bg-red-500",
+};
+
+function formatProjectStatusLabel(status: string, t: (key: string) => string): string {
+  switch (status) {
+    case "lead":
+      return t("status.lead");
+    case "active":
+      return t("status.active");
+    case "on_hold":
+      return t("status.on_hold");
+    case "review":
+      return t("status.review");
+    case "completed":
+      return t("status.completed");
+    case "cancelled":
+      return t("status.cancelled");
+    default:
+      return status;
+  }
+}
 
 function StatusBadgePopover({
   projectId,
@@ -63,6 +101,7 @@ function StatusBadgePopover({
   currentStatus: string;
   onSuccess: () => void;
 }) {
+  const t = useTranslations("projects");
   const [open, setOpen] = React.useState(false);
   const [updating, setUpdating] = React.useState(false);
 
@@ -75,16 +114,17 @@ function StatusBadgePopover({
     const result = await updateProject({ id: projectId, status: status as (typeof STATUS_LIST)[number] });
     setUpdating(false);
     if (result.ok) {
-      const label = PROJECT_STATUS_LABELS_EN[status] ?? status;
-      toast.success(`Status updated to ${label}`);
+      toast.success(
+        t("list.toastStatusUpdated", { label: formatProjectStatusLabel(status, t) })
+      );
       setOpen(false);
       onSuccess();
     } else {
-      toast.error("Failed to update status");
+      toast.error(t("list.toastStatusUpdateError"));
     }
   };
 
-  const label = PROJECT_STATUS_LABELS_EN[currentStatus] ?? currentStatus;
+  const label = formatProjectStatusLabel(currentStatus, t);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -118,7 +158,7 @@ function StatusBadgePopover({
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: STATUS_COVER_COLOR[status] ?? "#94a3b8" }}
               />
-              {PROJECT_STATUS_LABELS_EN[status] ?? status}
+              {formatProjectStatusLabel(status, t)}
             </button>
           ))}
         </div>
@@ -163,81 +203,6 @@ type ProjectsListViewProps = {
   memberView?: boolean;
 };
 
-const STATUS_OPTIONS_EN = [
-  { value: "all", label: "All" },
-  { value: "lead", label: "Lead" },
-  { value: "active", label: "Active" },
-  { value: "on_hold", label: "On Hold" },
-  { value: "review", label: "Review" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-];
-
-const STATUS_OPTIONS_AR = [
-  { value: "all", label: "الكل" },
-  { value: "lead", label: "عميل محتمل" },
-  { value: "active", label: "نشط" },
-  { value: "on_hold", label: "معلق" },
-  { value: "review", label: "قيد المراجعة" },
-  { value: "completed", label: "مكتمل" },
-  { value: "cancelled", label: "ملغي" },
-];
-
-const PROJECT_STATUS_LABELS_AR: Record<string, string> = {
-  lead: "عميل محتمل",
-  active: "نشط",
-  on_hold: "معلق",
-  review: "قيد المراجعة",
-  completed: "مكتمل",
-  cancelled: "ملغي",
-};
-
-const AR = {
-  projects: "المشاريع",
-  totalProjects: "إجمالي المشاريع",
-  activeProjects: "المشاريع النشطة",
-  completedProjects: "المشاريع المكتملة",
-  inReview: "قيد المراجعة",
-  searchPlaceholder: "البحث عن مشروع أو عميل...",
-  allClients: "جميع العملاء",
-  client: "العميل",
-  projectName: "اسم المشروع",
-  services: "الخدمات",
-  members: "الأعضاء",
-  status: "الحالة",
-  deadline: "الموعد النهائي",
-  showing: "عرض",
-  of: "من",
-  previous: "السابق",
-  next: "التالي",
-  noProjects: "لا توجد مشاريع مطابقة للفلاتر الحالية.",
-  defaultView: "العرض الافتراضي",
-  saveView: "حفظ العرض",
-  deleteView: "حذف العرض",
-  noSorting: "بدون ترتيب",
-  sort: "ترتيب",
-  sortedBy: "مرتب حسب:",
-  clearSort: "مسح الترتيب",
-};
-
-const STATUS_COVER_COLOR: Record<string, string> = {
-  lead: "#3b82f6",
-  active: "#22c55e",
-  on_hold: "#f59e0b",
-  review: "#a855f7",
-  completed: "#6b7280",
-  cancelled: "#ef4444",
-};
-
-const STATUS_DOT_CLASS: Record<string, string> = {
-  lead: "bg-blue-500",
-  active: "bg-blue-500",
-  on_hold: "bg-amber-500",
-  review: "bg-purple-500",
-  completed: "bg-green-500",
-  cancelled: "bg-red-500",
-};
-
 export function ProjectsListView({
   projects,
   taskCounts,
@@ -252,6 +217,23 @@ export function ProjectsListView({
 }: ProjectsListViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const locale = useLocale();
+  const t = useTranslations("projects");
+  const tc = useTranslations("common");
+  const isRtl = locale === "ar";
+  const dir = isRtl ? "rtl" : "ltr";
+
+  const statusFilterOptions = React.useMemo(
+    () => [
+      { value: "all", label: t("list.filterAll") },
+      ...STATUS_LIST.map((value) => ({
+        value,
+        label: formatProjectStatusLabel(value, t),
+      })),
+    ],
+    [t]
+  );
+
   const [editingProject, setEditingProject] = React.useState<ProjectRow | null>(null);
   const [projectToDelete, setProjectToDelete] = React.useState<{ id: string; name: string } | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
@@ -268,7 +250,7 @@ export function ProjectsListView({
     setProjectToDelete(null);
     const result = await deleteProject(id);
     if (result.ok) {
-      toast.success("Project deleted");
+      toast.success(t("list.toastProjectDeleted"));
       router.refresh();
     } else {
       toast.error(result.error);
@@ -342,7 +324,7 @@ export function ProjectsListView({
                   className="h-3.5 w-3.5 rounded accent-neutral-900"
                   checked={allVisibleSelected}
                   onChange={toggleSelectAll}
-                  aria-label="Select all rows"
+                  aria-label={t("list.selectAllAria")}
                 />
               ),
               cell: ({ row }) => (
@@ -364,7 +346,7 @@ export function ProjectsListView({
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-start">{memberView ? AR.client : "Client"} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("client")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -382,7 +364,7 @@ export function ProjectsListView({
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-start">{memberView ? AR.projectName : "Project Name"} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("projectName")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -421,7 +403,7 @@ export function ProjectsListView({
       {
         id: "services",
         enableSorting: false,
-        header: () => <span className="text-start">{memberView ? AR.services : "Services"}</span>,
+        header: () => <span className="text-start">{t("services")}</span>,
         cell: ({ row }) => {
           const services = projectServices[row.original.id] ?? [];
           if (services.length === 0) return <span className="text-muted-foreground">—</span>;
@@ -442,7 +424,7 @@ export function ProjectsListView({
       {
         id: "members",
         enableSorting: false,
-        header: () => <span className="text-start">{memberView ? AR.members : "Members"}</span>,
+        header: () => <span className="text-start">{t("members")}</span>,
         cell: ({ row }) => {
           const members = projectMembers[row.original.id] ?? [];
           if (members.length === 0) return <span className="text-muted-foreground">—</span>;
@@ -454,7 +436,7 @@ export function ProjectsListView({
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-start">{memberView ? AR.status : "Status"} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{tc("status")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -467,7 +449,7 @@ export function ProjectsListView({
                 )}
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                {statusLabels[row.original.status] ?? row.original.status}
+                {formatProjectStatusLabel(row.original.status, t)}
               </span>
             ) : (
               <StatusBadgePopover
@@ -485,7 +467,7 @@ export function ProjectsListView({
             {
               id: "health",
               enableSorting: false,
-              header: () => <span className="text-left">Health</span>,
+              header: () => <span className="text-left">{t("list.colHealth")}</span>,
               cell: ({ row }) => {
                 const h = healthByProjectId[row.original.id];
                 if (!h) return <span className="text-muted-foreground">—</span>;
@@ -498,7 +480,7 @@ export function ProjectsListView({
         enableSorting: true,
         header: ({ column }) => (
           <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1 flex-row-reverse" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-start">{memberView ? AR.deadline : "Deadline"} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+            <span className="text-start">{t("deadline")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
           </Button>
         ),
         cell: ({ row }) => formatDate(row.original.endDate),
@@ -516,7 +498,7 @@ export function ProjectsListView({
                   onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                   <span className="text-left">
-                    Budget {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+                    {t("budget")} {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
                   </span>
                 </Button>
               ),
@@ -550,7 +532,7 @@ export function ProjectsListView({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start">
                         <DropdownMenuItem onClick={() => setEditingProject(p)}>
-                          <Pencil className="me-2 h-4 w-4" />Edit
+                          <Pencil className="me-2 h-4 w-4" />{tc("edit")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
@@ -560,7 +542,7 @@ export function ProjectsListView({
                             setProjectToDelete({ id: p.id, name: p.name });
                           }}
                         >
-                          <Trash2 className="me-2 h-4 w-4" />Delete
+                          <Trash2 className="me-2 h-4 w-4" />{tc("delete")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -574,12 +556,16 @@ export function ProjectsListView({
       allVisibleSelected,
       selectedIds,
       projectServices,
+      projectMembers,
       healthByProjectId,
       router,
       setEditingProject,
       setProjectToDelete,
       toggleSelectAll,
+      toggleRow,
       memberView,
+      t,
+      tc,
     ]
   );
 
@@ -588,14 +574,10 @@ export function ProjectsListView({
   const completedProjects = projects.filter((p) => p.status === "completed").length;
   const reviewProjects = projects.filter((p) => p.status === "review").length;
 
-  const STATUS_OPTIONS = memberView ? STATUS_OPTIONS_AR : STATUS_OPTIONS_EN;
-  const dir = memberView ? "rtl" : "ltr";
-  const statusLabels = memberView ? PROJECT_STATUS_LABELS_AR : PROJECT_STATUS_LABELS_EN;
-
   return (
     <div className="space-y-5" dir={dir}>
       <div className="mb-7 flex items-center justify-between">
-        <h1 className="text-2xl font-medium text-neutral-900">{memberView ? AR.projects : "Projects"}</h1>
+        <h1 className="text-2xl font-medium text-neutral-900">{t("title")}</h1>
         {!memberView ? (
           <>
             <button
@@ -603,7 +585,7 @@ export function ProjectsListView({
               onClick={() => setNewProjectOpen(true)}
               className="inline-flex items-center gap-1 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
             >
-              + New Project
+              + {t("newProject")}
             </button>
             <NewProjectDialog
               open={newProjectOpen}
@@ -620,24 +602,24 @@ export function ProjectsListView({
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl bg-[#c8f542] p-5 text-start">
-          <p className="mb-1 text-xs font-medium text-neutral-800">{memberView ? AR.totalProjects : "Total Clients"}</p>
+          <p className="mb-1 text-xs font-medium text-neutral-800">{t("list.kpiTotalTitle")}</p>
           <p className="text-4xl font-bold text-black">{totalProjects}</p>
-          <p className="mt-1 text-xs text-neutral-600">{memberView ? "إجمالي المشاريع في النظام" : "Total clients in the system"}</p>
+          <p className="mt-1 text-xs text-neutral-600">{t("list.kpiTotalHint")}</p>
         </div>
         <div className="rounded-2xl border border-neutral-900 bg-white p-5 text-start">
-          <p className="mb-1 text-xs font-medium text-neutral-400">{memberView ? AR.activeProjects : "Active Clients"}</p>
+          <p className="mb-1 text-xs font-medium text-neutral-400">{t("list.kpiActiveTitle")}</p>
           <p className="text-4xl font-bold text-black">{activeProjects}</p>
-          <p className="mt-1 text-xs text-neutral-400">{memberView ? "من جميع المشاريع" : "Of all clients"}</p>
+          <p className="mt-1 text-xs text-neutral-400">{t("list.kpiActiveHint")}</p>
         </div>
         <div className="rounded-2xl bg-neutral-900 p-5 text-start">
-          <p className="mb-1 text-xs font-medium text-neutral-300">{memberView ? AR.completedProjects : "Completed"}</p>
+          <p className="mb-1 text-xs font-medium text-neutral-300">{t("list.kpiCompletedTitle")}</p>
           <p className="text-4xl font-bold text-white">{completedProjects}</p>
-          <p className="mt-1 text-xs text-neutral-400">{memberView ? "المشاريع المكتملة" : "Completed projects"}</p>
+          <p className="mt-1 text-xs text-neutral-400">{t("list.kpiCompletedHint")}</p>
         </div>
         <div className="rounded-2xl border border-neutral-100 bg-neutral-50 p-5 text-start">
-          <p className="mb-1 text-xs font-medium text-neutral-400">{memberView ? AR.inReview : "In Review"}</p>
+          <p className="mb-1 text-xs font-medium text-neutral-400">{t("list.kpiReviewTitle")}</p>
           <p className="text-4xl font-bold text-black">{reviewProjects}</p>
-          <p className="mt-1 text-xs text-neutral-400">{memberView ? "مشاريع قيد المراجعة" : "Projects in review"}</p>
+          <p className="mt-1 text-xs text-neutral-400">{t("list.kpiReviewHint")}</p>
         </div>
       </div>
 
@@ -646,7 +628,7 @@ export function ProjectsListView({
           <form onSubmit={handleSearchSubmit}>
             <div className="flex w-56 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-400">
               <Input
-                placeholder={memberView ? AR.searchPlaceholder : "Search by project or client..."}
+                placeholder={t("list.searchPlaceholder")}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="h-auto w-full border-0 bg-transparent p-0 text-sm text-neutral-700 shadow-none outline-none placeholder:text-neutral-400 focus-visible:ring-0"
@@ -655,10 +637,10 @@ export function ProjectsListView({
           </form>
           <Select dir={dir} value={statusParam} onValueChange={(v) => updateParams({ status: v })}>
             <SelectTrigger className="h-8 w-auto min-w-40 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25">
-              <SelectValue placeholder="Status" />
+              <SelectValue placeholder={t("list.filterStatusPlaceholder")} />
             </SelectTrigger>
             <SelectContent>
-              {STATUS_OPTIONS.map((o) => (
+              {statusFilterOptions.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   <span className="inline-flex items-center gap-2">
                     {o.value !== "all" ? (
@@ -678,10 +660,10 @@ export function ProjectsListView({
           </Select>
           <Select dir={dir} value={clientIdParam} onValueChange={(v) => updateParams({ clientId: v })}>
             <SelectTrigger className="h-8 w-auto min-w-40 gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-700 shadow-none hover:bg-neutral-50 focus-visible:border-neutral-300 focus-visible:ring-[3px] focus-visible:ring-neutral-400/25">
-              <SelectValue placeholder="Client" />
+              <SelectValue placeholder={t("list.filterClientPlaceholder")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{memberView ? AR.allClients : "All clients"}</SelectItem>
+              <SelectItem value="all">{t("list.allClients")}</SelectItem>
               {clients.map((c) => {
                 const label = c.companyName || c.id;
                 const logoFromClient = c.logoUrl?.trim();
@@ -703,7 +685,7 @@ export function ProjectsListView({
       {!memberView && selectedIds.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-2.5">
           <span className="text-sm font-medium text-neutral-800">
-            {selectedIds.size} selected
+            {t("list.selectedCount", { count: selectedIds.size })}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -711,7 +693,7 @@ export function ProjectsListView({
               className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
               onClick={() => setSelectedIds(new Set())}
             >
-              Clear selection
+              {t("list.clearSelection")}
             </button>
             <button
               type="button"
@@ -719,7 +701,7 @@ export function ProjectsListView({
               onClick={() => setBulkDeleteOpen(true)}
             >
               <Trash2 className="h-4 w-4" />
-              Delete
+              {tc("delete")}
             </button>
           </div>
         </div>
@@ -728,10 +710,10 @@ export function ProjectsListView({
       {projects.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-muted-foreground">{memberView ? AR.noProjects : "No projects match the current filters."}</p>
+            <p className="text-muted-foreground">{t("list.emptyFiltered")}</p>
             {!memberView ? (
               <NewProjectDialog
-                trigger={<Button variant="link" className="mt-2">Create your first project</Button>}
+                trigger={<Button variant="link" className="mt-2">{t("list.createFirstProject")}</Button>}
                 clients={clients}
                 services={serviceOptions}
                 teamMembers={teamMembers}
@@ -791,7 +773,7 @@ export function ProjectsListView({
                         )}
                       >
                         <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                        {statusLabels[p.status] ?? p.status}
+                        {formatProjectStatusLabel(p.status, t)}
                       </span>
                     ) : (
                       <>
@@ -812,10 +794,10 @@ export function ProjectsListView({
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
                             <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/projects/${p.id}`}>View</Link>
+                              <Link href={`/dashboard/projects/${p.id}`}>{t("list.view")}</Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setEditingProject(p)}>
-                              <Pencil className="me-2 h-4 w-4" />Edit
+                              <Pencil className="me-2 h-4 w-4" />{tc("edit")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
@@ -824,7 +806,7 @@ export function ProjectsListView({
                                 setProjectToDelete({ id: p.id, name: p.name });
                               }}
                             >
-                              <Trash2 className="me-2 h-4 w-4" />Delete
+                              <Trash2 className="me-2 h-4 w-4" />{tc("delete")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -844,37 +826,30 @@ export function ProjectsListView({
               tableId="projects-table"
               getRowId={(p) => p.id}
               uiVariant="clients"
-              tableDir={memberView ? "rtl" : "ltr"}
-              columnLabels={memberView ? {
-                clientName: AR.client,
-                name: AR.projectName,
-                services: AR.services,
-                members: AR.members,
-                status: AR.status,
-                endDate: AR.deadline,
-              } : {
-                clientName: "Client",
-                name: "Project Name",
-                services: "Services",
-                members: "Members",
-                status: "Status",
-                endDate: "Deadline",
-                health: "Health",
-                budget: "Budget",
+              tableDir={dir}
+              columnLabels={{
+                clientName: t("client"),
+                name: t("projectName"),
+                services: t("services"),
+                members: t("members"),
+                status: tc("status"),
+                endDate: t("deadline"),
+                health: t("list.colHealth"),
+                budget: t("budget"),
               }}
               enablePagination={false}
               enableSavedViews
-              savedViewsLabels={memberView ? {
-                defaultView: AR.defaultView,
-                saveView: AR.saveView,
-                deleteView: AR.deleteView,
-              } : undefined}
-              sortToolbarLabels={memberView ? {
-                none: AR.noSorting,
-                sortPlaceholder: AR.sort,
-                sortedBy: AR.sortedBy,
-                clearSortAria: AR.clearSort,
-              } : undefined}
+              savedViewsLabels={{
+                defaultView: t("list.savedDefaultView"),
+                saveView: t("list.savedSaveView"),
+                deleteView: t("list.savedDeleteView"),
+              }}
+              sortToolbarLabels={{
+                none: t("list.sortNone"),
+                sortPlaceholder: t("list.sortPlaceholder"),
+                sortedBy: t("list.sortSortedBy"),
+                clearSortAria: t("list.sortClearAria"),
+              }}
               getViewStateSnapshot={() => ({
                 search: searchInput,
                 status: statusParam,
@@ -891,14 +866,12 @@ export function ProjectsListView({
           </CardContent>
           <div className="flex items-center justify-between border-t border-neutral-100 px-4 py-3">
             <span className="text-xs text-neutral-400">
-              {memberView
-                ? `${AR.showing} ${projects.length} ${AR.of} ${projects.length}`
-                : `Showing ${projects.length} of ${projects.length}`}
+              {`${tc("showing")} ${projects.length} ${tc("of")} ${projects.length}`}
             </span>
             <div className="flex gap-1">
-              <button type="button" className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50">{memberView ? AR.previous : "Previous"}</button>
+              <button type="button" className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50">{tc("previous")}</button>
               <button type="button" className="rounded-md border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-800">1</button>
-              <button type="button" className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50">{memberView ? AR.next : "Next"}</button>
+              <button type="button" className="rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-50">{tc("next")}</button>
             </div>
           </div>
         </div>
@@ -933,15 +906,15 @@ export function ProjectsListView({
       <AlertDialog open={!!projectToDelete} onOpenChange={(open) => !open && setProjectToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>{t("list.deleteConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {projectToDelete
-                ? `Project ${projectToDelete.name} will be deleted permanently with all its tasks. This action cannot be undone.`
+                ? t("list.deleteConfirmBody", { name: projectToDelete.name })
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{tc("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -949,7 +922,7 @@ export function ProjectsListView({
                 await handleConfirmDelete();
               }}
             >
-              Delete
+              {tc("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -958,13 +931,13 @@ export function ProjectsListView({
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete selected projects?</AlertDialogTitle>
+            <AlertDialogTitle>{t("list.bulkDeleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {`This will permanently delete ${selectedIds.size} projects and their related tasks. This action cannot be undone.`}
+              {t("list.bulkDeleteBody", { count: selectedIds.size })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{tc("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -976,7 +949,7 @@ export function ProjectsListView({
                 }
                 const result = await deleteProjects(ids);
                 if (result.ok) {
-                  toast.success("Projects deleted");
+                  toast.success(t("list.toastProjectsDeleted"));
                   setSelectedIds(new Set());
                   setBulkDeleteOpen(false);
                   router.refresh();
@@ -985,7 +958,7 @@ export function ProjectsListView({
                 }
               }}
             >
-              Delete
+              {tc("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -995,7 +968,7 @@ export function ProjectsListView({
         <button
           type="button"
           className="md:hidden fixed bottom-24 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg text-2xl"
-          aria-label="New project"
+          aria-label={t("list.fabNewProjectAria")}
           onClick={() => setNewProjectOpen(true)}
         >
           +

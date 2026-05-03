@@ -33,6 +33,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { useTrialStatus, useUpgradeToContinueTitle } from "@/hooks/use-trial-status";
+import { useTranslateActionError } from "@/hooks/use-translate-action-error";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Badge } from "@/components/ui/badge";
@@ -44,29 +47,32 @@ import {
   TeamMemberSelectOptionRow,
   entityInitials,
 } from "@/components/entity-select-option";
+import { useLocale, useTranslations } from "next-intl";
 
-const projectStatusOptions = [
-  { value: "lead", label: "Lead" },
-  { value: "active", label: "Active" },
-  { value: "on_hold", label: "On Hold" },
-  { value: "review", label: "Review" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-];
+const PROJECT_STATUS_VALUES = [
+  "lead",
+  "active",
+  "on_hold",
+  "review",
+  "completed",
+  "cancelled",
+] as const;
 
-const formSchema = z.object({
-  name: z.string().min(1, "Project name is required"),
-  clientId: z.string().uuid("Select a client"),
-  status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  budget: z.coerce.number().min(0).optional(),
-  description: z.string().optional(),
-  teamMemberIds: z.array(z.string()).optional(),
-  serviceIds: z.array(z.string()).optional(),
-});
+function buildProjectFormSchema(messages: { nameRequired: string; clientRequired: string }) {
+  return z.object({
+    name: z.string().min(1, messages.nameRequired),
+    clientId: z.string().uuid(messages.clientRequired),
+    status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    budget: z.coerce.number().min(0).optional(),
+    description: z.string().optional(),
+    teamMemberIds: z.array(z.string()).optional(),
+    serviceIds: z.array(z.string()).optional(),
+  });
+}
 
-type FormValues = z.infer<typeof formSchema>;
+type FormValues = z.infer<ReturnType<typeof buildProjectFormSchema>>;
 
 type ClientOption = { id: string; companyName: string | null; logoUrl?: string | null };
 type TeamMemberOption = { id: string; name: string; role: string | null; avatarUrl?: string | null };
@@ -91,13 +97,28 @@ export function NewProjectDialog({
   clients,
   teamMembers = [],
   services = [],
-  defaultCurrency = "USD",
+  defaultCurrency: _defaultCurrency = "USD",
   defaultClientId,
   open,
   onOpenChange,
   asChild,
   onSuccess,
 }: NewProjectDialogProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const selectDir = isAr ? "rtl" : "ltr";
+  const td = useTranslations("projects.newProjectDialog");
+  const ts = useTranslations("projects.status");
+
+  const formSchema = React.useMemo(
+    () =>
+      buildProjectFormSchema({
+        nameRequired: td("validation.nameRequired"),
+        clientRequired: td("validation.clientRequired"),
+      }),
+    [td]
+  );
+
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [coverImageUrl, setCoverImageUrl] = React.useState<string | null>(null);
   const [coverUploading, setCoverUploading] = React.useState(false);
@@ -105,6 +126,10 @@ export function NewProjectDialog({
   const isControlled = open !== undefined && onOpenChange !== undefined;
   const effectiveOpen = isControlled ? open : dialogOpen;
   const setEffectiveOpen = isControlled ? onOpenChange : setDialogOpen;
+  const trial = useTrialStatus();
+  const writeBlocked = trial?.writeBlocked ?? false;
+  const upgradeTip = useUpgradeToContinueTitle();
+  const translateErr = useTranslateActionError();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -142,6 +167,11 @@ export function NewProjectDialog({
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (writeBlocked) {
+      toast.error(translateErr("trial_expired"));
+      e.target.value = "";
+      return;
+    }
     setCoverUploading(true);
     try {
       const fd = new FormData();
@@ -153,10 +183,11 @@ export function NewProjectDialog({
       if (res.ok && data.url) {
         setCoverImageUrl(data.url);
       } else {
-        toast.error(data.error ?? "Upload failed");
+        const key = typeof data.error === "string" ? data.error : "Upload failed";
+        toast.error(key === "trial_expired" ? translateErr(key) : (data.error ?? td("uploadFailed")));
       }
     } catch {
-      toast.error("Upload failed");
+      toast.error(td("uploadFailed"));
     } finally {
       setCoverUploading(false);
       e.target.value = "";
@@ -164,6 +195,10 @@ export function NewProjectDialog({
   };
 
   async function onSubmit(values: FormValues) {
+    if (writeBlocked) {
+      toast.error(translateErr("trial_expired"));
+      return;
+    }
     const payload: CreateProjectInput = {
       name: values.name,
       clientId: values.clientId,
@@ -180,51 +215,59 @@ export function NewProjectDialog({
     const result = await createProject(payload);
 
     if (result.ok) {
-      toast.success("Project created");
+      toast.success(td("toastCreated"));
       setEffectiveOpen(false);
       onSuccess?.();
     } else {
       const err = result.error as { _form?: string[] } | Record<string, string[]>;
-      const msg = err._form?.[0] ?? Object.values(err ?? {}).flat().find(Boolean) ?? "Failed to create project";
-      toast.error(String(msg));
+      const msg =
+        err._form?.[0] ?? Object.values(err ?? {}).flat().find(Boolean) ?? td("toastCreateFailed");
+      toast.error(translateErr(String(msg)));
     }
   }
 
   const content = (
     <>
       <DialogHeader>
-        <DialogTitle>New Project</DialogTitle>
-        <DialogDescription>
-          Add a new project linked to a client. Required fields are marked.
-        </DialogDescription>
+        <DialogTitle>{td("title")}</DialogTitle>
+        <DialogDescription>{td("description")}</DialogDescription>
       </DialogHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 py-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Project Cover Image (optional)</label>
+            <label className="text-sm font-medium">{td("coverLabel")}</label>
             <input
               ref={coverInputRef}
               type="file"
               accept="image/*"
               className="hidden"
               onChange={handleCoverChange}
-              disabled={coverUploading}
+              disabled={coverUploading || writeBlocked}
             />
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => coverInputRef.current?.click()}
-                disabled={coverUploading}
+                disabled={coverUploading || writeBlocked}
+                title={writeBlocked ? upgradeTip : undefined}
               >
-                {coverUploading ? "Uploading..." : coverImageUrl ? "Replace image" : "Upload cover"}
+                {coverUploading
+                  ? td("uploading")
+                  : coverImageUrl
+                    ? td("replaceImage")
+                    : td("uploadCover")}
               </Button>
               {coverImageUrl && (
                 <>
-                  <img src={coverImageUrl} alt="Cover preview" className="h-14 w-14 rounded object-cover border" />
+                  <img
+                    src={coverImageUrl}
+                    alt={td("coverPreviewAlt")}
+                    className="h-14 w-14 rounded border object-cover"
+                  />
                   <Button type="button" variant="ghost" size="sm" onClick={() => setCoverImageUrl(null)}>
-                    Remove
+                    {td("removeCover")}
                   </Button>
                 </>
               )}
@@ -235,9 +278,9 @@ export function NewProjectDialog({
             name="name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Project Name *</FormLabel>
+                <FormLabel>{td("projectNameLabel")}</FormLabel>
                 <FormControl>
-                  <Input placeholder="Project name" {...field} />
+                  <Input placeholder={td("projectNamePlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -248,9 +291,9 @@ export function NewProjectDialog({
             name="clientId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Client *</FormLabel>
+                <FormLabel>{td("clientLabel")}</FormLabel>
                 {lockedClient ? (
-                  <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
+                  <div className="border-input bg-muted text-muted-foreground flex h-9 items-center gap-2 rounded-md border px-3 py-1 text-sm">
                     {(() => {
                       const c = clients.find((x) => x.id === field.value);
                       const label = c?.companyName ?? field.value;
@@ -269,10 +312,10 @@ export function NewProjectDialog({
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select client" />
+                        <SelectValue placeholder={td("selectClient")} />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent dir={selectDir}>
                       {clients.map((c) => {
                         const label = c.companyName || c.id;
                         return (
@@ -293,17 +336,17 @@ export function NewProjectDialog({
             name="status"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Status</FormLabel>
+                <FormLabel>{td("statusLabel")}</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent>
-                    {projectStatusOptions.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
+                  <SelectContent dir={selectDir}>
+                    {PROJECT_STATUS_VALUES.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {ts(value)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -318,7 +361,7 @@ export function NewProjectDialog({
               name="teamMemberIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Team Members</FormLabel>
+                  <FormLabel>{td("teamMembersLabel")}</FormLabel>
                   <FormControl>
                     <div className="space-y-2">
                       <Select
@@ -331,9 +374,9 @@ export function NewProjectDialog({
                         }}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Add team member" />
+                          <SelectValue placeholder={td("addTeamMember")} />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent dir={selectDir}>
                           {teamMembers
                             .filter((m) => !(field.value ?? []).includes(m.id))
                             .map((m) => (
@@ -359,7 +402,7 @@ export function NewProjectDialog({
                               <Badge
                                 key={id}
                                 variant="secondary"
-                                className="gap-1 pr-1.5 pl-1.5"
+                                className="gap-1 ps-1.5 pe-1.5"
                               >
                                 <Avatar className="h-4 w-4 shrink-0">
                                   <AvatarImage src={m?.avatarUrl?.trim() || undefined} alt="" />
@@ -370,7 +413,7 @@ export function NewProjectDialog({
                                 {m?.name ?? id}
                                 <button
                                   type="button"
-                                  className="rounded-full hover:bg-muted p-0.5"
+                                  className="hover:bg-muted rounded-full p-0.5"
                                   onClick={() =>
                                     field.onChange((field.value ?? []).filter((x) => x !== id))
                                   }
@@ -395,7 +438,7 @@ export function NewProjectDialog({
               name="serviceIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Services</FormLabel>
+                  <FormLabel>{td("servicesLabel")}</FormLabel>
                   <FormControl>
                     <div className="space-y-2">
                       <Select
@@ -408,9 +451,9 @@ export function NewProjectDialog({
                         }}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Add service" />
+                          <SelectValue placeholder={td("addService")} />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent dir={selectDir}>
                           {services
                             .filter((s) => s.status === "active")
                             .filter((s) => !(field.value ?? []).includes(s.id))
@@ -429,12 +472,12 @@ export function NewProjectDialog({
                               <Badge
                                 key={id}
                                 variant="secondary"
-                                className="gap-1 pr-1.5 pl-1.5"
+                                className="gap-1 ps-1.5 pe-1.5"
                               >
                                 {s?.name ?? id}
                                 <button
                                   type="button"
-                                  className="rounded-full hover:bg-muted p-0.5"
+                                  className="hover:bg-muted rounded-full p-0.5"
                                   onClick={() =>
                                     field.onChange((field.value ?? []).filter((x) => x !== id))
                                   }
@@ -459,12 +502,13 @@ export function NewProjectDialog({
               name="startDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Start Date</FormLabel>
+                  <FormLabel>{td("startDate")}</FormLabel>
                   <FormControl>
                     <DatePickerAr
                       value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                       onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                      placeholder="Select a date"
+                      placeholder={td("selectDate")}
+                      popoverAlign={isAr ? "end" : "start"}
                     />
                   </FormControl>
                   <FormMessage />
@@ -476,12 +520,13 @@ export function NewProjectDialog({
               name="endDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>End Date / Deadline</FormLabel>
+                  <FormLabel>{td("endDate")}</FormLabel>
                   <FormControl>
                     <DatePickerAr
                       value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                       onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                      placeholder="Select a date"
+                      placeholder={td("selectDate")}
+                      popoverAlign={isAr ? "end" : "start"}
                     />
                   </FormControl>
                   <FormMessage />
@@ -495,11 +540,11 @@ export function NewProjectDialog({
             render={({ field }) => (
               <FormItem>
                 <FormLabel className="inline-flex items-center gap-1">
-                  Budget
+                  {td("budgetLabel")}
                   <SarCurrencyIcon className="h-3.5 w-3.5 shrink-0" />
                 </FormLabel>
                 <FormControl>
-                  <Input type="number" min={0} step="0.01" placeholder="0" {...field} />
+                  <Input type="number" min={0} step="0.01" placeholder={td("budgetPlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -510,19 +555,25 @@ export function NewProjectDialog({
             name="description"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Description</FormLabel>
+                <FormLabel>{td("descriptionLabel")}</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Project scope and goals..." className="resize-none" {...field} />
+                  <Textarea
+                    placeholder={td("descriptionPlaceholder")}
+                    className="resize-none"
+                    {...field}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <DialogFooter>
+          <DialogFooter className={isAr ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
             <Button type="button" variant="outline" onClick={() => setEffectiveOpen(false)}>
-              Cancel
+              {td("cancel")}
             </Button>
-            <Button type="submit">Create Project</Button>
+            <Button type="submit" disabled={writeBlocked} title={writeBlocked ? upgradeTip : undefined}>
+              {td("submit")}
+            </Button>
           </DialogFooter>
         </form>
       </Form>
@@ -530,26 +581,59 @@ export function NewProjectDialog({
   );
 
   const dialogContent = (
-    <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
+    <DialogContent
+      className="max-h-[90vh] max-w-xl overflow-y-auto text-start"
+      dir={isAr ? "rtl" : "ltr"}
+      lang={isAr ? "ar" : "en"}
+    >
       {content}
     </DialogContent>
   );
 
+  const resolvedOpen = writeBlocked ? false : effectiveOpen;
+  const onDialogOpenChange = (v: boolean) => {
+    if (writeBlocked && v) return;
+    setEffectiveOpen(v);
+  };
+
+  const triggerNode =
+    writeBlocked && trigger ? (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              {React.isValidElement(trigger)
+                ? React.cloneElement(trigger as React.ReactElement<{ disabled?: boolean }>, {
+                    disabled: true,
+                  })
+                : trigger}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            {upgradeTip}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    ) : (
+      trigger
+    );
+
   if (isControlled) {
     return (
-      <Dialog open={effectiveOpen} onOpenChange={setEffectiveOpen}>
+      <Dialog open={resolvedOpen} onOpenChange={onDialogOpenChange}>
         {dialogContent}
       </Dialog>
     );
   }
 
   return (
-    <Dialog open={effectiveOpen} onOpenChange={setEffectiveOpen}>
-      {trigger && (
+    <Dialog open={resolvedOpen} onOpenChange={onDialogOpenChange}>
+      {trigger && !writeBlocked ? (
         <DialogTrigger asChild={asChild}>
           {trigger}
         </DialogTrigger>
-      )}
+      ) : null}
+      {writeBlocked ? triggerNode : null}
       {dialogContent}
     </Dialog>
   );

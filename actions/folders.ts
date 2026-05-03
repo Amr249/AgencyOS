@@ -15,6 +15,8 @@ import { getMemberProjectIdsForUser, getTeamMemberIdsForSessionUser } from "@/li
 import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
 import { getMemberDriveVisibleFolderIdsForUser, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 import { notifyFolderAccessGranted } from "@/actions/notifications";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
+import { requireAgencyOrganization } from "@/lib/org-session";
 import { isDriveFolderProtectedFromUserEdits, isRootSystemDriveFolder } from "@/lib/drive-folder-permissions";
 
 export type FolderRow = typeof folders.$inferSelect;
@@ -86,6 +88,9 @@ export async function createFolder(input: z.infer<typeof createFolderSchema>) {
 
   const segment = sanitizePathSegment(name);
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+
     let path: string;
     let resolvedClientId: string | null = clientId ?? null;
     let resolvedProjectId: string | null = projectId ?? null;
@@ -240,6 +245,9 @@ export async function renameFolder(id: string, name: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
+
   try {
     const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data.id)).limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
@@ -285,6 +293,9 @@ export async function deleteFolder(id: string) {
   if (!session?.user?.id) return { ok: false as const, error: "Not authorized" };
   const uid = session.user.id;
   const role = sessionUserRole(session);
+
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
 
   const [root] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
   if (!root) return { ok: false as const, error: "Folder not found" };
@@ -460,10 +471,11 @@ export async function getDriveFolders() {
     if (role === "member") {
       projectIds = await getMemberProjectIdsForUser(uid);
     } else {
+      const ctx = await requireAgencyOrganization();
       const rows = await db
         .select({ id: projects.id })
         .from(projects)
-        .where(isNull(projects.deletedAt));
+        .where(and(isNull(projects.deletedAt), eq(projects.organizationId, ctx.organizationId)));
       projectIds = rows.map((r) => r.id);
     }
 
@@ -516,6 +528,8 @@ export async function setFolderPublicSharing(folderId: string, enabled: boolean)
   const userId = session?.user?.id;
   if (!userId) return { ok: false as const, error: { _form: ["Not authorized"] } };
   const role = sessionUserRole(session);
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
   try {
     const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
     if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
@@ -560,6 +574,8 @@ export async function toggleFolderPublic(folderId: string) {
   if (!parsed.success) return { ok: false as const, error: { _form: ["Invalid folder id"] } };
   const [existing] = await db.select().from(folders).where(eq(folders.id, parsed.data)).limit(1);
   if (!existing) return { ok: false as const, error: { _form: ["Folder not found"] } };
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
   return setFolderPublicSharing(folderId, !existing.isPublic);
 }
 
@@ -570,6 +586,8 @@ export async function setFolderAccess(folderId: string, teamMemberIds: string[])
   const userId = session?.user?.id;
   if (!userId) return { ok: false as const, error: { _form: ["Not authorized"] } };
   const role = sessionUserRole(session);
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
   try {
     const [folder] = await db.select().from(folders).where(eq(folders.id, parsed.data.folderId)).limit(1);
     if (!folder) return { ok: false as const, error: { _form: ["Folder not found"] } };
@@ -744,6 +762,9 @@ export async function moveFolder(folderId: string, newParentId: string | null) {
   }
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return { ok: false as const, error: { _form: ["Not authorized"] } };
+
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredForm();
 
   try {
     const [moving] = await db.select().from(folders).where(eq(folders.id, parsed.data.folderId)).limit(1);

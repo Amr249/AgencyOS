@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { assertAdminSession } from "@/lib/auth-helpers";
-import { AI_CHAT_SYSTEM_PROMPT } from "@/lib/ai-chat/ai-system-prompt";
+import { buildAiChatSystemPrompt } from "@/lib/ai-chat/ai-system-prompt";
 import { getContextForQuestion } from "@/actions/ai-context";
 import { getLastUserText, type OpenRouterChatMessage } from "@/lib/ai-chat/extract-user-text";
 import { extendMessagesWithOpenRouterToolRound } from "@/lib/ai-chat/openrouter-agent-loop";
@@ -24,6 +24,11 @@ export async function POST(req: NextRequest) {
       { status: auth.error === "unauthorized" ? 401 : 403 }
     );
   }
+
+  const orgDisplayName =
+    typeof auth.session.user.orgName === "string" && auth.session.user.orgName.trim().length > 0
+      ? auth.session.user.orgName.trim()
+      : "your organization";
 
   const key = process.env.OPENROUTER_API_KEY?.trim();
   if (!key) {
@@ -76,13 +81,13 @@ export async function POST(req: NextRequest) {
   }
 
   const systemAndContext: OpenRouterChatMessage[] = [
-    { role: "system", content: AI_CHAT_SYSTEM_PROMPT },
+    { role: "system", content: buildAiChatSystemPrompt(orgDisplayName) },
     ...(businessContext
       ? [
           {
             role: "user" as const,
             content:
-              "## Business context (database snapshot for this turn)\n\n" +
+              "## Business context (database snapshot for this turn — current organization only)\n\n" +
               businessContext +
               "\n\n---\n\nWhen answering questions about the agency's data, rely on this section. If something is not listed here, say you do not have it.",
           },

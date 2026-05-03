@@ -6,6 +6,7 @@ import { addDays, format, parseISO } from "date-fns";
 import { db } from "@/lib/db";
 import { teamAvailability, teamMembers } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 import {
   TEAM_AVAILABILITY_TYPES,
   availabilityDeductionHours,
@@ -42,6 +43,9 @@ export async function markUnavailable(
   if (!parsed.success) return { ok: false, error: "Invalid input" };
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+
     const [member] = await db
       .select({ id: teamMembers.id })
       .from(teamMembers)
@@ -83,6 +87,9 @@ export async function markAvailable(
   if (!parsed.success) return { ok: false, error: "Invalid id" };
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+
     const removed = await db
       .delete(teamAvailability)
       .where(eq(teamAvailability.id, parsed.data))

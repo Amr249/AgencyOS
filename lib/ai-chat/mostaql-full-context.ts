@@ -1,9 +1,9 @@
 /**
  * Full-column export of Mostaql scrape tables (`mostaql_scrape_runs`, `mostaql_projects`)
- * for AI context. Row counts are capped; totals always included.
+ * for AI context. Row counts are capped; totals are for the given organization only.
  */
 
-import { count, desc, ilike, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db, mostaqlProjects, mostaqlScrapeRuns } from "@/lib/db";
 
 /** Hard caps — raise via env if your DB is small enough for larger prompts. */
@@ -22,14 +22,21 @@ function charBudget(): number {
   return Number.isFinite(n) && n > 5000 ? Math.min(n, 200000) : 48000;
 }
 
-export async function buildMostaqlDatasetSection(): Promise<string> {
+export async function buildMostaqlDatasetSection(organizationId: string): Promise<string> {
   const budget = charBudget();
   const runLimit = maxRunRows();
   const projectLimit = maxProjectRows();
 
   const [[{ totalProjects }], [{ totalRuns }], dateAgg] = await Promise.all([
-    db.select({ totalProjects: count() }).from(mostaqlProjects),
-    db.select({ totalRuns: count() }).from(mostaqlScrapeRuns),
+    db
+      .select({ totalProjects: count() })
+      .from(mostaqlProjects)
+      .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
+      .where(eq(mostaqlScrapeRuns.organizationId, organizationId)),
+    db
+      .select({ totalRuns: count() })
+      .from(mostaqlScrapeRuns)
+      .where(eq(mostaqlScrapeRuns.organizationId, organizationId)),
     db
       .select({
         minScrapedAt: sql<string | null>`min(${mostaqlProjects.scrapedAt})`,
@@ -37,7 +44,9 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
         minPublishedAt: sql<string | null>`min(${mostaqlProjects.publishedAt})`,
         maxPublishedAt: sql<string | null>`max(${mostaqlProjects.publishedAt})`,
       })
-      .from(mostaqlProjects),
+      .from(mostaqlProjects)
+      .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
+      .where(eq(mostaqlScrapeRuns.organizationId, organizationId)),
   ]);
 
   const agg = dateAgg[0] ?? {};
@@ -45,9 +54,9 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
   const lines: string[] = [
     "## Mostaql scrape data (full columns, `mostaql_scrape_runs` + `mostaql_projects`)",
     "",
-    "### Global stats",
-    `- total rows in \`mostaql_projects\`: ${totalProjects}`,
-    `- total rows in \`mostaql_scrape_runs\`: ${totalRuns}`,
+    "### Organization stats (current tenant only)",
+    `- total rows in \`mostaql_projects\` for this organization: ${totalProjects}`,
+    `- total rows in \`mostaql_scrape_runs\` for this organization: ${totalRuns}`,
     `- scraped_at range on projects: min=${agg.minScrapedAt ?? "null"} max=${agg.maxScrapedAt ?? "null"}`,
     `- published_at range on projects: min=${agg.minPublishedAt ?? "null"} max=${agg.maxPublishedAt ?? "null"}`,
     "",
@@ -56,7 +65,7 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
     "**mostaql_projects:** id, run_id, mostaql_id, url, title, category, subcategory, budget_min, budget_max, currency, description, skills_tags (json array), client_name, client_url, offers_count, project_status, published_at, duration_days, scraped_at",
     "",
     "### All scrape runs (newest first; every column per row as JSON)",
-    `Up to ${runLimit} rows (there are ${totalRuns} total).`,
+    `Up to ${runLimit} rows (there are ${totalRuns} total for this organization).`,
   ];
 
   let used = lines.join("\n").length;
@@ -75,6 +84,7 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
       errorMessage: mostaqlScrapeRuns.errorMessage,
     })
     .from(mostaqlScrapeRuns)
+    .where(eq(mostaqlScrapeRuns.organizationId, organizationId))
     .orderBy(desc(mostaqlScrapeRuns.startedAt))
     .limit(runLimit);
 
@@ -102,7 +112,7 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
     used += piece.length + 1;
   }
 
-  lines.push("", `### Scraped projects (newest by scraped_at; every column; up to ${projectLimit} of ${totalProjects} total)`, "");
+  lines.push("", `### Scraped projects (newest by scraped_at; every column; up to ${projectLimit} of ${totalProjects} total for this organization)`, "");
 
   const projects = await db
     .select({
@@ -127,6 +137,8 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
       scrapedAt: mostaqlProjects.scrapedAt,
     })
     .from(mostaqlProjects)
+    .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
+    .where(eq(mostaqlScrapeRuns.organizationId, organizationId))
     .orderBy(desc(mostaqlProjects.scrapedAt))
     .limit(projectLimit);
 
@@ -155,7 +167,7 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
     const piece = `- ${JSON.stringify(row)}`;
     if (used + piece.length + 1 > budget) {
       lines.push(
-        `… [project rows truncated after ${i} of ${projects.length} in this batch; ${totalProjects} total in DB — increase AI_CHAT_MOSTAQL_MAX_PROJECT_ROWS or AI_CHAT_MOSTAQL_CHAR_BUDGET]`
+        `… [project rows truncated after ${i} of ${projects.length} in this batch; ${totalProjects} total for this organization — increase AI_CHAT_MOSTAQL_MAX_PROJECT_ROWS or AI_CHAT_MOSTAQL_CHAR_BUDGET]`
       );
       break;
     }
@@ -165,14 +177,18 @@ export async function buildMostaqlDatasetSection(): Promise<string> {
 
   lines.push(
     "",
-    "_Note: CRM job bids live in the `proposals` table (different from scraped `mostaql_projects`). Totals above are scrape-only._"
+    "_Note: CRM job bids live in the `proposals` table (different from scraped `mostaql_projects`). Totals above are scrape-only for this organization._"
   );
 
   return lines.join("\n");
 }
 
 /** For keyword search blocks — same columns as full export, fewer rows (skills matched via JSON cast text). */
-export async function searchMostaqlProjectsFullColumns(pattern: string, limit = 20) {
+export async function searchMostaqlProjectsFullColumns(
+  organizationId: string,
+  pattern: string,
+  limit = 20
+) {
   const safe = pattern.replace(/[%_\\]/g, "").slice(0, 64);
   if (!safe) return [];
   const p = `%${safe}%`;
@@ -199,14 +215,18 @@ export async function searchMostaqlProjectsFullColumns(pattern: string, limit = 
       scrapedAt: mostaqlProjects.scrapedAt,
     })
     .from(mostaqlProjects)
+    .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
     .where(
-      or(
-        ilike(mostaqlProjects.title, p),
-        ilike(mostaqlProjects.description, p),
-        ilike(mostaqlProjects.clientName, p),
-        ilike(mostaqlProjects.category, p),
-        ilike(mostaqlProjects.subcategory, p),
-        sql`${mostaqlProjects.skillsTags}::text ilike ${p}`
+      and(
+        eq(mostaqlScrapeRuns.organizationId, organizationId),
+        or(
+          ilike(mostaqlProjects.title, p),
+          ilike(mostaqlProjects.description, p),
+          ilike(mostaqlProjects.clientName, p),
+          ilike(mostaqlProjects.category, p),
+          ilike(mostaqlProjects.subcategory, p),
+          sql`${mostaqlProjects.skillsTags}::text ilike ${p}`
+        )
       )
     )
     .orderBy(desc(mostaqlProjects.scrapedAt))

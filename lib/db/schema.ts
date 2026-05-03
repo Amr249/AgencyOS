@@ -1,6 +1,7 @@
 /**
- * AgencyOS v2 Solo — Database schema (PRD v2.0)
- * Single-user dashboard. No RBAC. Optional `activity_logs` for audit trail.
+ * AgencyOS — Database schema (PRD v2.0+)
+ * Multi-tenant: `organizations` + `org_members`; tenant-scoped tables carry `organization_id`.
+ * Optional `activity_logs` for audit trail.
  */
 import {
   pgTable,
@@ -82,6 +83,11 @@ export const proposalStatusEnum = pgEnum("proposal_status", [
 ]);
 export const serviceStatusEnum = pgEnum("service_status", ["active", "inactive"]);
 
+export const orgPlanEnum = pgEnum("org_plan", ["starter", "pro", "enterprise", "internal"]);
+export const orgMemberRoleEnum = pgEnum("org_member_role", ["owner", "admin", "member"]);
+export const invitationRoleEnum = pgEnum("invitation_role", ["admin", "member"]);
+export const invitationStatusEnum = pgEnum("invitation_status", ["pending", "accepted", "expired"]);
+
 /** Client documents tab (contracts, NDAs, etc.); null = general file in Files tab. */
 export const fileDocumentTypeEnum = pgEnum("file_document_type", [
   "contract",
@@ -115,8 +121,76 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   /** User's UI theme preference. One of 'light' | 'dark' | 'system'. Null = not yet set. */
   themePreference: text("theme_preference"),
+  /** Dashboard welcome toast shown once per user (cross-device). */
+  hasSeenWelcome: boolean("has_seen_welcome").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    plan: orgPlanEnum("plan").notNull().default("starter"),
+    features: jsonb("features").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    logoUrl: text("logo_url"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    aiUsageCount: integer("ai_usage_count").notNull().default(0),
+    aiUsageResetAt: timestamp("ai_usage_reset_at", { withTimezone: true }),
+    storageUsedBytes: bigint("storage_used_bytes", { mode: "number" }).notNull().default(0),
+    onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
+    onboardingStep: integer("onboarding_step").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("organizations_slug_uidx").on(table.slug),
+    index("organizations_plan_idx").on(table.plan),
+  ]
+);
+
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: invitationRoleEnum("role").notNull(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: invitationStatusEnum("status").notNull().default("pending"),
+    /** Opaque token for `/invite/[token]` (URL-safe). */
+    token: text("token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("invitations_organization_id_idx").on(table.organizationId),
+    uniqueIndex("invitations_token_uidx").on(table.token),
+    uniqueIndex("invitations_org_email_pending_uidx")
+      .on(table.organizationId, sql`lower(trim(${table.email}))`)
+      .where(sql`${table.status} = 'pending'`),
+  ]
+);
+
+export const orgMembers = pgTable(
+  "org_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    role: orgMemberRoleEnum("role").notNull().default("member"),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("org_members_user_organization_uidx").on(table.userId, table.organizationId),
+    index("org_members_organization_id_idx").on(table.organizationId),
+  ]
+);
 
 /**
  * In-app notifications. One row per recipient user.
@@ -155,8 +229,11 @@ export const notifications = pgTable(
 );
 
 // clients
-export const clients = pgTable("clients", {
+export const clients = pgTable(
+  "clients",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   companyName: text("company_name").notNull(),
   status: clientStatusEnum("status").notNull().default("lead"),
   contactName: text("contact_name"),
@@ -179,7 +256,9 @@ export const clients = pgTable("clients", {
   portalEnabled: boolean("portal_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+},
+  (table) => [index("clients_organization_id_idx").on(table.organizationId)]
+);
 
 /** Predefined win/loss reason labels for the sales pipeline (`type`: won | lost). */
 export const winLossReasons = pgTable(
@@ -242,8 +321,11 @@ export const clientUsers = pgTable(
 );
 
 // projects
-export const projects = pgTable("projects", {
+export const projects = pgTable(
+  "projects",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   clientId: uuid("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),
@@ -257,7 +339,9 @@ export const projects = pgTable("projects", {
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+},
+  (table) => [index("projects_organization_id_idx").on(table.organizationId)]
+);
 
 // phases
 export const phases = pgTable("phases", {
@@ -305,8 +389,11 @@ export const taskTemplates = pgTable(
 );
 
 // tasks
-export const tasks = pgTable("tasks", {
+export const tasks = pgTable(
+  "tasks",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   projectId: uuid("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
@@ -326,16 +413,22 @@ export const tasks = pgTable("tasks", {
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-}, (table) => [
-  index("tasks_project_id_idx").on(table.projectId),
-  index("tasks_status_idx").on(table.status),
-  index("tasks_parent_task_id_idx").on(table.parentTaskId),
-  index("tasks_milestone_id_idx").on(table.milestoneId),
-]);
+},
+  (table) => [
+    index("tasks_organization_id_idx").on(table.organizationId),
+    index("tasks_project_id_idx").on(table.projectId),
+    index("tasks_status_idx").on(table.status),
+    index("tasks_parent_task_id_idx").on(table.parentTaskId),
+    index("tasks_milestone_id_idx").on(table.milestoneId),
+  ]
+);
 
 // invoices
-export const invoices = pgTable("invoices", {
+export const invoices = pgTable(
+  "invoices",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   invoiceNumber: text("invoice_number").notNull().unique(),
   clientId: uuid("client_id")
     .notNull()
@@ -353,7 +446,9 @@ export const invoices = pgTable("invoices", {
   paidAt: timestamp("paid_at", { withTimezone: true }),
   paymentMethod: text("payment_method"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+},
+  (table) => [index("invoices_organization_id_idx").on(table.organizationId)]
+);
 
 // invoice_items
 export const invoiceItems = pgTable("invoice_items", {
@@ -481,8 +576,11 @@ export const folderAccessExclusions = pgTable(
 );
 
 // files
-export const files = pgTable("files", {
+export const files = pgTable(
+  "files",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   mimeType: text("mime_type"),
   sizeBytes: bigint("size_bytes", { mode: "number" }),
@@ -501,23 +599,27 @@ export const files = pgTable("files", {
   uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-}, (table) => [
-  index("files_invoice_id_idx").on(table.invoiceId),
-  index("files_expense_id_idx").on(table.expenseId),
-  index("files_task_id_idx").on(table.taskId),
-  index("files_folder_id_idx").on(table.folderId),
-  index("files_share_token_idx").on(table.shareToken),
-  index("files_r2_key_idx").on(table.r2Key),
-  uniqueIndex("files_share_token_unique")
-    .on(table.shareToken)
-    .where(sql`${table.shareToken} IS NOT NULL`),
-]);
+},
+  (table) => [
+    index("files_organization_id_idx").on(table.organizationId),
+    index("files_invoice_id_idx").on(table.invoiceId),
+    index("files_expense_id_idx").on(table.expenseId),
+    index("files_task_id_idx").on(table.taskId),
+    index("files_folder_id_idx").on(table.folderId),
+    index("files_share_token_idx").on(table.shareToken),
+    index("files_r2_key_idx").on(table.r2Key),
+    uniqueIndex("files_share_token_unique")
+      .on(table.shareToken)
+      .where(sql`${table.shareToken} IS NOT NULL`),
+  ]
+);
 
 // team_members
 export const teamMembers = pgTable(
   "team_members",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
     /** When set, links this roster row to a login (`users`). Falls back to email match if null. */
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     name: text("name").notNull(),
@@ -530,6 +632,7 @@ export const teamMembers = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    index("team_members_organization_id_idx").on(table.organizationId),
     uniqueIndex("team_members_user_id_unique").on(table.userId),
   ]
 );
@@ -555,17 +658,23 @@ export const teamAvailability = pgTable(
 );
 
 // services
-export const services = pgTable("services", {
+export const services = pgTable(
+  "services",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   status: serviceStatusEnum("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("services_name_idx").on(table.name),
-  index("services_status_idx").on(table.status),
-]);
+},
+  (table) => [
+    index("services_organization_id_idx").on(table.organizationId),
+    index("services_name_idx").on(table.name),
+    index("services_status_idx").on(table.status),
+  ]
+);
 
 // project_services (junction: project ↔ service)
 export const projectServices = pgTable("project_services", {
@@ -646,8 +755,11 @@ export const taskAssignments = pgTable(
 );
 
 // proposals (Mostaql job proposals)
-export const proposals = pgTable("proposals", {
+export const proposals = pgTable(
+  "proposals",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   url: text("url"),
   platform: text("platform").notNull().default("mostaql"),
@@ -665,10 +777,13 @@ export const proposals = pgTable("proposals", {
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("proposals_status_idx").on(table.status),
-  index("proposals_applied_at_idx").on(table.appliedAt),
-]);
+},
+  (table) => [
+    index("proposals_organization_id_idx").on(table.organizationId),
+    index("proposals_status_idx").on(table.status),
+    index("proposals_applied_at_idx").on(table.appliedAt),
+  ]
+);
 
 // proposal_services (junction: proposal ↔ service)
 export const proposalServices = pgTable(
@@ -701,6 +816,10 @@ export const mostaqlScrapeRuns = pgTable(
   "mostaql_scrape_runs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /** Owning agency; scrape rows under this run are tenant-scoped via join. */
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     /** running | success | partial | failed */
@@ -716,6 +835,7 @@ export const mostaqlScrapeRuns = pgTable(
   (table) => [
     index("mostaql_scrape_runs_started_at_idx").on(table.startedAt),
     index("mostaql_scrape_runs_status_idx").on(table.status),
+    index("mostaql_scrape_runs_organization_id_idx").on(table.organizationId),
   ]
 );
 
@@ -756,8 +876,11 @@ export const mostaqlProjects = pgTable(
 );
 
 // expenses
-export const expenses = pgTable("expenses", {
+export const expenses = pgTable(
+  "expenses",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   category: expenseCategoryEnum("category").notNull(),
@@ -769,7 +892,9 @@ export const expenses = pgTable("expenses", {
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
   isBillable: boolean("is_billable").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+},
+  (table) => [index("expenses_organization_id_idx").on(table.organizationId)]
+);
 
 export const recurringExpenses = pgTable("recurring_expenses", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -894,6 +1019,7 @@ export const activityLogs = pgTable(
   "activity_logs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
     entityType: text("entity_type").notNull(),
     entityId: uuid("entity_id").notNull(),
     action: text("action").notNull(),
@@ -905,28 +1031,86 @@ export const activityLogs = pgTable(
   (table) => [
     index("activity_logs_entity_type_entity_id_idx").on(table.entityType, table.entityId),
     index("activity_logs_created_at_idx").on(table.createdAt),
+    index("activity_logs_organization_id_idx").on(table.organizationId),
   ]
 );
 
-// settings — single row (id always 1)
-export const settings = pgTable("settings", {
-  id: integer("id").primaryKey().default(1),
-  agencyName: text("agency_name"),
-  agencyEmail: text("agency_email"),
-  agencyWebsite: text("agency_website"),
-  vatNumber: text("vat_number"),
-  agencyLogoUrl: text("agency_logo_url"),
-  agencyAddress: jsonb("agency_address").$type<AddressJson>(),
-  invoicePrefix: text("invoice_prefix").default("INV"),
-  invoiceNextNumber: integer("invoice_next_number").default(1),
-  defaultCurrency: char("default_currency", { length: 3 }).default("SAR"),
-  defaultPaymentTerms: integer("default_payment_terms").default(30),
-  invoiceFooter: text("invoice_footer"),
-  invoiceColor: char("invoice_color", { length: 7 }),
-});
+// settings — one row per organization (tenant-scoped agency / invoice defaults)
+export const settings = pgTable(
+  "settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    agencyName: text("agency_name"),
+    agencyEmail: text("agency_email"),
+    agencyWebsite: text("agency_website"),
+    vatNumber: text("vat_number"),
+    agencyLogoUrl: text("agency_logo_url"),
+    agencyAddress: jsonb("agency_address").$type<AddressJson>(),
+    invoicePrefix: text("invoice_prefix").default("INV"),
+    invoiceNextNumber: integer("invoice_next_number").default(1),
+    defaultCurrency: char("default_currency", { length: 3 }).default("SAR"),
+    defaultPaymentTerms: integer("default_payment_terms").default(30),
+    invoiceFooter: text("invoice_footer"),
+    invoiceColor: char("invoice_color", { length: 7 }),
+  },
+  (table) => [uniqueIndex("settings_organization_id_uidx").on(table.organizationId)]
+);
 
 // Relations
-export const clientsRelations = relations(clients, ({ many }) => ({
+export const organizationsRelations = relations(organizations, ({ many, one }) => ({
+  members: many(orgMembers),
+  invitations: many(invitations),
+  clients: many(clients),
+  projects: many(projects),
+  proposals: many(proposals),
+  tasks: many(tasks),
+  invoices: many(invoices),
+  expenses: many(expenses),
+  files: many(files),
+  teamMembers: many(teamMembers),
+  services: many(services),
+  settings: one(settings, {
+    fields: [organizations.id],
+    references: [settings.organizationId],
+  }),
+}));
+
+export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
+  user: one(users, { fields: [orgMembers.userId], references: [users.id] }),
+  organization: one(organizations, {
+    fields: [orgMembers.organizationId],
+    references: [organizations.id],
+  }),
+}));
+
+export const invitationsRelations = relations(invitations, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [invitations.organizationId],
+    references: [organizations.id],
+  }),
+  inviter: one(users, {
+    fields: [invitations.invitedBy],
+    references: [users.id],
+  }),
+}));
+
+export const usersRelations = relations(users, ({ many }) => ({
+  orgMemberships: many(orgMembers),
+}));
+
+export const settingsRelations = relations(settings, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [settings.organizationId],
+    references: [organizations.id],
+  }),
+}));
+
+export const clientsRelations = relations(clients, ({ many, one }) => ({
+  organization: one(organizations, {
+    fields: [clients.organizationId],
+    references: [organizations.id],
+  }),
   projects: many(projects),
   invoices: many(invoices),
   files: many(files),
@@ -974,6 +1158,10 @@ export const taskTemplatesRelations = relations(taskTemplates, ({ one, many }) =
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [projects.organizationId],
+    references: [organizations.id],
+  }),
   client: one(clients, { fields: [projects.clientId], references: [clients.id] }),
   phases: many(phases),
   tasks: many(tasks),
@@ -993,6 +1181,10 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 }));
 
 export const teamMembersRelations = relations(teamMembers, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [teamMembers.organizationId],
+    references: [organizations.id],
+  }),
   user: one(users, { fields: [teamMembers.userId], references: [users.id] }),
   projectMembers: many(projectMembers),
   tasks: many(tasks),
@@ -1011,7 +1203,11 @@ export const teamAvailabilityRelations = relations(teamAvailability, ({ one }) =
   }),
 }));
 
-export const servicesRelations = relations(services, ({ many }) => ({
+export const servicesRelations = relations(services, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [services.organizationId],
+    references: [organizations.id],
+  }),
   projectServices: many(projectServices),
   clientServices: many(clientServices),
   proposalServices: many(proposalServices),
@@ -1052,6 +1248,10 @@ export const phasesRelations = relations(phases, ({ one, many }) => ({
 }));
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [tasks.organizationId],
+    references: [organizations.id],
+  }),
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
   phase: one(phases, { fields: [tasks.phaseId], references: [phases.id] }),
   parentTask: one(tasks, { fields: [tasks.parentTaskId], references: [tasks.id] }),
@@ -1072,6 +1272,10 @@ export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => 
 }));
 
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [invoices.organizationId],
+    references: [organizations.id],
+  }),
   client: one(clients, { fields: [invoices.clientId], references: [clients.id] }),
   project: one(projects, { fields: [invoices.projectId], references: [projects.id] }),
   invoiceProjects: many(invoiceProjects),
@@ -1124,6 +1328,10 @@ export const folderAccessExclusionsRelations = relations(folderAccessExclusions,
 }));
 
 export const filesRelations = relations(files, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [files.organizationId],
+    references: [organizations.id],
+  }),
   client: one(clients, { fields: [files.clientId], references: [clients.id] }),
   project: one(projects, { fields: [files.projectId], references: [projects.id] }),
   task: one(tasks, { fields: [files.taskId], references: [tasks.id] }),
@@ -1134,6 +1342,10 @@ export const filesRelations = relations(files, ({ one }) => ({
 }));
 
 export const proposalsRelations = relations(proposals, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [proposals.organizationId],
+    references: [organizations.id],
+  }),
   client: one(clients, { fields: [proposals.clientId], references: [clients.id] }),
   project: one(projects, { fields: [proposals.projectId], references: [projects.id] }),
   proposalServices: many(proposalServices),
@@ -1162,6 +1374,10 @@ export const expenseServicesRelations = relations(expenseServices, ({ one }) => 
 }));
 
 export const expensesRelations = relations(expenses, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [expenses.organizationId],
+    references: [organizations.id],
+  }),
   teamMember: one(teamMembers, { fields: [expenses.teamMemberId], references: [teamMembers.id] }),
   project: one(projects, { fields: [expenses.projectId], references: [projects.id] }),
   client: one(clients, { fields: [expenses.clientId], references: [clients.id] }),

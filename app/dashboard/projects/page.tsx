@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { getTranslations } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { getProjects, getProjectTaskCounts } from "@/actions/projects";
 import { getClientsList } from "@/actions/clients";
@@ -14,10 +15,18 @@ import { MemberProjectsPageContent } from "@/components/member-dashboard/member-
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 
-export const metadata: Metadata = {
-  title: "المشاريع",
-  description: "Manage projects and track progress",
-};
+async function ProjectsPageSuspenseFallback() {
+  const tc = await getTranslations("common");
+  return <div className="text-muted-foreground">{tc("loading")}</div>;
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("projects");
+  return {
+    title: t("title"),
+    description: t("metaDescription"),
+  };
+}
 
 type PageProps = {
   searchParams: Promise<{ search?: string; status?: string; clientId?: string }>;
@@ -38,7 +47,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
       );
     }
     return (
-      <Suspense fallback={<div className="text-muted-foreground">جارٍ التحميل…</div>}>
+      <Suspense fallback={<ProjectsPageSuspenseFallback />}>
         <MemberProjectsPageContent projects={memberRes.data.projects} />
       </Suspense>
     );
@@ -88,7 +97,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const healthByProjectId = healthMapResult.ok ? healthMapResult.data : {};
 
   return (
-    <Suspense fallback={<div className="text-muted-foreground">جارٍ التحميل…</div>}>
+    <Suspense fallback={<ProjectsPageSuspenseFallback />}>
       <ProjectsListView
         projects={projects}
         taskCounts={taskCounts}

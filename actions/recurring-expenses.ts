@@ -5,6 +5,8 @@ import { eq, and, lte, desc, asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isDbConnectionError, getDbErrorKey } from "@/lib/db-errors";
+import { resolveOrganizationIdForExpense } from "@/lib/db/default-organization";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 import { addWeeks, addMonths, addQuarters, addYears, format } from "date-fns";
 
 const categoryValues = [
@@ -99,6 +101,8 @@ export async function getRecurringExpenses() {
 export async function createRecurringExpense(input: z.infer<typeof createRecurringExpenseSchema>) {
   try {
     const validated = createRecurringExpenseSchema.parse(input);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
 
     const [newRecurring] = await db
       .insert(recurringExpenses)
@@ -140,6 +144,8 @@ export async function createRecurringExpense(input: z.infer<typeof createRecurri
 export async function updateRecurringExpense(input: z.infer<typeof updateRecurringExpenseSchema>) {
   try {
     const validated = updateRecurringExpenseSchema.parse(input);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const { id, ...updateData } = validated;
 
     const [existing] = await db
@@ -207,6 +213,8 @@ export async function deleteRecurringExpense(id: string) {
     return { ok: false as const, error: "Invalid id" };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [removed] = await db.delete(recurringExpenses).where(eq(recurringExpenses.id, parsed.data)).returning();
     if (!removed) {
       return { ok: false as const, error: "Recurring expense not found" };
@@ -231,6 +239,8 @@ export async function toggleRecurringExpenseActive(id: string) {
     return { ok: false as const, error: "Invalid id" };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [current] = await db
       .select({ isActive: recurringExpenses.isActive })
       .from(recurringExpenses)
@@ -297,7 +307,13 @@ export async function processRecurringExpenses() {
     const created: string[] = [];
 
     for (const recurring of dueExpenses) {
+      const organizationId = await resolveOrganizationIdForExpense({
+        projectId: recurring.projectId,
+        clientId: recurring.clientId,
+        teamMemberId: recurring.teamMemberId,
+      });
       await db.insert(expenses).values({
+        organizationId,
         title: recurring.title,
         amount: String(recurring.amount),
         category: recurring.category,

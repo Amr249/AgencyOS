@@ -10,6 +10,7 @@ import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import { memberMayViewTaskById } from "@/lib/member-context";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 const dependencyTypes = [
   "finish_to_start",
@@ -127,6 +128,9 @@ export async function addDependency(input: z.infer<typeof addDependencySchema>) 
       return { ok: false as const, error: parsed.error.flatten().fieldErrors };
     }
 
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+
     const { taskId, dependsOnTaskId, type } = parsed.data;
 
     if (taskId === dependsOnTaskId) {
@@ -214,6 +218,9 @@ export async function removeDependency(id: string) {
     if (!parsed.success) {
       return { ok: false as const, error: parsed.error.flatten().fieldErrors };
     }
+
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
 
     const row = await db.query.taskDependencies.findFirst({
       where: eq(taskDependencies.id, parsed.data.id),

@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo, type ReactNode } from "react";
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import {
   Card,
   CardContent,
@@ -22,21 +24,68 @@ import {
   PieChart,
   Cell,
 } from "recharts";
-import {
-  DollarSign,
-  FileText,
-  FolderOpen,
-  ListTodo,
-  TrendingUp,
-  TrendingDown,
-  PlusCircle,
-} from "lucide-react";
+import { TrendingUp, TrendingDown, PlusCircle } from "lucide-react";
 import type { DashboardData } from "@/actions/dashboard";
 import { UpcomingMilestonesCard } from "@/components/dashboard/upcoming-milestones-card";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { PROJECT_STATUS_LABELS, PROJECT_STATUS_BADGE_CLASS, INVOICE_STATUS_LABELS } from "@/types";
+import {
+  PROJECT_STATUS_LABELS,
+  PROJECT_STATUS_LABELS_EN,
+  PROJECT_STATUS_BADGE_CLASS,
+  INVOICE_STATUS_LABELS,
+  INVOICE_STATUS_LABELS_AR,
+} from "@/types";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
+import { cn } from "@/lib/utils";
+
+type DashboardKpiVariant = "lime" | "dark" | "outline";
+
+function DashboardKpiCard({
+  variant,
+  title,
+  subtitle,
+  children,
+  valueClassName,
+}: {
+  variant: DashboardKpiVariant;
+  title: string;
+  subtitle?: ReactNode;
+  children: ReactNode;
+  valueClassName?: string;
+}) {
+  const shell = cn(
+    "flex min-h-[148px] flex-col justify-between gap-3 rounded-3xl border p-5 text-start",
+    variant === "lime" &&
+      "border-transparent bg-[#c8f542] shadow-none [&_.kpi-foot]:text-black/70",
+    variant === "dark" &&
+      "border-transparent bg-neutral-950 text-white shadow-none dark:bg-black [&_.kpi-foot]:text-white/70",
+    variant === "outline" && "border-border bg-card shadow-sm [&_.kpi-foot]:text-muted-foreground"
+  );
+  const titleCls = cn(
+    "text-sm font-medium leading-snug",
+    variant === "lime" && "text-black/80",
+    variant === "dark" && "text-white/75",
+    variant === "outline" && "text-muted-foreground"
+  );
+  const valueCls = cn(
+    "text-3xl font-bold tracking-tight tabular-nums leading-none",
+    variant === "lime" && "text-black",
+    variant === "dark" && "text-white",
+    variant === "outline" && "text-foreground",
+    valueClassName
+  );
+
+  return (
+    <div className={shell}>
+      <div className="space-y-2">
+        <p className={titleCls}>{title}</p>
+        <div className={valueCls}>{children}</div>
+      </div>
+      {subtitle != null ? <div className="kpi-foot text-xs leading-snug">{subtitle}</div> : null}
+    </div>
+  );
+}
 
 const DONUT_COLORS: Record<string, string> = {
   active: "#22c55e",
@@ -47,7 +96,6 @@ const DONUT_COLORS: Record<string, string> = {
   review: "#a855f7",
 };
 
-// Use fixed locale so server and client render the same (avoids hydration mismatch).
 const CURRENCY_LOCALE = "en-US";
 
 function formatCurrency(amount: number, currency: string) {
@@ -68,6 +116,25 @@ function formatCurrency(amount: number, currency: string) {
   }).format(amount);
 }
 
+/** Plain string for translated sentences (e.g. budget lines). */
+function formatMoneyPlain(amount: number, currency: string, locale: string) {
+  const rounded = Math.round(Math.abs(amount) * 100) / 100;
+  const numLocale = locale === "ar" ? "ar-SA" : "en-US";
+  if (currency === "SAR" || currency === "ر.س") {
+    return `${rounded.toLocaleString(numLocale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ر.س`;
+  }
+  try {
+    return new Intl.NumberFormat(numLocale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(rounded);
+  } catch {
+    return String(rounded);
+  }
+}
+
 function signedNumberClass(n: number): string {
   if (n > 0.005) return "text-green-600";
   if (n < -0.005) return "text-red-600";
@@ -76,6 +143,12 @@ function signedNumberClass(n: number): string {
 
 export function DashboardHome({ data }: { data: DashboardData }) {
   const chartMd = useMediaQuery("(min-width: 640px)");
+  const t = useTranslations("dashboardHome");
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const projectStatusMap = isAr ? PROJECT_STATUS_LABELS : PROJECT_STATUS_LABELS_EN;
+  const invoiceStatusMap = isAr ? INVOICE_STATUS_LABELS_AR : INVOICE_STATUS_LABELS;
+
   const {
     currency,
     revenueThisMonth,
@@ -98,167 +171,140 @@ export function DashboardHome({ data }: { data: DashboardData }) {
     budgetWarnings,
   } = data;
 
+  const chartProjectCounts = useMemo(
+    () =>
+      projectStatusCounts.map((e) => ({
+        ...e,
+        label: projectStatusMap[e.status] ?? e.label,
+      })),
+    [projectStatusCounts, projectStatusMap]
+  );
+
   const revenueDelta =
     revenueLastMonth > 0
       ? ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100
-      : (revenueThisMonth > 0 ? 100 : 0);
+      : revenueThisMonth > 0
+        ? 100
+        : 0;
+
+  const profitMarginValueCls =
+    profitMargin === null ? "text-white/55" : signedNumberClass(profitMargin);
 
   return (
     <div className="space-y-8">
-      {/* Row 1 — KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">إيرادات هذا الشهر</CardTitle>
-            <DollarSign className="text-muted-foreground h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(revenueThisMonth, currency)}
-            </div>
-            <p className="text-muted-foreground flex items-center gap-1 text-xs">
-              مقارنة بالشهر الماضي
+      {/* 8 KPI tiles: 4 × 2 — lime / outline / dark / outline pattern (matches hero dashboard cards) */}
+      <div
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        dir={isAr ? "rtl" : "ltr"}
+      >
+        <DashboardKpiCard
+          variant="lime"
+          title={t("revenueThisMonth")}
+          subtitle={
+            <span className="inline-flex flex-wrap items-center gap-1 text-black/75">
+              {t("vsLastMonth")}
               {revenueDelta >= 0 ? (
-                <TrendingUp className="h-3 w-3 text-green-600" />
+                <TrendingUp className="h-3 w-3 shrink-0 text-emerald-900" />
               ) : (
-                <TrendingDown className="h-3 w-3 text-red-600" />
+                <TrendingDown className="h-3 w-3 shrink-0 text-red-900" />
               )}
-              <span className={revenueDelta >= 0 ? "text-green-600" : "text-red-600"}>
+              <span className={revenueDelta >= 0 ? "font-medium text-emerald-900" : "font-medium text-red-900"}>
                 {revenueDelta >= 0 ? "+" : ""}
                 {revenueDelta.toFixed(0)}%
               </span>
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">المستحق</CardTitle>
-            <FileText className="text-muted-foreground h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(outstandingTotal, currency)}
-            </div>
-            <p className="text-muted-foreground text-xs">
-              {outstandingCount} فاتورة غير مدفوعة
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">المشاريع النشطة</CardTitle>
-            <FolderOpen className="text-muted-foreground h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeProjectsCount}</div>
-            <Link
-              href="/dashboard/projects?status=active"
-              className="text-primary text-xs hover:underline"
-            >
-              عرض المشاريع النشطة ←
+            </span>
+          }
+        >
+          {formatCurrency(revenueThisMonth, currency)}
+        </DashboardKpiCard>
+
+        <DashboardKpiCard variant="outline" title={t("outstanding")} subtitle={t("unpaidInvoices", { count: outstandingCount })}>
+          {formatCurrency(outstandingTotal, currency)}
+        </DashboardKpiCard>
+
+        <DashboardKpiCard
+          variant="dark"
+          title={t("activeProjects")}
+          subtitle={
+            <Link href="/dashboard/projects?status=active" className="text-white/85 underline-offset-2 hover:underline">
+              {t("viewActiveProjects")}
             </Link>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">المهام المتأخرة</CardTitle>
-            <ListTodo className="text-muted-foreground h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{overdueTasksCount}</div>
-            <p className="text-muted-foreground text-xs">تجاوز تاريخ الاستحقاق</p>
-          </CardContent>
-        </Card>
+          }
+        >
+          {activeProjectsCount}
+        </DashboardKpiCard>
+
+        <DashboardKpiCard variant="outline" title={t("overdueTasks")} subtitle={t("pastDueHint")} valueClassName="text-red-600">
+          {overdueTasksCount}
+        </DashboardKpiCard>
+
+        <DashboardKpiCard variant="outline" title={t("netProfitYtd")} subtitle={t("netProfitYtdDesc")} valueClassName={signedNumberClass(totalProfit)}>
+          {formatCurrency(totalProfit, currency)}
+        </DashboardKpiCard>
+
+        <DashboardKpiCard variant="dark" title={t("profitMargin")} subtitle={t("profitMarginDesc")} valueClassName={profitMarginValueCls}>
+          {profitMargin === null ? t("profitMarginEmpty") : `${profitMargin.toFixed(1)}%`}
+        </DashboardKpiCard>
+
+        <DashboardKpiCard
+          variant="outline"
+          title={t("mostProfitableProject")}
+          subtitle={
+            topProfitableProject ? (
+              <Link
+                href={`/dashboard/projects/${topProfitableProject.id}`}
+                className="truncate font-medium text-primary hover:underline"
+              >
+                {topProfitableProject.name}
+              </Link>
+            ) : (
+              t("noProjectData")
+            )
+          }
+          valueClassName={topProfitableProject ? signedNumberClass(topProfitableProject.profit) : "text-muted-foreground"}
+        >
+          {topProfitableProject ? formatCurrency(topProfitableProject.profit, currency) : "—"}
+        </DashboardKpiCard>
+
+        <DashboardKpiCard
+          variant="lime"
+          title={t("mostProfitableClient")}
+          subtitle={
+            topProfitableClient ? (
+              <Link
+                href={`/dashboard/clients/${topProfitableClient.id}`}
+                className="truncate font-medium text-black/80 underline-offset-2 hover:underline"
+              >
+                {topProfitableClient.name}
+              </Link>
+            ) : (
+              <span className="text-black/70">{t("noClientData")}</span>
+            )
+          }
+          valueClassName={
+            topProfitableClient
+              ? cn("text-black", signedNumberClass(topProfitableClient.profit))
+              : "text-black/55"
+          }
+        >
+          {topProfitableClient ? formatCurrency(topProfitableClient.profit, currency) : "—"}
+        </DashboardKpiCard>
       </div>
 
-      {/* Profitability KPIs (YTD) — English labels, no decorative icons */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Net Profit (YTD)</CardTitle>
-            <CardDescription className="text-xs">Collected revenue minus expenses, this year</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold tabular-nums ${signedNumberClass(totalProfit)}`}>
-              {formatCurrency(totalProfit, currency)}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Profit Margin</CardTitle>
-            <CardDescription className="text-xs">Net profit ÷ YTD collected</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`text-2xl font-bold tabular-nums ${
-                profitMargin === null
-                  ? "text-muted-foreground"
-                  : signedNumberClass(profitMargin)
-              }`}
-            >
-              {profitMargin === null ? "—" : `${profitMargin.toFixed(1)}%`}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Most Profitable Project</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {topProfitableProject ? (
-              <>
-                <Link
-                  href={`/dashboard/projects/${topProfitableProject.id}`}
-                  className="font-medium text-primary hover:underline block truncate"
-                >
-                  {topProfitableProject.name}
-                </Link>
-                <div className={`text-lg font-semibold tabular-nums ${signedNumberClass(topProfitableProject.profit)}`}>
-                  {formatCurrency(topProfitableProject.profit, currency)}
-                </div>
-              </>
-            ) : (
-              <p className="text-muted-foreground text-sm">No project data</p>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Most Profitable Client</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {topProfitableClient ? (
-              <>
-                <Link
-                  href={`/dashboard/clients/${topProfitableClient.id}`}
-                  className="font-medium text-primary hover:underline block truncate"
-                >
-                  {topProfitableClient.name}
-                </Link>
-                <div className={`text-lg font-semibold tabular-nums ${signedNumberClass(topProfitableClient.profit)}`}>
-                  {formatCurrency(topProfitableClient.profit, currency)}
-                </div>
-              </>
-            ) : (
-              <p className="text-muted-foreground text-sm">No client data</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Row 2 — Charts */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>الإيرادات آخر 12 شهراً</CardTitle>
-            <CardDescription>الفواتير مقابل الأرباح</CardDescription>
+            <CardTitle>{t("revenue12moTitle")}</CardTitle>
+            <CardDescription>{t("revenue12moDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             {revenueByMonth.some((m) => m.invoiced > 0 || m.collected > 0) ? (
               <div className="h-52 min-h-48 w-full min-w-0 md:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={revenueByMonth} margin={{ top: 8, right: 8, left: chartMd ? 0 : -8, bottom: chartMd ? 8 : 4 }}>
+                  <BarChart
+                    data={revenueByMonth}
+                    margin={{ top: 8, right: 8, left: chartMd ? 0 : -8, bottom: chartMd ? 8 : 4 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="month"
@@ -270,30 +316,42 @@ export function DashboardHome({ data }: { data: DashboardData }) {
                     />
                     <YAxis fontSize={chartMd ? 12 : 10} width={chartMd ? 44 : 32} tickFormatter={(v) => `${v}`} />
                     <Legend wrapperStyle={{ fontSize: chartMd ? 12 : 11 }} />
-                    <Bar dataKey="invoiced" name="الفواتير" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={chartMd ? 48 : 32} />
-                    <Bar dataKey="collected" name="الأرباح" fill="#22c55e" radius={[4, 4, 0, 0]} maxBarSize={chartMd ? 48 : 32} />
+                    <Bar
+                      dataKey="invoiced"
+                      name={t("legendInvoiced")}
+                      fill="#3b82f6"
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={chartMd ? 48 : 32}
+                    />
+                    <Bar
+                      dataKey="collected"
+                      name={t("legendCollected")}
+                      fill="#22c55e"
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={chartMd ? 48 : 32}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-muted-foreground flex h-48 md:h-[300px] items-center justify-center text-sm">
-                لا توجد بيانات إيرادات بعد.
+              <p className="text-muted-foreground flex h-48 items-center justify-center text-sm md:h-[300px]">
+                {t("noRevenueYet")}
               </p>
             )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>حالة المشاريع</CardTitle>
-            <CardDescription>توزيع حسب الحالة</CardDescription>
+            <CardTitle>{t("projectStatusTitle")}</CardTitle>
+            <CardDescription>{t("projectStatusDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
-            {projectStatusCounts.length > 0 ? (
+            {chartProjectCounts.length > 0 ? (
               <div className="h-52 min-h-48 w-full min-w-0 md:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={projectStatusCounts}
+                      data={chartProjectCounts}
                       dataKey="count"
                       nameKey="label"
                       cx="50%"
@@ -302,158 +360,151 @@ export function DashboardHome({ data }: { data: DashboardData }) {
                       outerRadius="72%"
                       paddingAngle={2}
                       label={
-                        chartMd
-                          ? ({ label, count }) => `${label}: ${count}`
-                          : false
+                        chartMd ? ({ label, count }: { label: string; count: number }) => `${label}: ${count}` : false
                       }
                     >
-                      {projectStatusCounts.map((entry, index) => (
-                        <Cell
-                          key={entry.status}
-                          fill={DONUT_COLORS[entry.status] ?? "#94a3b8"}
-                        />
+                      {chartProjectCounts.map((entry) => (
+                        <Cell key={entry.status} fill={DONUT_COLORS[entry.status] ?? "#94a3b8"} />
                       ))}
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-muted-foreground flex h-48 md:h-[300px] items-center justify-center text-sm">
-                لا توجد مشاريع بعد.
+              <p className="text-muted-foreground flex h-48 items-center justify-center text-sm md:h-[300px]">
+                {t("noProjectsYet")}
               </p>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Row 3 — Lists (overdue tasks, deadlines, milestones, invoices) */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {budgetWarnings.length > 0 ? (
           <Card className="border-amber-200/80 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/20">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Budget warnings</CardTitle>
-              <CardDescription className="text-xs">
-                Spend (expenses + billable time) vs. project budget
-              </CardDescription>
+              <CardTitle className="text-base">{t("budgetWarningsTitle")}</CardTitle>
+              <CardDescription className="text-xs">{t("budgetWarningsDesc")}</CardDescription>
             </CardHeader>
             <CardContent>
               <ul className="space-y-2">
-                {budgetWarnings.map((p) => (
-                  <li key={p.id} className="flex flex-col gap-0.5 text-sm">
-                    <Link
-                      href={`/dashboard/projects/${p.id}`}
-                      className="font-medium text-primary hover:underline truncate"
-                    >
-                      {p.name}
-                    </Link>
-                    <span className="text-muted-foreground text-xs">
-                      {p.clientName ?? "—"} ·{" "}
-                      <span
-                        className={
-                          p.level === "danger" ? "text-red-600 font-medium" : "text-amber-700 dark:text-amber-400"
-                        }
+                {budgetWarnings.map((p) => {
+                  const amtOver = formatMoneyPlain(Math.abs(p.remaining), currency, locale);
+                  const amtLeft = formatMoneyPlain(p.remaining, currency, locale);
+                  const budgetLine =
+                    p.remaining < 0
+                      ? t("budgetUsedOver", {
+                          pct: p.percentUsed,
+                          amount: amtOver,
+                        })
+                      : t("budgetUsedLeft", {
+                          pct: p.percentUsed,
+                          amount: amtLeft,
+                        });
+                  return (
+                    <li key={p.id} className="flex flex-col gap-0.5 text-sm">
+                      <Link
+                        href={`/dashboard/projects/${p.id}`}
+                        className="truncate font-medium text-primary hover:underline"
                       >
-                        {p.percentUsed}% used
-                        {p.remaining < 0
-                          ? ` · ${formatCurrency(Math.abs(p.remaining), currency)} over`
-                          : ` · ${formatCurrency(p.remaining, currency)} left`}
+                        {p.name}
+                      </Link>
+                      <span className="text-muted-foreground text-xs">
+                        {p.clientName ?? "—"} ·{" "}
+                        <span
+                          className={
+                            p.level === "danger"
+                              ? "font-medium text-red-600"
+                              : "text-amber-700 dark:text-amber-400"
+                          }
+                        >
+                          {budgetLine}
+                        </span>
                       </span>
-                    </span>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </CardContent>
           </Card>
         ) : null}
         <Card>
           <CardHeader>
-            <CardTitle>المهام المتأخرة</CardTitle>
-            <CardDescription>تجاوز تاريخ الاستحقاق</CardDescription>
+            <CardTitle>{t("overdueTasksListTitle")}</CardTitle>
+            <CardDescription>{t("overdueTasksListDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             {overdueTasks.length > 0 ? (
               <ul className="space-y-2">
-                {overdueTasks.map((t) => (
-                  <li key={t.id} className="flex flex-col gap-0.5 text-sm">
+                {overdueTasks.map((task) => (
+                  <li key={task.id} className="flex flex-col gap-0.5 text-sm">
                     <Link
-                      href={`/dashboard/projects/${t.projectId}`}
+                      href={`/dashboard/projects/${task.projectId}`}
                       className="font-medium text-primary hover:underline"
                     >
-                      {t.title}
+                      {task.title}
                     </Link>
                     <span className="text-muted-foreground text-xs">
-                      {t.projectName} ·{" "}
-                      <span className="text-red-600">
-                        متأخر {t.daysOverdue} يوم
-                      </span>
+                      {task.projectName} · <span className="text-red-600">{t("daysOverdue", { days: task.daysOverdue })}</span>
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-muted-foreground text-sm">لا توجد مهام متأخرة.</p>
+              <p className="text-muted-foreground text-sm">{t("noOverdueTasks")}</p>
             )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>المواعيد القادمة</CardTitle>
-            <CardDescription>خلال 14 يوماً</CardDescription>
+            <CardTitle>{t("upcomingDeadlinesTitle")}</CardTitle>
+            <CardDescription>{t("withinDays", { days: 14 })}</CardDescription>
           </CardHeader>
           <CardContent>
             {upcomingProjects.length > 0 ? (
               <ul className="space-y-2">
                 {upcomingProjects.map((p) => (
                   <li key={p.id} className="flex flex-col gap-0.5 text-sm">
-                    <Link
-                      href={`/dashboard/projects/${p.id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
+                    <Link href={`/dashboard/projects/${p.id}`} className="font-medium text-primary hover:underline">
                       {p.name}
                     </Link>
                     <span className="text-muted-foreground text-xs">
-                      {p.clientName ?? "—"} · استحقاق {p.endDate}
+                      {t("dueDateLine", { client: p.clientName ?? "—", date: p.endDate })}
                     </span>
-                    <Badge
-                      variant="outline"
-                      className={PROJECT_STATUS_BADGE_CLASS[p.status] ?? undefined}
-                    >
-                      {PROJECT_STATUS_LABELS[p.status] ?? p.status}
+                    <Badge variant="outline" className={PROJECT_STATUS_BADGE_CLASS[p.status] ?? undefined}>
+                      {projectStatusMap[p.status] ?? p.status}
                     </Badge>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-muted-foreground text-sm">لا توجد مواعيد قادمة.</p>
+              <p className="text-muted-foreground text-sm">{t("noUpcomingDeadlines")}</p>
             )}
           </CardContent>
         </Card>
         <UpcomingMilestonesCard items={upcomingMilestones} />
         <Card>
           <CardHeader>
-            <CardTitle>أحدث الفواتير</CardTitle>
-            <CardDescription>آخر 5</CardDescription>
+            <CardTitle>{t("recentInvoicesTitle")}</CardTitle>
+            <CardDescription>{t("lastN", { n: 5 })}</CardDescription>
           </CardHeader>
           <CardContent>
             {recentInvoices.length > 0 ? (
               <ul className="space-y-2">
                 {recentInvoices.map((i) => (
                   <li key={i.id} className="flex flex-col gap-0.5 text-sm">
-                    <Link
-                      href="/dashboard/invoices"
-                      className="font-medium text-primary hover:underline"
-                    >
+                    <Link href="/dashboard/invoices" className="font-medium text-primary hover:underline">
                       {i.invoiceNumber}
                     </Link>
                     <span className="text-muted-foreground text-xs">
                       {i.clientName ?? "—"} · {formatCurrency(Number(i.total), currency)}
                     </span>
-                    <Badge variant="outline">{INVOICE_STATUS_LABELS[i.status] ?? i.status}</Badge>
+                    <Badge variant="outline">{invoiceStatusMap[i.status] ?? i.status}</Badge>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-muted-foreground text-sm">لا توجد فواتير بعد.</p>
+              <p className="text-muted-foreground text-sm">{t("noInvoicesYet")}</p>
             )}
           </CardContent>
         </Card>
@@ -461,35 +512,34 @@ export function DashboardHome({ data }: { data: DashboardData }) {
 
       <RecentActivity items={recentActivity} />
 
-      {/* Row 4 — Quick Actions */}
       <Card>
         <CardHeader>
-          <CardTitle>إجراءات سريعة</CardTitle>
+          <CardTitle>{t("quickActions")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button asChild>
               <Link href="/dashboard/projects">
                 <PlusCircle className="me-2 h-4 w-4" />
-                مشروع جديد
+                {t("newProject")}
               </Link>
             </Button>
             <Button variant="outline" asChild>
               <Link href="/dashboard/clients">
                 <PlusCircle className="me-2 h-4 w-4" />
-                عميل جديد
+                {t("newClient")}
               </Link>
             </Button>
             <Button variant="outline" asChild>
               <Link href="/dashboard/invoices">
                 <PlusCircle className="me-2 h-4 w-4" />
-                فاتورة جديدة
+                {t("newInvoice")}
               </Link>
             </Button>
             <Button variant="outline" asChild>
               <Link href="/dashboard/workspace">
                 <PlusCircle className="me-2 h-4 w-4" />
-                مهمة جديدة
+                {t("newTask")}
               </Link>
             </Button>
           </div>

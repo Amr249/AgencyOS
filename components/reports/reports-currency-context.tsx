@@ -1,14 +1,15 @@
 "use client";
 
 import * as React from "react";
+import { useLocale } from "next-intl";
 
-export type ReportsCurrency = "SAR" | "EGP";
+export type ReportsCurrency = "SAR" | "USD";
 
 type ContextValue = {
   currency: ReportsCurrency;
   setCurrency: (c: ReportsCurrency) => void;
   rate: number;
-  /** Numeric string only (no SAR/EGP suffix). Use ReportsMoney for display. */
+  /** Numeric string only (no currency suffix). Use ReportsMoney for display. */
   formatNumber: (amount: number) => string;
   /** @deprecated Prefer formatNumber + ReportsMoney */
   formatAmount: (amount: number) => string;
@@ -24,14 +25,16 @@ export function ReportsCurrencyProvider({
   rate: number;
   children: React.ReactNode;
 }) {
+  const appLocale = useLocale();
+  const numberLocale = appLocale === "ar" ? "ar-SA" : "en-US";
   const [currency, setCurrency] = React.useState<ReportsCurrency>("SAR");
-  const convertedRate = currency === "EGP" ? rate : 1;
+  const convertedRate = currency === "USD" ? rate : 1;
   const formatNumber = React.useCallback(
     (amount: number) => {
       const converted = amount * convertedRate;
-      return converted.toLocaleString("en-US", { maximumFractionDigits: 0 });
+      return converted.toLocaleString(numberLocale, { maximumFractionDigits: 0 });
     },
-    [convertedRate]
+    [convertedRate, numberLocale]
   );
   const formatAmount = React.useCallback(
     (amount: number) => formatNumber(amount),

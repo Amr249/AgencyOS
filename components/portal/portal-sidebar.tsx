@@ -42,6 +42,7 @@ export function PortalSidebar({
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
   const t = useTranslations("clientPortal");
+  const tNav = useTranslations("nav");
 
   const agencyBrand = t("agencyOs");
 
@@ -59,7 +60,7 @@ export function PortalSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              tooltip={agencyBrand}
+              tooltip={`${agencyBrand} ${tNav("betaBadge")}`}
               asChild
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
@@ -70,13 +71,19 @@ export function PortalSidebar({
               >
                 <Image
                   src="/Logo1.png"
-                  alt=""
+                  alt={`${agencyBrand} ${tNav("betaBadge")}`}
                   width={32}
                   height={32}
                   className="size-8 shrink-0 rounded-md"
                 />
-                <span className="group-data-[collapsible=icon]:hidden text-[15px] font-medium">
-                  {agencyBrand}
+                <span className="group-data-[collapsible=icon]:hidden flex min-w-0 flex-1 items-center gap-2">
+                  <span className="truncate text-[15px] font-medium">{agencyBrand}</span>
+                  <span
+                    className="shrink-0 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold leading-none text-black dark:border-neutral-700 dark:bg-white dark:text-black"
+                    title={tNav("betaBadge")}
+                  >
+                    {tNav("betaBadge")}
+                  </span>
                 </span>
               </Link>
             </SidebarMenuButton>

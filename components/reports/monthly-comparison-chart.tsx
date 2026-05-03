@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import type { TooltipProps } from "recharts";
 import { format, parseISO } from "date-fns";
-import { enUS } from "date-fns/locale";
+import { arSA, enUS } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
@@ -16,21 +17,6 @@ import {
 import { useReportsCurrency } from "@/components/reports/reports-currency-context";
 import type { MonthlyComparisonPoint } from "@/actions/reports";
 import { useMediaQuery } from "@/hooks/use-media-query";
-
-const chartConfig = {
-  revenue: {
-    label: "Revenue",
-    color: "var(--chart-1)",
-  },
-  expenses: {
-    label: "Expenses",
-    color: "var(--chart-2)",
-  },
-  profit: {
-    label: "Profit",
-    color: "var(--chart-4)",
-  },
-} satisfies ChartConfig;
 
 type ChartRow = {
   axisLabel: string;
@@ -45,24 +31,26 @@ function ComparisonTooltipBody({
   payload,
   formatNumber,
   currencySuffix,
+  labels,
 }: TooltipProps<number, string> & {
   formatNumber: (n: number) => string;
   currencySuffix: string;
+  labels: { revenue: string; expenses: string; profit: string };
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload as ChartRow | undefined;
   if (!row) return null;
   return (
-    <div className="border-border/50 bg-background grid gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
+    <div className="grid gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
       <p className="font-medium text-foreground">{row.fullMonthLabel}</p>
       <p className="text-foreground">
-        Revenue: {formatNumber(row.revenue)} {currencySuffix}
+        {labels.revenue}: {formatNumber(row.revenue)} {currencySuffix}
       </p>
       <p className="text-foreground">
-        Expenses: {formatNumber(row.expenses)} {currencySuffix}
+        {labels.expenses}: {formatNumber(row.expenses)} {currencySuffix}
       </p>
       <p className="text-foreground">
-        Profit: {formatNumber(row.profit)} {currencySuffix}
+        {labels.profit}: {formatNumber(row.profit)} {currencySuffix}
       </p>
     </div>
   );
@@ -80,32 +68,67 @@ export function MonthlyComparisonChart({
 }) {
   const { formatNumber, convertedRate, currency } = useReportsCurrency();
   const chartWide = useMediaQuery("(min-width: 640px)");
-  const currencySuffix = currency === "SAR" ? "SAR" : "EGP";
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const t = useTranslations("reports.monthlyComparison");
+  const dateLocale = isAr ? arSA : enUS;
+  const currencySuffix = currency === "SAR" ? "SAR" : "USD";
+
+  const chartConfig = React.useMemo(
+    () =>
+      ({
+        revenue: {
+          label: t("legendRevenue"),
+          color: "var(--chart-1)",
+        },
+        expenses: {
+          label: t("legendExpenses"),
+          color: "var(--chart-2)",
+        },
+        profit: {
+          label: t("legendProfit"),
+          color: "var(--chart-4)",
+        },
+      }) satisfies ChartConfig,
+    [t]
+  );
 
   const chartRows = React.useMemo((): ChartRow[] => {
     return data.map((d) => ({
       axisLabel: `${d.month} ${d.year}`,
-      fullMonthLabel: format(parseISO(`${d.monthKey}-01`), "MMMM yyyy", { locale: enUS }),
+      fullMonthLabel: format(parseISO(`${d.monthKey}-01`), "MMMM yyyy", { locale: dateLocale }),
       revenue: d.revenue * convertedRate,
       expenses: d.expenses * convertedRate,
       profit: d.profit * convertedRate,
     }));
-  }, [data, convertedRate]);
+  }, [data, convertedRate, dateLocale]);
+
+  const tooltipLabels = React.useMemo(
+    () => ({
+      revenue: t("tooltipRevenue"),
+      expenses: t("tooltipExpenses"),
+      profit: t("tooltipProfit"),
+    }),
+    [t]
+  );
 
   const tooltipRenderer = React.useCallback(
     (props: TooltipProps<number, string>) => (
-      <ComparisonTooltipBody {...props} formatNumber={formatNumber} currencySuffix={currencySuffix} />
+      <ComparisonTooltipBody
+        {...props}
+        formatNumber={formatNumber}
+        currencySuffix={currencySuffix}
+        labels={tooltipLabels}
+      />
     ),
-    [formatNumber, currencySuffix]
+    [formatNumber, currencySuffix, tooltipLabels]
   );
 
   return (
-    <Card dir="ltr" className={className}>
+    <Card dir={isAr ? "rtl" : "ltr"} className={className}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-left text-base font-semibold">Month-over-month comparison</CardTitle>
-        <p className="text-muted-foreground text-left text-sm font-normal">
-          Last 6 months — collected revenue, expenses, and profit by calendar month.
-        </p>
+        <CardTitle className="text-start text-base font-semibold">{t("title")}</CardTitle>
+        <p className="text-start text-sm font-normal text-muted-foreground">{t("subtitle")}</p>
       </CardHeader>
       <CardContent className="pt-0">
         <div className="w-full min-w-0">

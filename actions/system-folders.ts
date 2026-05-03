@@ -1,17 +1,48 @@
 "use server";
 
 import type { SQL } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getServerSession } from "next-auth";
 import { db, clients, expenses, files, folders, invoices, projects, teamMembers } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 import { r2ObjectKeyFromPublicUrl } from "@/lib/r2-public-url";
 import { createFile } from "@/actions/files";
 
 const SYSTEM_DRIVE_PREFIX = "/drive/system";
+
+/** Invalidated whenever `ensureSystemFoldersInternal` runs so Drive picks up new clients/projects/expenses. */
+const SYSTEM_FOLDER_SYNC_TAG = "system-folders";
+
+async function runSystemFolderSyncWithRetry(): Promise<void> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await runSystemFolderSync();
+      return;
+    } catch (e) {
+      last = e;
+      if (attempt < 1 && isDbConnectionError(e)) {
+        await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw last;
+}
+
+const runDriveSystemFolderSyncCached = unstable_cache(
+  async () => {
+    await runSystemFolderSyncWithRetry();
+    return true;
+  },
+  ["drive-full-system-folder-sync-v1"],
+  { revalidate: 300, tags: [SYSTEM_FOLDER_SYNC_TAG] }
+);
 
 const ROOT_DEFS = [
   { name: "Clients", systemType: "root_clients" },
@@ -190,11 +221,17 @@ export async function ensureSystemFolders(): Promise<{ ok: true } | { ok: false;
   if (!session?.user?.id || sessionUserRole(session) === "member") {
     return { ok: false, error: "forbidden" };
   }
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
   try {
-    await runSystemFolderSync();
+    await runDriveSystemFolderSyncCached();
     return { ok: true };
   } catch (e) {
-    console.error("ensureSystemFolders", e);
+    if (isDbConnectionError(e)) {
+      console.warn("ensureSystemFolders: transient database connection issue", getDbErrorKey(e));
+    } else {
+      console.error("ensureSystemFolders", e);
+    }
     if (isDbConnectionError(e)) return { ok: false, error: getDbErrorKey(e) };
     return { ok: false, error: "unknown" };
   }
@@ -203,6 +240,7 @@ export async function ensureSystemFolders(): Promise<{ ok: true } | { ok: false;
 /** Trusted internal full sync (e.g. after entity create). */
 export async function ensureSystemFoldersInternal(): Promise<void> {
   await runSystemFolderSync();
+  revalidateTag(SYSTEM_FOLDER_SYNC_TAG, "max");
 }
 
 async function runSystemFolderSync() {
@@ -398,15 +436,21 @@ async function runSystemFolderSync() {
 }
 
 export async function ensureClientFolderTreesForClient(_clientId: string): Promise<void> {
-  await runSystemFolderSync();
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return;
+  await ensureSystemFoldersInternal();
 }
 
 export async function ensureProjectFolderTreesForProject(_projectId: string): Promise<void> {
-  await runSystemFolderSync();
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return;
+  await ensureSystemFoldersInternal();
 }
 
 export async function ensureTeamMemberFolderForMember(_teamMemberId: string): Promise<void> {
-  await runSystemFolderSync();
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return;
+  await ensureSystemFoldersInternal();
 }
 
 export async function getSystemFolderForEntity(
@@ -478,6 +522,8 @@ export async function recordClientLogoInBrandFolder(
 ): Promise<void> {
   const key = r2ObjectKeyFromPublicUrl(logoUrl ?? "");
   if (!key) return;
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return;
   await ensureSystemFoldersInternal();
   const folderId = await getClientBrandFolderId(clientId);
   if (!folderId) return;
@@ -500,6 +546,8 @@ export async function recordProjectCoverInProjectFolder(
 ): Promise<void> {
   const key = r2ObjectKeyFromPublicUrl(coverUrl ?? "");
   if (!key) return;
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return;
   await ensureSystemFoldersInternal();
   const folderId = await getSystemFolderForEntity("project", projectId);
   if (!folderId) return;
@@ -525,6 +573,8 @@ export async function recordTeamAvatarInMemberFolder(
 ): Promise<void> {
   const key = r2ObjectKeyFromPublicUrl(avatarUrl ?? "");
   if (!key) return;
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return;
   await ensureSystemFoldersInternal();
   const folderId = await getSystemFolderForEntity("team_member", teamMemberId);
   if (!folderId) return;
@@ -549,6 +599,8 @@ export async function recordExpenseReceiptInCategoryFolder(
 ): Promise<void> {
   const key = r2ObjectKeyFromPublicUrl(receiptUrl ?? "");
   if (!key) return;
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return;
   await ensureSystemFoldersInternal();
   const folderId = await getExpenseSystemFolderId(category, {
     teamMemberId: category === "salaries" ? teamMemberId ?? null : null,

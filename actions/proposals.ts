@@ -6,9 +6,11 @@ import { z } from "zod";
 import { eq, and, gte, lte, ilike, desc, inArray, asc, count, notExists } from "drizzle-orm";
 import { db, proposals, proposalServices, services } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireFeature } from "@/lib/features";
 import { createClient } from "@/actions/clients";
 import { createProject } from "@/actions/projects";
 import { logActivityWithActor } from "@/actions/activity-log";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 const proposalStatusValues = [
   "applied",
@@ -92,7 +94,11 @@ async function syncProposalServices(proposalId: string, serviceIds: string[]) {
 
 export async function getProposals(filters?: ProposalFilters) {
   try {
-    const conditions = [];
+    const gate = await requireFeature("proposals");
+    if (!gate.ok) {
+      return { ok: false as const, error: gate.error };
+    }
+    const conditions = [eq(proposals.organizationId, gate.organizationId)];
     if (filters?.status && filters.status !== "all") {
       conditions.push(
         eq(proposals.status, filters.status as (typeof proposals.$inferSelect)["status"])
@@ -130,7 +136,7 @@ export async function getProposals(filters?: ProposalFilters) {
         createdAt: proposals.createdAt,
       })
       .from(proposals)
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(proposals.appliedAt), desc(proposals.createdAt));
 
     const ids = rows.map((r) => r.id);
@@ -169,7 +175,14 @@ export async function getProposals(filters?: ProposalFilters) {
 
 export async function getProposalStats() {
   try {
-    const rows = await db.select().from(proposals);
+    const gate = await requireFeature("proposals");
+    if (!gate.ok) {
+      return { ok: false as const, error: gate.error };
+    }
+    const rows = await db
+      .select()
+      .from(proposals)
+      .where(eq(proposals.organizationId, gate.organizationId));
     const total = rows.length;
     const won = rows.filter((r) => r.status === "won").length;
     const wonPercent = total > 0 ? Math.round((won / total) * 100) : 0;
@@ -201,9 +214,14 @@ export async function getProposalStats() {
 /** Last 6 months: { monthKey, monthLabel, won, total, ratio }. Status distribution: { status, count }[]. */
 export async function getProposalStatsForCharts() {
   try {
+    const gate = await requireFeature("proposals");
+    if (!gate.ok) {
+      return { ok: false as const, error: gate.error };
+    }
     const rows = await db
       .select({ appliedAt: proposals.appliedAt, status: proposals.status })
       .from(proposals)
+      .where(eq(proposals.organizationId, gate.organizationId))
       .orderBy(desc(proposals.appliedAt));
     const now = new Date();
     const months: { monthKey: string; monthLabel: string; won: number; total: number }[] = [];
@@ -245,13 +263,17 @@ export async function getProposalStatsForCharts() {
         })
         .from(proposalServices)
         .innerJoin(services, eq(proposalServices.serviceId, services.id))
+        .where(eq(services.organizationId, gate.organizationId))
         .groupBy(services.name),
       db
         .select({ n: count() })
         .from(proposals)
         .where(
-          notExists(
-            db.select().from(proposalServices).where(eq(proposalServices.proposalId, proposals.id))
+          and(
+            eq(proposals.organizationId, gate.organizationId),
+            notExists(
+              db.select().from(proposalServices).where(eq(proposalServices.proposalId, proposals.id))
+            )
           )
         ),
     ]);
@@ -291,9 +313,16 @@ export async function createProposal(input: CreateProposalInput) {
   }
   const data = parsed.data;
   try {
+    const gate = await requireFeature("proposals");
+    if (!gate.ok) {
+      return { ok: false as const, error: { _form: [gate.error] } };
+    }
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const [row] = await db
       .insert(proposals)
       .values({
+        organizationId: gate.organizationId,
         title: data.title,
         url: data.url || null,
         platform: data.platform,
@@ -337,6 +366,20 @@ export async function updateProposal(input: UpdateProposalInput) {
   }
   const { id, ...data } = parsed.data;
   try {
+    const gate = await requireFeature("proposals");
+    if (!gate.ok) {
+      return { ok: false as const, error: gate.error };
+    }
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const [owned] = await db
+      .select({ id: proposals.id })
+      .from(proposals)
+      .where(and(eq(proposals.id, id), eq(proposals.organizationId, gate.organizationId)))
+      .limit(1);
+    if (!owned) {
+      return { ok: false as const, error: "Proposal not found" };
+    }
     const updatePayload: Record<string, unknown> = {};
     if (data.title !== undefined) updatePayload.title = data.title;
     if (data.url !== undefined) updatePayload.url = data.url || null;
@@ -354,7 +397,10 @@ export async function updateProposal(input: UpdateProposalInput) {
     if (data.status !== undefined) updatePayload.status = data.status;
     if (data.appliedAt !== undefined) updatePayload.appliedAt = data.appliedAt;
     if (data.notes !== undefined) updatePayload.notes = data.notes ?? null;
-    await db.update(proposals).set(updatePayload).where(eq(proposals.id, id));
+    await db
+      .update(proposals)
+      .set(updatePayload)
+      .where(and(eq(proposals.id, id), eq(proposals.organizationId, gate.organizationId)));
     if (data.serviceIds !== undefined) {
       await syncProposalServices(id, data.serviceIds);
     }
@@ -382,10 +428,22 @@ export async function updateProposalStatus(
     return { ok: false as const, error: "Invalid id or status" };
   }
   try {
-    await db
+    const gate = await requireFeature("proposals");
+    if (!gate.ok) {
+      return { ok: false as const, error: gate.error };
+    }
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const updated = await db
       .update(proposals)
       .set({ status: parsed.data.status })
-      .where(eq(proposals.id, parsed.data.id));
+      .where(
+        and(eq(proposals.id, parsed.data.id), eq(proposals.organizationId, gate.organizationId))
+      )
+      .returning({ id: proposals.id });
+    if (updated.length === 0) {
+      return { ok: false as const, error: "Proposal not found" };
+    }
     revalidatePath("/dashboard/proposals");
     return { ok: true as const };
   } catch (e) {
@@ -406,7 +464,19 @@ export async function deleteProposal(id: string) {
     return { ok: false as const, error: "Invalid proposal id" };
   }
   try {
-    await db.delete(proposals).where(eq(proposals.id, parsed.data));
+    const gate = await requireFeature("proposals");
+    if (!gate.ok) {
+      return { ok: false as const, error: gate.error };
+    }
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const removed = await db
+      .delete(proposals)
+      .where(and(eq(proposals.id, parsed.data), eq(proposals.organizationId, gate.organizationId)))
+      .returning({ id: proposals.id });
+    if (removed.length === 0) {
+      return { ok: false as const, error: "Proposal not found" };
+    }
     revalidatePath("/dashboard/proposals");
     revalidatePath("/dashboard");
     return { ok: true as const };
@@ -429,10 +499,16 @@ export async function convertToClient(proposalId: string) {
     return { ok: false as const, error: "Invalid proposal id" };
   }
   try {
+    const gate = await requireFeature("convert_to_client");
+    if (!gate.ok) {
+      return { ok: false as const, error: gate.error };
+    }
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [proposal] = await db
       .select()
       .from(proposals)
-      .where(eq(proposals.id, parsed.data));
+      .where(and(eq(proposals.id, parsed.data), eq(proposals.organizationId, gate.organizationId)));
     if (!proposal) {
       return { ok: false as const, error: "Proposal not found" };
     }
@@ -472,7 +548,9 @@ export async function convertToClient(proposalId: string) {
         projectId: newProject.id,
         status: "won",
       })
-      .where(eq(proposals.id, parsed.data));
+      .where(
+        and(eq(proposals.id, parsed.data), eq(proposals.organizationId, gate.organizationId))
+      );
     await logActivityWithActor({
       entityType: "client",
       entityId: newClient.id,

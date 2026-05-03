@@ -5,6 +5,7 @@ import { IBM_Plex_Sans, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import Providers from "@/components/providers";
+import { getAppSiteUrl } from "@/lib/app-site-url";
 import { cn } from "@/lib/utils";
 
 const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
@@ -19,14 +20,7 @@ const ibmPlexSans = IBM_Plex_Sans({
   variable: "--font-latin",
 });
 
-/** Production site URL for metadata and absolute asset resolution (Vercel sets VERCEL_URL). */
-const siteUrl =
-  process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
-  process.env.APP_URL?.trim().replace(/\/$/, "") ||
-  (process.env.VERCEL_URL?.trim()
-    ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}`
-    : "") ||
-  "https://agencyos.pixlesa.com";
+const siteUrl = getAppSiteUrl();
 
 export const metadata: Metadata = {
   metadataBase: new URL(`${siteUrl.replace(/\/$/, "")}/`),

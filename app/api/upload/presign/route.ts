@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
+import { getCachedOrganization } from "@/lib/org-snapshot";
+import { isTrialExpired } from "@/lib/trial";
 import { getPresignedUploadUrl, getPublicUrl, isR2Configured } from "@/lib/r2";
 import { buildUploadStorageKey, isValidUploadScope } from "@/lib/r2-scopes";
+import { assertStorageAllowsBytes, STORAGE_LIMIT_ERROR } from "@/lib/usage";
 
 const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
@@ -26,9 +29,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
 
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const orgId = session.user.organizationId;
+  if (!orgId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const role = sessionUserRole(session);
+  if (role !== "admin" && role !== "member") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const org = await getCachedOrganization(orgId);
+  if (org && isTrialExpired(org)) {
+    return NextResponse.json({ error: "trial_expired" }, { status: 403 });
+  }
+  if (!org?.slug) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 400 });
+  }
+
   const scopeRaw = str(formData, "scope") ?? "client-logo";
   if (scopeRaw === "ai-chat") {
-    const session = await getServerSession(authOptions);
     if (sessionUserRole(session) !== "admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -51,6 +74,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `File too large (max ${MAX_FILE_BYTES / (1024 * 1024)} MB)` }, { status: 400 });
   }
 
+  try {
+    await assertStorageAllowsBytes(orgId, sizeBytes);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === STORAGE_LIMIT_ERROR || msg.includes("Storage limit")) {
+      return NextResponse.json({ error: STORAGE_LIMIT_ERROR }, { status: 413 });
+    }
+    throw e;
+  }
+
   const mimeType = str(formData, "mimeType") ?? "application/octet-stream";
   const keyInput = {
     entityId: str(formData, "entityId"),
@@ -64,7 +97,7 @@ export async function POST(request: Request) {
 
   let key: string;
   try {
-    key = buildUploadStorageKey(scopeRaw, keyInput, filename);
+    key = buildUploadStorageKey(scopeRaw, keyInput, filename, org.slug);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Invalid upload parameters";
     return NextResponse.json({ error: msg }, { status: 400 });

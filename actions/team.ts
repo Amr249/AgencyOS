@@ -6,6 +6,8 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teamMembers, projectMembers, projects, clients, expenses } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireAgencyOrganization } from "@/lib/org-session";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 import { ensureSystemFoldersInternal, recordTeamAvatarInMemberFolder } from "@/actions/system-folders";
 
 const statusValues = ["active", "inactive"] as const;
@@ -51,6 +53,7 @@ export async function getTeamMembers(): Promise<
   { ok: true; data: TeamMemberWithProjectCount[] } | { ok: false; error: string }
 > {
   try {
+    const ctx = await requireAgencyOrganization();
     const rows = await db
       .select({
         id: teamMembers.id,
@@ -64,6 +67,7 @@ export async function getTeamMembers(): Promise<
         createdAt: teamMembers.createdAt,
       })
       .from(teamMembers)
+      .where(eq(teamMembers.organizationId, ctx.organizationId))
       .orderBy(desc(teamMembers.createdAt));
 
     const counts = await db
@@ -72,6 +76,8 @@ export async function getTeamMembers(): Promise<
         count: sql<number>`count(*)::int`,
       })
       .from(projectMembers)
+      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+      .where(eq(projects.organizationId, ctx.organizationId))
       .groupBy(projectMembers.teamMemberId);
 
     const countMap = new Map(counts.map((c) => [c.teamMemberId, c.count]));
@@ -103,7 +109,11 @@ export async function getTeamMemberById(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
-    const [row] = await db.select().from(teamMembers).where(eq(teamMembers.id, parsed.data));
+    const ctx = await requireAgencyOrganization();
+    const [row] = await db
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.id, parsed.data), eq(teamMembers.organizationId, ctx.organizationId)));
     if (!row) return { ok: false as const, error: "Team member not found" };
     return {
       ok: true as const,
@@ -135,9 +145,13 @@ export async function createTeamMember(input: CreateTeamMemberInput) {
   }
   const data = parsed.data;
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const ctx = await requireAgencyOrganization();
     const [row] = await db
       .insert(teamMembers)
       .values({
+        organizationId: ctx.organizationId,
         name: data.name,
         role: data.role ?? null,
         email: data.email && data.email !== "" ? data.email : null,
@@ -183,10 +197,13 @@ export async function updateTeamMember(input: UpdateTeamMemberInput) {
     return { ok: false as const, error: "No fields to update" };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const ctx = await requireAgencyOrganization();
     const [row] = await db
       .update(teamMembers)
       .set(payload as typeof teamMembers.$inferInsert)
-      .where(eq(teamMembers.id, id))
+      .where(and(eq(teamMembers.id, id), eq(teamMembers.organizationId, ctx.organizationId)))
       .returning();
     if (!row) return { ok: false as const, error: "Team member not found" };
     if (data.avatarUrl !== undefined && row.avatarUrl) {
@@ -213,6 +230,8 @@ export async function deleteTeamMember(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid id" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [row] = await db.delete(teamMembers).where(eq(teamMembers.id, parsed.data)).returning();
     if (!row) return { ok: false as const, error: "Team member not found" };
     revalidatePath("/dashboard/team");
@@ -236,6 +255,8 @@ export async function assignMemberToProject(
   const parsed = assignMemberSchema.safeParse({ projectId, teamMemberId, roleOnProject });
   if (!parsed.success) return { ok: false as const, error: "Invalid input" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const existing = await db
       .select()
       .from(projectMembers)
@@ -277,6 +298,21 @@ export async function removeMemberFromProject(projectId: string, teamMemberId: s
   });
   if (!parsed.success) return { ok: false as const, error: "Invalid input" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const [projOk] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, parsed.data.projectId), eq(projects.organizationId, orgId)))
+      .limit(1);
+    const [memberOk] = await db
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.id, parsed.data.teamMemberId), eq(teamMembers.organizationId, orgId)))
+      .limit(1);
+    if (!projOk || !memberOk) return { ok: false as const, error: "Invalid project or team member" };
     await db
       .delete(projectMembers)
       .where(
@@ -316,6 +352,8 @@ export async function getProjectMembers(projectId: string) {
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const rows = await db
       .select({
         id: projectMembers.id,
@@ -333,7 +371,13 @@ export async function getProjectMembers(projectId: string) {
       .from(projectMembers)
       .innerJoin(projects, eq(projectMembers.projectId, projects.id))
       .innerJoin(clients, eq(projects.clientId, clients.id))
-      .where(eq(projectMembers.projectId, parsed.data));
+      .where(
+        and(
+          eq(projectMembers.projectId, parsed.data),
+          eq(projects.organizationId, orgId),
+          eq(clients.organizationId, orgId)
+        )
+      );
 
     const data: ProjectMemberRow[] = rows.map((r) => ({
       id: r.id,
@@ -363,6 +407,8 @@ export async function getMemberProjects(teamMemberId: string) {
   const parsed = z.string().uuid().safeParse(teamMemberId);
   if (!parsed.success) return { ok: false as const, error: "Invalid team member id" };
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const rows = await db
       .select({
         id: projectMembers.id,
@@ -380,7 +426,15 @@ export async function getMemberProjects(teamMemberId: string) {
       .from(projectMembers)
       .innerJoin(projects, eq(projectMembers.projectId, projects.id))
       .innerJoin(clients, eq(projects.clientId, clients.id))
-      .where(eq(projectMembers.teamMemberId, parsed.data))
+      .innerJoin(teamMembers, eq(projectMembers.teamMemberId, teamMembers.id))
+      .where(
+        and(
+          eq(projectMembers.teamMemberId, parsed.data),
+          eq(projects.organizationId, orgId),
+          eq(clients.organizationId, orgId),
+          eq(teamMembers.organizationId, orgId)
+        )
+      )
       .orderBy(desc(projectMembers.assignedAt));
 
     const data: ProjectMemberRow[] = rows.map((r) => ({

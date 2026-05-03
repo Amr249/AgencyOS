@@ -6,7 +6,10 @@ import {
   getProposalStatsForCharts,
 } from "@/actions/proposals";
 import { getServices } from "@/actions/services";
+import { FeatureUpgradeCard } from "@/components/feature-upgrade-card";
 import { ProposalsListView } from "@/components/modules/proposals/proposals-list-view";
+import { hasFeature } from "@/lib/features";
+import { requireAgencyOrganization } from "@/lib/org-session";
 
 export const metadata: Metadata = {
   title: "Proposals",
@@ -18,6 +21,16 @@ type PageProps = {
 };
 
 export default async function ProposalsPage({ searchParams }: PageProps) {
+  const ctx = await requireAgencyOrganization();
+  const allowed = await hasFeature(ctx.organizationId, "proposals");
+  if (!allowed) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center p-4">
+        <FeatureUpgradeCard variant="proposals" />
+      </div>
+    );
+  }
+
   const { status, dateRange, search } = await searchParams;
   const [listResult, statsResult, chartsResult, servicesResult] = await Promise.all([
     getProposals({

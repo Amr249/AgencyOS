@@ -3,7 +3,7 @@
 import { useReportsCurrency } from "@/components/reports/reports-currency-context";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 
-/** Riyal amounts with icon when SAR; plain number + EGP when EGP. */
+/** Riyal amounts with icon when SAR; formatted amount + USD when USD. */
 export function ReportsMoney({
   amount,
   iconClassName,
@@ -13,8 +13,12 @@ export function ReportsMoney({
 }) {
   const { formatNumber, currency } = useReportsCurrency();
   const text = formatNumber(amount);
-  if (currency === "EGP") {
-    return <span className="tabular-nums">{text} EGP</span>;
+  if (currency === "USD") {
+    return (
+      <span className="tabular-nums" dir="ltr">
+        {text} USD
+      </span>
+    );
   }
   return (
     <span className="inline-flex items-center gap-1 tabular-nums" dir="ltr">

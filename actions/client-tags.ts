@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { clientTagAssignments, clientTags, clients } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 const tagColorValues = ["blue", "green", "red", "purple", "orange", "gray"] as const;
 
@@ -45,6 +46,8 @@ export async function createTag(input: z.input<typeof createTagSchema>) {
     return { ok: false as const, error: { name: ["Name is required"] } as Record<string, string[]> };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const [row] = await db
       .insert(clientTags)
       .values({ name, color: parsed.data.color })
@@ -74,6 +77,8 @@ export async function updateTag(input: z.input<typeof updateTagSchema>) {
     return { ok: false as const, error: { _form: ["Nothing to update"] } };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const patch: { name?: string; color?: string } = {};
     if (rest.name !== undefined) patch.name = rest.name.trim();
     if (rest.color !== undefined) patch.color = rest.color;
@@ -101,6 +106,8 @@ export async function setClientTags(clientId: string, tagIds: string[]) {
   }
   const uniqueIds = [...new Set(idsParsed.data)];
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, clientParsed.data)).limit(1);
     if (!c) return { ok: false as const, error: "Client not found" };
     if (uniqueIds.length > 0) {
@@ -132,6 +139,8 @@ export async function deleteTag(id: string) {
   const parsed = tagIdSchema.safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid tag id" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [row] = await db.delete(clientTags).where(eq(clientTags.id, parsed.data)).returning();
     if (!row) return { ok: false as const, error: "Tag not found" };
     revalidateClientPaths();
@@ -163,6 +172,8 @@ export async function assignTagToClient(input: z.input<typeof assignSchema>) {
   }
   const { clientId, tagId } = parsed.data;
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, clientId)).limit(1);
     if (!c) return { ok: false as const, error: "Client not found" };
     const [t] = await db.select({ id: clientTags.id }).from(clientTags).where(eq(clientTags.id, tagId)).limit(1);
@@ -190,6 +201,8 @@ export async function removeTagFromClient(input: z.input<typeof assignSchema>) {
   }
   const { clientId, tagId } = parsed.data;
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     await db
       .delete(clientTagAssignments)
       .where(

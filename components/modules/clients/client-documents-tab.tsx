@@ -211,6 +211,7 @@ export function ClientDocumentsTab({ clientId, initialDocuments }: ClientDocumen
         r2Key: res.key,
         mimeType: res.mimeType ?? null,
         sizeBytes: res.size ?? pickedFile.size ?? null,
+        skipStorageAccount: true,
         clientId,
         documentType: pickType,
         description: description.trim() ? description.trim() : null,

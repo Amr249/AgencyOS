@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
-import { isR2Configured, uploadToR2 } from "@/lib/r2";
-import {
-  buildUploadStorageKey,
-  isValidUploadScope,
-} from "@/lib/r2-scopes";
+import { getCachedOrganization } from "@/lib/org-snapshot";
+import { isTrialExpired } from "@/lib/trial";
+import { deleteFromR2, isR2Configured, uploadToR2 } from "@/lib/r2";
+import { buildUploadStorageKey, isValidUploadScope } from "@/lib/r2-scopes";
+import { addStorageUsage, assertStorageAllowsBytes, STORAGE_LIMIT_ERROR } from "@/lib/usage";
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
@@ -36,20 +35,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
 
-  const file = formData.get("file");
-  const scopeRaw = str(formData, "scope") ?? "client-logo";
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const orgId = session.user.organizationId;
+  if (!orgId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const role = sessionUserRole(session);
+  if (role !== "admin" && role !== "member") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-  if (scopeRaw === "ai-chat") {
-    const session = await getServerSession(authOptions);
-    if (sessionUserRole(session) !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+  const org = await getCachedOrganization(orgId);
+  if (org && isTrialExpired(org)) {
+    return NextResponse.json({ error: "trial_expired" }, { status: 403 });
+  }
+  if (!org?.slug) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 400 });
+  }
+
+  const scopeRaw = str(formData, "scope") ?? "client-logo";
+  if (scopeRaw === "ai-chat" && session.user.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (!isValidUploadScope(scopeRaw)) {
     return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
   }
 
+  const file = formData.get("file");
   if (!file || !(file instanceof File)) {
     return NextResponse.json({ error: "Missing or invalid file" }, { status: 400 });
   }
@@ -65,6 +81,16 @@ export async function POST(request: Request) {
     );
   }
 
+  try {
+    await assertStorageAllowsBytes(orgId, file.size);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === STORAGE_LIMIT_ERROR || msg.includes("Storage limit")) {
+      return NextResponse.json({ error: STORAGE_LIMIT_ERROR }, { status: 413 });
+    }
+    throw e;
+  }
+
   const keyInput = {
     entityId: str(formData, "entityId"),
     folderId: str(formData, "folderId"),
@@ -77,9 +103,9 @@ export async function POST(request: Request) {
 
   let key: string;
   try {
-    key = buildUploadStorageKey(scopeRaw, keyInput, file.name);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Invalid upload parameters";
+    key = buildUploadStorageKey(scopeRaw, keyInput, file.name, org.slug);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid upload parameters";
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
@@ -89,6 +115,16 @@ export async function POST(request: Request) {
 
   try {
     const { url } = await uploadToR2(buffer, key, contentType);
+    try {
+      await addStorageUsage(orgId, file.size);
+    } catch (e) {
+      await deleteFromR2(key).catch(() => {});
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === STORAGE_LIMIT_ERROR || msg.includes("Storage limit")) {
+        return NextResponse.json({ error: STORAGE_LIMIT_ERROR }, { status: 413 });
+      }
+      throw e;
+    }
     const name = file.name;
     const size = file.size;
     const mimeType = contentType;

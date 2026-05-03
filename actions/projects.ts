@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { differenceInCalendarDays, parseISO, startOfDay } from "date-fns";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
 import { eq, isNull, and, sql, asc, desc, inArray, gt } from "drizzle-orm";
-import { db, projects, clients, phases, tasks, projectMembers, expenses, timeLogs } from "@/lib/db";
+import { db, projects, clients, phases, tasks, projectMembers, expenses, timeLogs, teamMembers } from "@/lib/db";
+import { getRequiredSession } from "@/lib/session";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
-import { authOptions } from "@/lib/auth";
 import { assertAdminSession, sessionUserRole } from "@/lib/auth-helpers";
 import { getMemberProjectIdsForUser, memberHasProjectAccess } from "@/lib/member-context";
 import { syncProjectServices } from "@/actions/project-services";
@@ -41,9 +41,32 @@ export async function createProject(input: CreateProjectInput) {
   }
   const data = parsed.data;
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const orgId = gate.session.user.organizationId;
+    const [clientRow] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(and(eq(clients.id, data.clientId), eq(clients.organizationId, orgId)))
+      .limit(1);
+    if (!clientRow) {
+      return { ok: false as const, error: { _form: ["Client not found"] } };
+    }
+    if (data.teamMemberIds?.length) {
+      const memberRows = await db
+        .select({ id: teamMembers.id })
+        .from(teamMembers)
+        .where(
+          and(inArray(teamMembers.id, data.teamMemberIds), eq(teamMembers.organizationId, orgId))
+        );
+      if (memberRows.length !== new Set(data.teamMemberIds).size) {
+        return { ok: false as const, error: { _form: ["Invalid team member selection"] } };
+      }
+    }
     const [row] = await db
       .insert(projects)
       .values({
+        organizationId: orgId,
         name: data.name,
         clientId: data.clientId,
         status: data.status,
@@ -109,12 +132,25 @@ export async function updateProject(input: UpdateProjectInput) {
   if (!gate.ok) {
     return { ok: false as const, error: { _form: ["Forbidden"] } };
   }
+  const orgId = gate.session.user.organizationId;
   const parsed = updateProjectSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   }
   const { id, ...data } = parsed.data;
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    if (data.clientId !== undefined) {
+      const [targetClient] = await db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(and(eq(clients.id, data.clientId), eq(clients.organizationId, orgId)))
+        .limit(1);
+      if (!targetClient) {
+        return { ok: false as const, error: { _form: ["Client not found"] } };
+      }
+    }
     const updatePayload: Record<string, unknown> = {};
     if (data.name !== undefined) updatePayload.name = data.name;
     if (data.clientId !== undefined) updatePayload.clientId = data.clientId;
@@ -129,7 +165,7 @@ export async function updateProject(input: UpdateProjectInput) {
     const [row] = await db
       .update(projects)
       .set(updatePayload as typeof projects.$inferInsert)
-      .where(eq(projects.id, id))
+      .where(and(eq(projects.id, id), eq(projects.organizationId, orgId)))
       .returning();
     if (!row) {
       return { ok: false as const, error: { _form: ["Project not found"] } };
@@ -173,15 +209,18 @@ export async function updateProjectNotes(projectId: string, notes: string | null
   if (!gate.ok) {
     return { ok: false as const, error: "Forbidden" };
   }
+  const orgId = gate.session.user.organizationId;
   const idParsed = z.string().uuid().safeParse(projectId);
   if (!idParsed.success) {
     return { ok: false as const, error: "Invalid project id" };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [row] = await db
       .update(projects)
       .set({ notes: notes ?? null })
-      .where(eq(projects.id, idParsed.data))
+      .where(and(eq(projects.id, idParsed.data), eq(projects.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: "Project not found" };
     revalidatePath(`/dashboard/projects/${projectId}`);
@@ -200,20 +239,25 @@ export async function deleteProject(id: string) {
   if (!gate.ok) {
     return { ok: false as const, error: "Forbidden" };
   }
+  const orgId = gate.session.user.organizationId;
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) {
     return { ok: false as const, error: "Invalid project id" };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [existing] = await db
       .select({ name: projects.name })
       .from(projects)
-      .where(eq(projects.id, parsed.data))
+      .where(and(eq(projects.id, parsed.data), eq(projects.organizationId, orgId)))
       .limit(1);
     if (!existing) {
       return { ok: false as const, error: "Project not found" };
     }
-    await db.delete(projects).where(eq(projects.id, parsed.data));
+    await db
+      .delete(projects)
+      .where(and(eq(projects.id, parsed.data), eq(projects.organizationId, orgId)));
     await logActivityWithActor({
       entityType: "project",
       entityId: parsed.data,
@@ -240,12 +284,17 @@ export async function deleteProjects(ids: string[]) {
   if (!gate.ok) {
     return { ok: false as const, error: "Forbidden" };
   }
+  const orgId = gate.session.user.organizationId;
   const parsed = z.array(z.string().uuid()).safeParse(ids);
   if (!parsed.success || ids.length === 0) {
     return { ok: false as const, error: "Invalid project ids" };
   }
   try {
-    await db.delete(projects).where(inArray(projects.id, parsed.data));
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    await db
+      .delete(projects)
+      .where(and(inArray(projects.id, parsed.data), eq(projects.organizationId, orgId)));
     revalidatePath("/dashboard/projects");
     revalidatePath("/dashboard");
     return { ok: true as const };
@@ -267,15 +316,12 @@ export async function getProjects(filters?: {
   search?: string;
 }) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
+    const session = await getRequiredSession();
+    const userId = session.user.id;
     const role = sessionUserRole(session);
-    if (!userId) return { ok: false as const, error: "Unauthorized" };
-    if (role !== "admin" && role !== "member") {
-      return { ok: false as const, error: "Forbidden" };
-    }
+    const orgId = session.user.organizationId;
 
-    const conditions = [isNull(projects.deletedAt)];
+    const conditions = [isNull(projects.deletedAt), eq(projects.organizationId, orgId), eq(clients.organizationId, orgId)];
     if (role === "member") {
       const memberIds = await getMemberProjectIdsForUser(userId);
       if (memberIds.length === 0) {
@@ -331,13 +377,10 @@ export async function getProjectsByClientId(clientId: string) {
     return { ok: false as const, error: "Invalid client id" };
   }
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
+    const session = await getRequiredSession();
+    const userId = session.user.id;
     const role = sessionUserRole(session);
-    if (!userId) return { ok: false as const, error: "Unauthorized" };
-    if (role !== "admin" && role !== "member") {
-      return { ok: false as const, error: "Forbidden" };
-    }
+    const orgId = session.user.organizationId;
 
     const memberProjectIds =
       role === "member" ? await getMemberProjectIdsForUser(userId) : null;
@@ -348,6 +391,8 @@ export async function getProjectsByClientId(clientId: string) {
     const byClientConditions = [
       eq(projects.clientId, parsed.data),
       isNull(projects.deletedAt),
+      eq(projects.organizationId, orgId),
+      eq(clients.organizationId, orgId),
     ];
     if (memberProjectIds && memberProjectIds.length > 0) {
       byClientConditions.push(inArray(projects.id, memberProjectIds));
@@ -386,6 +431,8 @@ export async function getProjectsByClientId(clientId: string) {
 export async function getProjectTaskCounts(projectIds: string[]) {
   if (projectIds.length === 0) return { ok: true as const, data: {} as Record<string, { total: number; done: number }> };
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const result = await db
       .select({
         projectId: tasks.projectId,
@@ -393,7 +440,13 @@ export async function getProjectTaskCounts(projectIds: string[]) {
         done: sql<number>`count(*) filter (where ${tasks.status} = 'done')::int`,
       })
       .from(tasks)
-      .where(and(inArray(tasks.projectId, projectIds), isNull(tasks.deletedAt)))
+      .where(
+        and(
+          inArray(tasks.projectId, projectIds),
+          isNull(tasks.deletedAt),
+          eq(tasks.organizationId, orgId)
+        )
+      )
       .groupBy(tasks.projectId);
     const map: Record<string, { total: number; done: number }> = {};
     for (const id of projectIds) map[id] = { total: 0, done: 0 };
@@ -416,6 +469,9 @@ export async function getProjectById(id: string) {
     return { ok: false as const, error: "Invalid project id" };
   }
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
+    const uid = session.user.id;
     const [row] = await db
       .select({
         project: projects,
@@ -424,13 +480,17 @@ export async function getProjectById(id: string) {
       })
       .from(projects)
       .innerJoin(clients, eq(projects.clientId, clients.id))
-      .where(eq(projects.id, parsed.data));
+      .where(
+        and(
+          eq(projects.id, parsed.data),
+          eq(projects.organizationId, orgId),
+          eq(clients.organizationId, orgId)
+        )
+      );
     if (!row || row.project.deletedAt) {
       return { ok: false as const, error: "Project not found" };
     }
 
-    const session = await getServerSession(authOptions);
-    const uid = session?.user?.id;
     if (sessionUserRole(session) === "member" && uid) {
       const allowed = await memberHasProjectAccess(uid, parsed.data);
       if (!allowed) {
@@ -531,10 +591,11 @@ export async function getProjectBudgetSummary(projectId: string) {
   const parsed = z.string().uuid().safeParse(projectId);
   if (!parsed.success) return { ok: false as const, error: "Invalid project id" };
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getRequiredSession();
     if (sessionUserRole(session) !== "admin") {
       return { ok: false as const, error: "Forbidden" };
     }
+    const orgId = session.user.organizationId;
 
     const [proj] = await db
       .select({
@@ -543,7 +604,7 @@ export async function getProjectBudgetSummary(projectId: string) {
         endDate: projects.endDate,
       })
       .from(projects)
-      .where(eq(projects.id, parsed.data))
+      .where(and(eq(projects.id, parsed.data), eq(projects.organizationId, orgId)))
       .limit(1);
     if (!proj) return { ok: false as const, error: "Project not found" };
 
@@ -555,7 +616,7 @@ export async function getProjectBudgetSummary(projectId: string) {
     const [expRow] = await db
       .select({ total: sql<string>`COALESCE(SUM(${expenses.amount}), 0)` })
       .from(expenses)
-      .where(eq(expenses.projectId, parsed.data));
+      .where(and(eq(expenses.projectId, parsed.data), eq(expenses.organizationId, orgId)));
     const expensesTotal = Math.round(parseFloat(expRow?.total || "0") * 100) / 100;
 
     const logs = await db
@@ -659,9 +720,19 @@ export async function updatePhaseStatus(
 ) {
   const gate = await assertAdminSession();
   if (!gate.ok) return { ok: false as const, error: "Forbidden" };
+  const orgId = gate.session.user.organizationId;
   const idParsed = z.string().uuid().safeParse(phaseId);
   if (!idParsed.success) return { ok: false as const, error: "Invalid phase id" };
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const [scoped] = await db
+      .select({ id: phases.id })
+      .from(phases)
+      .innerJoin(projects, eq(phases.projectId, projects.id))
+      .where(and(eq(phases.id, idParsed.data), eq(projects.organizationId, orgId)))
+      .limit(1);
+    if (!scoped) return { ok: false as const, error: "Phase not found" };
     const [row] = await db
       .update(phases)
       .set({ status })

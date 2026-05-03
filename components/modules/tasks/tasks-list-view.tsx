@@ -26,16 +26,9 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SortableDataTable, type TableColumnFilterMeta } from "@/components/ui/sortable-data-table";
-import {
-  TASK_STATUS_LABELS_EN,
-  TASK_STATUS_LABELS,
-  TASK_STATUS_BADGE_CLASS,
-  TASK_PRIORITY_LABELS_EN,
-  TASK_PRIORITY_LABELS,
-  TASK_PRIORITY_BADGE_CLASS,
-  isTaskOverdue,
-} from "@/types";
+import { TASK_STATUS_BADGE_CLASS, TASK_PRIORITY_BADGE_CLASS, isTaskOverdue } from "@/types";
 import { cn } from "@/lib/utils";
+import { useLocale, useTranslations } from "next-intl";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { toast } from "sonner";
 import type { TaskWithProject } from "@/actions/tasks";
@@ -50,83 +43,87 @@ const TASK_PRIORITY_VALUES = ["low", "medium", "high", "urgent"] as const;
 type TaskStatusValue = (typeof TASK_STATUS_VALUES)[number];
 type TaskPriorityValue = (typeof TASK_PRIORITY_VALUES)[number];
 
-const TASKS_LIST_AR = {
-  searchByName: "البحث باسم المهمة",
-  task: "المهمة",
-  project: "المشروع",
-  priority: "الأولوية",
-  status: "الحالة",
-  dueDate: "تاريخ الاستحقاق",
-  assignees: "المعينون",
-  allProjects: "جميع المشاريع",
-  allPriorities: "جميع الأولويات",
-  allStatuses: "جميع الحالات",
-  overdueSuffix: " (متأخرة)",
-  edit: "تعديل",
-  delete: "حذف",
-  clearDate: "مسح التاريخ",
-  assignTeamMembers: "تعيين أعضاء الفريق",
-  noTeamMembersAvailable: "لا يوجد أعضاء فريق متاحون.",
-  manageAssigneesAria: "إدارة المعينين",
-  priorityAria: "الأولوية",
-  statusAria: "الحالة",
-  noTasksFound: "لا توجد مهام.",
-  couldNotUpdatePriority: "تعذّر تحديث الأولوية",
-  couldNotUpdateStatus: "تعذّر تحديث الحالة",
-  couldNotUpdateDueDate: "تعذّر تحديث تاريخ الاستحقاق",
-  couldNotUpdateAssignees: "تعذّر تحديث المعينين",
-  defaultView: "العرض الافتراضي",
-  saveView: "حفظ العرض",
-  deleteView: "حذف العرض",
-  savedViewPlaceholder: "العروض المحفوظة",
-  columns: "الأعمدة",
-  noSorting: "بدون ترتيب",
-  sortPlaceholder: "ترتيب",
-  sortedBy: "مرتب حسب:",
-  clearSortAria: "إزالة الترتيب",
-  previous: "السابق",
-  next: "التالي",
-} as const;
+type TasksListLabels = {
+  searchByName: string;
+  task: string;
+  project: string;
+  priority: string;
+  status: string;
+  dueDate: string;
+  assignees: string;
+  allProjects: string;
+  allPriorities: string;
+  allStatuses: string;
+  overdueSuffix: string;
+  edit: string;
+  delete: string;
+  clearDate: string;
+  assignTeamMembers: string;
+  noTeamMembersAvailable: string;
+  manageAssigneesAria: string;
+  priorityAria: string;
+  statusAria: string;
+  noTasksFound: string;
+  couldNotUpdatePriority: string;
+  couldNotUpdateStatus: string;
+  couldNotUpdateDueDate: string;
+  couldNotUpdateAssignees: string;
+  defaultView: string;
+  saveView: string;
+  deleteView: string;
+  savedViewPlaceholder: string;
+  columns: string;
+  noSorting: string;
+  sortPlaceholder: string;
+  sortedBy: string;
+  clearSortAria: string;
+  previous: string;
+  next: string;
+};
 
-const TASKS_LIST_EN = {
-  searchByName: "Search by task name",
-  task: "Task",
-  project: "Project",
-  priority: "Priority",
-  status: "Status",
-  dueDate: "Due Date",
-  assignees: "Assignees",
-  allProjects: "All projects",
-  allPriorities: "All priorities",
-  allStatuses: "All statuses",
-  overdueSuffix: " (overdue)",
-  edit: "Edit",
-  delete: "Delete",
-  clearDate: "Clear date",
-  assignTeamMembers: "Assign team members",
-  noTeamMembersAvailable: "No team members available.",
-  manageAssigneesAria: "Manage assignees",
-  priorityAria: "Priority",
-  statusAria: "Status",
-  noTasksFound: "No tasks found.",
-  couldNotUpdatePriority: "Could not update priority",
-  couldNotUpdateStatus: "Could not update status",
-  couldNotUpdateDueDate: "Could not update due date",
-  couldNotUpdateAssignees: "Could not update assignees",
-  defaultView: "Default view",
-  saveView: "Save view",
-  deleteView: "Delete view",
-  savedViewPlaceholder: "Saved view",
-  columns: "Columns",
-  noSorting: "No sorting",
-  sortPlaceholder: "Sort",
-  sortedBy: "Sorted by:",
-  clearSortAria: "Clear sort",
-  previous: "Previous",
-  next: "Next",
-} as const;
-
-type TasksListLabels = typeof TASKS_LIST_EN | typeof TASKS_LIST_AR;
+function useTasksListLabels(): TasksListLabels {
+  const tw = useTranslations("tasks.workspaceTable");
+  return React.useMemo(
+    () => ({
+      searchByName: tw("searchByName"),
+      task: tw("task"),
+      project: tw("project"),
+      priority: tw("priority"),
+      status: tw("status"),
+      dueDate: tw("dueDate"),
+      assignees: tw("assignees"),
+      allProjects: tw("allProjects"),
+      allPriorities: tw("allPriorities"),
+      allStatuses: tw("allStatuses"),
+      overdueSuffix: tw("overdueSuffix"),
+      edit: tw("edit"),
+      delete: tw("delete"),
+      clearDate: tw("clearDate"),
+      assignTeamMembers: tw("assignTeamMembers"),
+      noTeamMembersAvailable: tw("noTeamMembersAvailable"),
+      manageAssigneesAria: tw("manageAssigneesAria"),
+      priorityAria: tw("priorityAria"),
+      statusAria: tw("statusAria"),
+      noTasksFound: tw("noTasksFound"),
+      couldNotUpdatePriority: tw("couldNotUpdatePriority"),
+      couldNotUpdateStatus: tw("couldNotUpdateStatus"),
+      couldNotUpdateDueDate: tw("couldNotUpdateDueDate"),
+      couldNotUpdateAssignees: tw("couldNotUpdateAssignees"),
+      defaultView: tw("defaultView"),
+      saveView: tw("saveView"),
+      deleteView: tw("deleteView"),
+      savedViewPlaceholder: tw("savedViewPlaceholder"),
+      columns: tw("columns"),
+      noSorting: tw("noSorting"),
+      sortPlaceholder: tw("sortPlaceholder"),
+      sortedBy: tw("sortedBy"),
+      clearSortAria: tw("clearSortAria"),
+      previous: tw("previous"),
+      next: tw("next"),
+    }),
+    [tw]
+  );
+}
 
 function formatDate(d: string | null, locale = "en-US") {
   if (!d) return "—";
@@ -576,13 +573,47 @@ export function TasksListView({
   memberView = false,
   memberCanEdit = false,
 }: TasksListViewProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const uiLabels = useTasksListLabels();
+  const tt = useTranslations("tasks");
+  const twPag = useTranslations("tasks.workspaceTable");
   const editable = !memberView;
   const editableStatusPriority = editable || memberCanEdit;
-  const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
-  const priorityLabels = memberView ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
-  const uiLabels: TasksListLabels = memberView ? TASKS_LIST_AR : TASKS_LIST_EN;
-  const popoverDir: "ltr" | "rtl" = memberView ? "rtl" : "ltr";
-  const dateLocale = memberView ? "ar-EG" : "en-US";
+  const statusLabels = React.useMemo(
+    () => ({
+      todo: tt("taskStatusTodo"),
+      in_progress: tt("taskStatusInProgress"),
+      in_review: tt("taskStatusInReview"),
+      done: tt("taskStatusDone"),
+      blocked: tt("taskStatusBlocked"),
+    }),
+    [tt]
+  );
+  const priorityLabels = React.useMemo(
+    () => ({
+      low: tt("taskPrioLow"),
+      medium: tt("taskPrioMedium"),
+      high: tt("taskPrioHigh"),
+      urgent: tt("taskPrioUrgent"),
+    }),
+    [tt]
+  );
+  const popoverDir: "ltr" | "rtl" = isAr ? "rtl" : "ltr";
+  const dateLocale = isAr ? "ar-EG" : "en-US";
+  const paginationLabels = React.useMemo(
+    () => ({
+      showing: ({ from, total, toSuffix }: { from: number; total: number; toSuffix: string }) =>
+        twPag("paginationShowing", { from, toSuffix, total }),
+      selected: (n: number) => twPag("paginationSelected", { count: n }),
+      perPage: (n: number) => twPag("paginationPerPage", { count: n }),
+      pagePosition: ({ current, total }: { current: number; total: number }) =>
+        twPag("paginationPagePosition", { current, total }),
+      previous: uiLabels.previous,
+      next: uiLabels.next,
+    }),
+    [twPag, uiLabels.previous, uiLabels.next]
+  );
   const rows: TaskTableRow[] = React.useMemo(
     () =>
       tasks.map((t) => ({
@@ -913,6 +944,7 @@ export function TasksListView({
     uiLabels,
     popoverDir,
     dateLocale,
+    paginationLabels,
   ]);
 
   return (
@@ -1022,7 +1054,7 @@ export function TasksListView({
               assignees: uiLabels.assignees,
             }}
             uiVariant="clients"
-            tableDir={memberView ? "rtl" : undefined}
+            tableDir={isAr ? "rtl" : undefined}
             emptyStateMessage={uiLabels.noTasksFound}
             enablePagination
             pageSizeOptions={[10, 25, 50]}
@@ -1043,27 +1075,7 @@ export function TasksListView({
               placeholder: uiLabels.savedViewPlaceholder,
             }}
             columnsLabel={uiLabels.columns}
-            paginationLabels={
-              memberView
-                ? {
-                    showing: ({ from, total, toSuffix }) => (
-                      <>
-                        عرض {from}
-                        {toSuffix} من {total}
-                      </>
-                    ),
-                    selected: (n) => <>({n} محدد)</>,
-                    perPage: (n) => <>{n} / صفحة</>,
-                    pagePosition: ({ current, total }) => (
-                      <>
-                        صفحة {current} من {total}
-                      </>
-                    ),
-                    previous: uiLabels.previous,
-                    next: uiLabels.next,
-                  }
-                : undefined
-            }
+            paginationLabels={paginationLabels}
           />
         </div>
       }

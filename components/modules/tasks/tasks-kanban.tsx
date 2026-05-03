@@ -17,10 +17,11 @@ import {
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TaskCard } from "./task-card";
-import { TASK_STATUS_LABELS_EN, TASK_STATUS_LABELS, TASK_STATUS_HEADER_CLASS } from "@/types";
+import { TASK_STATUS_HEADER_CLASS } from "@/types";
 import { GripVertical, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithProject } from "@/actions/tasks";
+import { useLocale, useTranslations } from "next-intl";
 
 export const KANBAN_STATUSES = [
   "todo",
@@ -154,12 +155,16 @@ function KanbanDraggableTask({
   onOpenTask,
   onDeleteTask,
   memberView,
+  copyLocale,
+  dragAriaLabel,
 }: {
   task: TaskWithProject;
   assignees: AssigneeForCard[];
   onOpenTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
   memberView: boolean;
+  copyLocale: "ar" | "en";
+  dragAriaLabel: string;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: taskDragId(task.id),
@@ -213,8 +218,22 @@ export function TasksKanban({
   dndColumnScope,
   memberView = false,
 }: TasksKanbanProps) {
-  const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
-  const addTaskLabel = memberView ? "+ إضافة مهمة" : "+ Add Task";
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const copyLocale = isAr ? "ar" : "en";
+  const t = useTranslations("tasks");
+  const statusLabels = React.useMemo(
+    () => ({
+      todo: t("taskStatusTodo"),
+      in_progress: t("taskStatusInProgress"),
+      in_review: t("taskStatusInReview"),
+      done: t("taskStatusDone"),
+      blocked: t("taskStatusBlocked"),
+    }),
+    [t]
+  );
+  const addTaskLabel = t("workspacePage.addTaskInColumn");
+  const dragAriaLabel = t("workspacePage.dragTaskAria");
   const [activeTask, setActiveTask] = React.useState<TaskWithProject | null>(null);
 
   const byStatus = React.useMemo(() => {
@@ -276,7 +295,7 @@ export function TasksKanban({
             count={byStatus[status].length}
             onAddTask={onAddTask}
             dndColumnScope={dndColumnScope}
-            statusLabel={statusLabels[status] ?? status}
+            statusLabel={statusLabels[status as keyof typeof statusLabels] ?? status}
             addTaskLabel={addTaskLabel}
           >
             {byStatus[status].map((task) => (
@@ -287,6 +306,8 @@ export function TasksKanban({
                 onOpenTask={onOpenTask}
                 onDeleteTask={onDeleteTask}
                 memberView={memberView}
+                copyLocale={copyLocale}
+                dragAriaLabel={dragAriaLabel}
               />
             ))}
           </KanbanDroppableColumn>
@@ -299,7 +320,7 @@ export function TasksKanban({
             <TaskCard
               task={activeTask}
               assignees={assigneesByTaskId[activeTask.id] ?? []}
-              copyLocale={memberView ? "ar" : "en"}
+              copyLocale={copyLocale}
               hideProjectLink={memberView}
               hideAssignees={memberView}
               onEdit={() => {}}

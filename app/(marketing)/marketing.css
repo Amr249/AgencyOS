@@ -1,0 +1,12 @@
+/* Smooth in-page navigation for marketing only */
+@supports selector(:has(*)) {
+  html:has([data-marketing-root]) {
+    scroll-behavior: smooth;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has([data-marketing-root]) {
+    scroll-behavior: auto;
+  }
+}

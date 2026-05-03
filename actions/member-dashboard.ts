@@ -20,6 +20,7 @@ import {
 } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { publicUrlFromR2Key } from "@/lib/r2-public-url";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 import { getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 
 export type MemberProjectMember = {
@@ -218,6 +219,9 @@ export async function updateMemberExpense(input: z.infer<typeof updateMemberExpe
   if (memberIds.length === 0) return { ok: false as const, error: "forbidden" };
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+
     const existing = await db.query.expenses.findFirst({
       where: and(eq(expenses.id, parsed.data.id), inArray(expenses.teamMemberId, memberIds)),
     });
@@ -255,6 +259,9 @@ export async function deleteMemberExpense(id: string) {
   if (memberIds.length === 0) return { ok: false as const, error: "forbidden" };
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+
     const existing = await db.query.expenses.findFirst({
       where: and(eq(expenses.id, parsed.data), inArray(expenses.teamMemberId, memberIds)),
     });

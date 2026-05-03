@@ -14,6 +14,7 @@ import {
   type MarkClientLostInput,
   type MarkClientWonInput,
 } from "@/lib/win-loss-schemas";
+import { requireWriteAccess, trialExpiredForm } from "@/lib/trial";
 
 export async function getWinLossReasons(type?: "won" | "lost") {
   try {
@@ -41,6 +42,8 @@ export async function markClientWon(input: MarkClientWonInput) {
   const { clientId, reason, dealValue } = parsed.data;
   const today = new Date().toISOString().slice(0, 10);
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const [row] = await db
       .update(clients)
       .set({
@@ -79,6 +82,8 @@ export async function markClientLost(input: MarkClientLostInput) {
   const today = new Date().toISOString().slice(0, 10);
   const categoryLabel = CLIENT_LOSS_CATEGORY_LABEL_EN[lossCategory];
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
     const [prev] = await db
       .select({ notes: clients.notes })
       .from(clients)

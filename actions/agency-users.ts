@@ -6,9 +6,11 @@ import { and, asc, count, eq, isNull, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import { assertAdminSession } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
-import { teamMembers, users } from "@/lib/db/schema";
+import { orgMembers, teamMembers, users } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { notifyUserAndAdmins } from "@/actions/notifications";
+import { requireAgencyOrganization } from "@/lib/org-session";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 
 const createUserManualSchema = z.object({
   source: z.literal("manual"),
@@ -44,6 +46,8 @@ export async function listTeamMembersForUserInvite(): Promise<
   if (!gate.ok) return { ok: false, error: gate.error };
 
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const rows = await db
       .select({
         id: teamMembers.id,
@@ -54,6 +58,7 @@ export async function listTeamMembersForUserInvite(): Promise<
       .from(teamMembers)
       .where(
         and(
+          eq(teamMembers.organizationId, orgId),
           eq(teamMembers.status, "active"),
           isNull(teamMembers.userId),
           sql`trim(coalesce(${teamMembers.email}, '')) <> ''`,
@@ -114,6 +119,8 @@ export async function listAgencyUsers(): Promise<
   if (!gate.ok) return { ok: false, error: gate.error };
 
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const rows = await db
       .select({
         id: users.id,
@@ -123,6 +130,8 @@ export async function listAgencyUsers(): Promise<
         createdAt: users.createdAt,
       })
       .from(users)
+      .innerJoin(orgMembers, eq(users.id, orgMembers.userId))
+      .where(eq(orgMembers.organizationId, orgId))
       .orderBy(asc(users.createdAt));
     return { ok: true, data: rows };
   } catch (e) {
@@ -155,6 +164,12 @@ export async function createAgencyUser(
   const parsed = createUserInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
+
+  const ctx = await requireAgencyOrganization();
+  const orgId = ctx.organizationId;
+
   let name: string;
   let emailNorm: string;
   let avatarUrl: string | null = null;
@@ -173,7 +188,7 @@ export async function createAgencyUser(
         userId: teamMembers.userId,
       })
       .from(teamMembers)
-      .where(eq(teamMembers.id, parsed.data.teamMemberId))
+      .where(and(eq(teamMembers.id, parsed.data.teamMemberId), eq(teamMembers.organizationId, orgId)))
       .limit(1);
 
     if (!tm) return { ok: false, error: "team_member_not_found" };
@@ -210,16 +225,27 @@ export async function createAgencyUser(
 
     if (!row) return { ok: false, error: "unknown" };
 
+    await db.insert(orgMembers).values({
+      userId: row.id,
+      organizationId: orgId,
+      role: parsed.data.role === "admin" ? "admin" : "member",
+    });
+
     if (linkTeamMemberId) {
       await db
         .update(teamMembers)
         .set({ userId: row.id })
-        .where(eq(teamMembers.id, linkTeamMemberId));
+        .where(and(eq(teamMembers.id, linkTeamMemberId), eq(teamMembers.organizationId, orgId)));
     } else {
       const [tm] = await db
         .select({ id: teamMembers.id })
         .from(teamMembers)
-        .where(sql`lower(trim(coalesce(${teamMembers.email}, ''))) = ${emailNorm}`)
+        .where(
+          and(
+            eq(teamMembers.organizationId, orgId),
+            sql`lower(trim(coalesce(${teamMembers.email}, ''))) = ${emailNorm}`
+          )
+        )
         .limit(1);
       if (tm) {
         await db
@@ -255,7 +281,20 @@ export async function updateAgencyUserRole(
   const parsed = updateRoleSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
+
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+
+    const [membership] = await db
+      .select({ userId: orgMembers.userId })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.userId, parsed.data.userId), eq(orgMembers.organizationId, orgId)))
+      .limit(1);
+    if (!membership) return { ok: false, error: "unknown" };
+
     const [target] = await db
       .select({ role: users.role })
       .from(users)
@@ -266,8 +305,9 @@ export async function updateAgencyUserRole(
     if (target.role === "admin" && parsed.data.role === "member") {
       const [agg] = await db
         .select({ n: count(users.id) })
-        .from(users)
-        .where(eq(users.role, "admin"));
+        .from(orgMembers)
+        .innerJoin(users, eq(orgMembers.userId, users.id))
+        .where(and(eq(orgMembers.organizationId, orgId), eq(users.role, "admin")));
       const n = Number(agg?.n ?? 0);
       if (n <= 1) return { ok: false, error: "last_admin" };
     }
@@ -276,6 +316,11 @@ export async function updateAgencyUserRole(
       .update(users)
       .set({ role: parsed.data.role })
       .where(eq(users.id, parsed.data.userId));
+
+    await db
+      .update(orgMembers)
+      .set({ role: parsed.data.role === "admin" ? "admin" : "member" })
+      .where(and(eq(orgMembers.userId, parsed.data.userId), eq(orgMembers.organizationId, orgId)));
 
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard/settings/users");
@@ -302,10 +347,23 @@ export async function updateAgencyUser(
   const parsed = updateAgencyUserSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
+
   const emailNorm = parsed.data.email.trim().toLowerCase();
   const pwd = parsed.data.password?.trim();
 
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+
+    const [subjectMembership] = await db
+      .select({ userId: orgMembers.userId })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.userId, parsed.data.userId), eq(orgMembers.organizationId, orgId)))
+      .limit(1);
+    if (!subjectMembership) return { ok: false, error: "unknown" };
+
     const [existing] = await db
       .select({ id: users.id })
       .from(users)
@@ -362,13 +420,18 @@ export async function updateAgencyUser(
     const [tm] = await db
       .select({ id: teamMembers.id })
       .from(teamMembers)
-      .where(sql`lower(trim(coalesce(${teamMembers.email}, ''))) = ${emailNorm}`)
+      .where(
+        and(
+          eq(teamMembers.organizationId, orgId),
+          sql`lower(trim(coalesce(${teamMembers.email}, ''))) = ${emailNorm}`
+        )
+      )
       .limit(1);
     if (tm) {
       await db
         .update(teamMembers)
         .set({ userId: updated.id })
-        .where(eq(teamMembers.id, tm.id));
+        .where(and(eq(teamMembers.id, tm.id), eq(teamMembers.organizationId, orgId)));
     }
 
     revalidatePath("/dashboard/settings");
@@ -405,7 +468,20 @@ export async function deleteAgencyUser(
     return { ok: false, error: "self_delete" };
   }
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
+
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+
+    const [membership] = await db
+      .select({ userId: orgMembers.userId })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.userId, idParsed.data), eq(orgMembers.organizationId, orgId)))
+      .limit(1);
+    if (!membership) return { ok: false, error: "unknown" };
+
     const [target] = await db
       .select({ role: users.role })
       .from(users)
@@ -416,13 +492,24 @@ export async function deleteAgencyUser(
     if (target.role === "admin") {
       const [agg] = await db
         .select({ n: count(users.id) })
-        .from(users)
-        .where(eq(users.role, "admin"));
+        .from(orgMembers)
+        .innerJoin(users, eq(orgMembers.userId, users.id))
+        .where(and(eq(orgMembers.organizationId, orgId), eq(users.role, "admin")));
       const n = Number(agg?.n ?? 0);
       if (n <= 1) return { ok: false, error: "last_admin" };
     }
 
-    await db.delete(users).where(eq(users.id, idParsed.data));
+    await db
+      .delete(orgMembers)
+      .where(and(eq(orgMembers.userId, idParsed.data), eq(orgMembers.organizationId, orgId)));
+
+    const [remaining] = await db
+      .select({ n: count(orgMembers.id) })
+      .from(orgMembers)
+      .where(eq(orgMembers.userId, idParsed.data));
+    if (Number(remaining?.n ?? 0) === 0) {
+      await db.delete(users).where(eq(users.id, idParsed.data));
+    }
 
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard/settings/users");

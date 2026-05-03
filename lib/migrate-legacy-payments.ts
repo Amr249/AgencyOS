@@ -30,7 +30,10 @@ function paymentDateFromInvoice(paidAt: Date | null, issueDate: string): string 
  * Inserts one `payments` row per invoice with status `paid` that has no payment rows yet.
  * Idempotent: safe to run multiple times (skips invoices that already have any payment).
  */
-export async function runLegacyPaidInvoicePaymentMigration(): Promise<LegacyPaymentMigrationResult> {
+/** When `organizationId` is set, only that tenant’s invoices are migrated (Server Actions). Scripts may omit it to process all rows. */
+export async function runLegacyPaidInvoicePaymentMigration(
+  organizationId?: string
+): Promise<LegacyPaymentMigrationResult> {
   const candidates = await db
     .select({
       id: invoices.id,
@@ -43,6 +46,7 @@ export async function runLegacyPaidInvoicePaymentMigration(): Promise<LegacyPaym
     .from(invoices)
     .where(
       and(
+        ...(organizationId ? [eq(invoices.organizationId, organizationId)] : []),
         eq(invoices.status, "paid"),
         notExists(
           db.select({ id: payments.id }).from(payments).where(eq(payments.invoiceId, invoices.id))

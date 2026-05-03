@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { eq, isNull, isNotNull, and, or, ilike, desc, inArray, gte, lte } from "drizzle-orm";
 import { isBefore, parseISO, startOfDay } from "date-fns";
@@ -19,7 +18,8 @@ import {
 } from "@/lib/db";
 import { logActivityWithActor } from "@/actions/activity-log";
 import { notifyAdminsOfTaskStatusChange, notifyTaskAssigned } from "@/actions/notifications";
-import { authOptions } from "@/lib/auth";
+import { getRequiredSession } from "@/lib/session";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 import { sessionUserRole } from "@/lib/auth-helpers";
 import {
   getMemberProjectIdsForUser,
@@ -28,7 +28,6 @@ import {
   memberIsAssignedToTask,
   memberMayViewTaskById,
 } from "@/lib/member-context";
-
 const taskStatusValues = ["todo", "in_progress", "in_review", "done", "blocked"] as const;
 const taskPriorityValues = ["low", "medium", "high", "urgent"] as const;
 
@@ -143,15 +142,18 @@ export async function getTasks(filters?: GetTasksFilters) {
     f.teamMemberIds?.length ? f.teamMemberIds : f.teamMemberId ? [f.teamMemberId] : undefined;
 
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
+    const session = await getRequiredSession();
+    const userId = session.user.id;
     const role = sessionUserRole(session);
-    if (!userId) return { ok: false as const, error: "Unauthorized" };
-    if (role !== "admin" && role !== "member") {
-      return { ok: false as const, error: "Forbidden" };
-    }
+    const orgId = session.user.organizationId;
 
-    const conditions = [isNull(tasks.deletedAt), isNull(tasks.parentTaskId)];
+    const conditions = [
+      isNull(tasks.deletedAt),
+      isNull(tasks.parentTaskId),
+      eq(tasks.organizationId, orgId),
+      eq(projects.organizationId, orgId),
+      eq(clients.organizationId, orgId),
+    ];
 
     if (role === "member") {
       const memberProjectIds = await getMemberProjectIdsForUser(userId);
@@ -178,6 +180,7 @@ export async function getTasks(filters?: GetTasksFilters) {
         .where(
           and(
             isNull(tasks.deletedAt),
+            eq(tasks.organizationId, orgId),
             inArray(tasks.projectId, projectScope),
             or(inArray(tasks.assigneeId, memberIds), inArray(tasks.id, assignedViaJunction))!
           )
@@ -190,7 +193,9 @@ export async function getTasks(filters?: GetTasksFilters) {
       const allInScope = await db
         .select({ id: tasks.id, parentTaskId: tasks.parentTaskId })
         .from(tasks)
-        .where(and(isNull(tasks.deletedAt), inArray(tasks.projectId, projectScope)));
+        .where(
+          and(isNull(tasks.deletedAt), eq(tasks.organizationId, orgId), inArray(tasks.projectId, projectScope))
+        );
 
       const parentById = new Map(allInScope.map((r) => [r.id, r.parentTaskId] as const));
       function rootOf(id: string): string {
@@ -261,7 +266,13 @@ export async function getTasks(filters?: GetTasksFilters) {
       const subtaskRows = await db
         .select({ parentTaskId: tasks.parentTaskId })
         .from(tasks)
-        .where(and(isNull(tasks.deletedAt), inArray(tasks.parentTaskId, taskIds)));
+        .where(
+          and(
+            isNull(tasks.deletedAt),
+            eq(tasks.organizationId, orgId),
+            inArray(tasks.parentTaskId, taskIds)
+          )
+        );
       for (const r of subtaskRows) {
         if (r.parentTaskId) subtaskCountMap[r.parentTaskId] = (subtaskCountMap[r.parentTaskId] ?? 0) + 1;
       }
@@ -314,9 +325,9 @@ export async function getTasksSnapshotForAiChat(): Promise<
   { ok: true; data: AiTaskAssigneeSnapshot[] } | { ok: false; error: string }
 > {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-    if (!userId) return { ok: false, error: "Unauthorized" };
+    const session = await getRequiredSession();
+    const userId = session.user.id;
+    const orgId = session.user.organizationId;
     if (sessionUserRole(session) !== "admin") {
       return { ok: false, error: "Forbidden" };
     }
@@ -336,7 +347,15 @@ export async function getTasksSnapshotForAiChat(): Promise<
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(teamMembers, eq(tasks.assigneeId, teamMembers.id))
-      .where(and(isNull(tasks.deletedAt), isNull(tasks.parentTaskId)))
+      .where(
+        and(
+          isNull(tasks.deletedAt),
+          isNull(tasks.parentTaskId),
+          eq(tasks.organizationId, orgId),
+          eq(projects.organizationId, orgId),
+          or(isNull(teamMembers.id), eq(teamMembers.organizationId, orgId))!
+        )
+      )
       .orderBy(desc(tasks.createdAt))
       .limit(AI_TASK_SNAPSHOT_LIMIT);
 
@@ -350,7 +369,9 @@ export async function getTasksSnapshotForAiChat(): Promise<
         })
         .from(taskAssignments)
         .innerJoin(teamMembers, eq(taskAssignments.teamMemberId, teamMembers.id))
-        .where(inArray(taskAssignments.taskId, taskIds));
+        .where(
+          and(inArray(taskAssignments.taskId, taskIds), eq(teamMembers.organizationId, orgId))
+        );
       for (const a of assigns) {
         const n = (a.name ?? "").trim();
         if (!n) continue;
@@ -422,10 +443,13 @@ export async function getTasksByMilestoneId(milestoneId: string) {
   const parsed = z.string().uuid().safeParse(milestoneId);
   if (!parsed.success) return { ok: false as const, error: "Invalid milestone id" };
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const [m] = await db
       .select({ projectId: milestones.projectId })
       .from(milestones)
-      .where(eq(milestones.id, parsed.data))
+      .innerJoin(projects, eq(milestones.projectId, projects.id))
+      .where(and(eq(milestones.id, parsed.data), eq(projects.organizationId, orgId)))
       .limit(1);
     if (!m) return { ok: false as const, error: "Milestone not found" };
 
@@ -443,6 +467,8 @@ export async function getTaskById(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid task id" };
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const [row] = await db
       .select({
         id: tasks.id,
@@ -463,12 +489,19 @@ export async function getTaskById(id: string) {
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
       .innerJoin(clients, eq(projects.clientId, clients.id))
-      .where(and(eq(tasks.id, parsed.data), isNull(tasks.deletedAt)));
+      .where(
+        and(
+          eq(tasks.id, parsed.data),
+          isNull(tasks.deletedAt),
+          eq(tasks.organizationId, orgId),
+          eq(projects.organizationId, orgId),
+          eq(clients.organizationId, orgId)
+        )
+      );
 
     if (!row) return { ok: false as const, error: "Task not found" };
 
-    const session = await getServerSession(authOptions);
-    if (sessionUserRole(session) === "member" && session?.user?.id) {
+    if (sessionUserRole(session) === "member" && session.user.id) {
       const may = await memberMayViewTaskById(parsed.data, session.user.id);
       if (!may) return { ok: false as const, error: "Task not found" };
     } else if (sessionUserRole(session) !== "admin") {
@@ -491,11 +524,17 @@ export async function getTaskById(id: string) {
         deletedAt: tasks.deletedAt,
       })
       .from(tasks)
-      .where(and(eq(tasks.parentTaskId, row.id), isNull(tasks.deletedAt)))
+      .where(
+        and(
+          eq(tasks.parentTaskId, row.id),
+          isNull(tasks.deletedAt),
+          eq(tasks.organizationId, orgId)
+        )
+      )
       .orderBy(tasks.createdAt);
 
     let subtasks = subtasksRaw;
-    if (sessionUserRole(session) === "member" && session?.user?.id) {
+    if (sessionUserRole(session) === "member" && session.user.id) {
       const filtered: typeof subtasksRaw = [];
       for (const s of subtasksRaw) {
         if (await memberIsAssignedToTask(s.id, session.user.id)) filtered.push(s);
@@ -528,16 +567,25 @@ export async function createTask(input: CreateTaskInput) {
   }
   const data = parsed.data;
   try {
-    const session = await getServerSession(authOptions);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const role = sessionUserRole(session);
-    const userId = session?.user?.id;
+    const userId = session.user.id;
     /** For members, always assign to their own team_member row (ignore client assignee). */
     let assigneeIdForInsert = data.assigneeId || null;
 
+    const [projectInOrg] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, data.projectId), eq(projects.organizationId, orgId)))
+      .limit(1);
+    if (!projectInOrg) {
+      return { ok: false as const, error: { _form: ["Project not found"] } };
+    }
+
     if (role === "member") {
-      if (!userId) {
-        return { ok: false as const, error: { _form: ["Not authorized"] } };
-      }
       const allowed = await memberHasProjectAccess(userId, data.projectId);
       if (!allowed) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
@@ -576,6 +624,7 @@ export async function createTask(input: CreateTaskInput) {
     const [row] = await db
       .insert(tasks)
       .values({
+        organizationId: orgId,
         projectId: data.projectId,
         title: data.title,
         status: data.status,
@@ -597,14 +646,14 @@ export async function createTask(input: CreateTaskInput) {
         .values({
           taskId: row.id,
           teamMemberId: assigneeIdForInsert,
-          assignedBy: session?.user?.id ?? null,
+          assignedBy: session.user.id ?? null,
         })
         .onConflictDoNothing();
 
       await notifyTaskAssigned({
         taskId: row.id,
         teamMemberId: assigneeIdForInsert,
-        actorUserId: session?.user?.id ?? null,
+        actorUserId: session.user.id ?? null,
       });
     }
 
@@ -637,11 +686,11 @@ export async function updateTask(input: UpdateTaskInput) {
   }
   const { id, ...data } = parsed.data;
   try {
-    const session = await getServerSession(authOptions);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     if (sessionUserRole(session) === "member") {
-      if (!session?.user?.id) {
-        return { ok: false as const, error: { _form: ["Not authorized"] } };
-      }
       const may = await memberMayViewTaskById(id, session.user.id);
       if (!may) {
         return { ok: false as const, error: { _form: ["Forbidden"] } };
@@ -654,7 +703,7 @@ export async function updateTask(input: UpdateTaskInput) {
         const [taskMeta] = await db
           .select({ projectId: tasks.projectId })
           .from(tasks)
-          .where(eq(tasks.id, id))
+          .where(and(eq(tasks.id, id), eq(tasks.organizationId, orgId)))
           .limit(1);
         if (!taskMeta) {
           return { ok: false as const, error: { _form: ["Task not found"] } };
@@ -693,7 +742,7 @@ export async function updateTask(input: UpdateTaskInput) {
       }
       const mv = await validateMilestoneForProject(data.milestoneId, current.projectId);
       if (!mv.ok) return { ok: false as const, error: { _form: [mv.error] } };
-      if (sessionUserRole(session) === "member" && session?.user?.id) {
+      if (sessionUserRole(session) === "member" && session.user.id) {
         const memberIds = await getTeamMemberIdsForSessionUser(session.user.id);
         const selfTeamMemberId = memberIds[0];
         if (selfTeamMemberId) {
@@ -733,7 +782,7 @@ export async function updateTask(input: UpdateTaskInput) {
       const [prevRow] = await db
         .select({ status: tasks.status, assigneeId: tasks.assigneeId })
         .from(tasks)
-        .where(eq(tasks.id, id))
+        .where(and(eq(tasks.id, id), eq(tasks.organizationId, orgId)))
         .limit(1);
       previousStatus = prevRow?.status;
       previousAssigneeId = prevRow?.assigneeId ?? null;
@@ -742,7 +791,7 @@ export async function updateTask(input: UpdateTaskInput) {
     const [row] = await db
       .update(tasks)
       .set(updatePayload as typeof tasks.$inferInsert)
-      .where(eq(tasks.id, id))
+      .where(and(eq(tasks.id, id), eq(tasks.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["Task not found"] } };
     if (
@@ -753,7 +802,7 @@ export async function updateTask(input: UpdateTaskInput) {
       await notifyTaskAssigned({
         taskId: row.id,
         teamMemberId: data.assigneeId,
-        actorUserId: session?.user?.id ?? null,
+        actorUserId: session.user.id ?? null,
       });
     }
     if (
@@ -777,7 +826,7 @@ export async function updateTask(input: UpdateTaskInput) {
         taskTitle: row.title,
         oldStatus: previousStatus,
         newStatus: row.status,
-        actorUserId: session?.user?.id ?? null,
+        actorUserId: session.user.id ?? null,
       });
     }
     revalidatePath("/dashboard/workspace");
@@ -809,9 +858,11 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
     return { ok: false as const, error: "Invalid input" };
   }
   try {
-    const session = await getServerSession(authOptions);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     if (sessionUserRole(session) === "member") {
-      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const may = await memberMayViewTaskById(idParsed.data, session.user.id);
       if (!may) return { ok: false as const, error: "Forbidden" };
       const owns = await memberIsAssignedToTask(idParsed.data, session.user.id);
@@ -821,12 +872,12 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
     const [prevRow] = await db
       .select({ status: tasks.status })
       .from(tasks)
-      .where(eq(tasks.id, idParsed.data))
+      .where(and(eq(tasks.id, idParsed.data), eq(tasks.organizationId, orgId)))
       .limit(1);
     const [row] = await db
       .update(tasks)
       .set({ status: statusParsed.data })
-      .where(eq(tasks.id, idParsed.data))
+      .where(and(eq(tasks.id, idParsed.data), eq(tasks.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: "Task not found" };
     if (prevRow && prevRow.status !== row.status) {
@@ -846,7 +897,7 @@ export async function updateTaskStatus(id: string, status: (typeof taskStatusVal
         taskTitle: row.title,
         oldStatus: prevRow.status,
         newStatus: row.status,
-        actorUserId: session?.user?.id ?? null,
+        actorUserId: session.user.id ?? null,
       });
     }
     revalidatePath("/dashboard/workspace");
@@ -870,9 +921,11 @@ export async function deleteTask(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid task id" };
   try {
-    const session = await getServerSession(authOptions);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     if (sessionUserRole(session) === "member") {
-      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const may = await memberMayViewTaskById(parsed.data, session.user.id);
       if (!may) return { ok: false as const, error: "Forbidden" };
       const owns = await memberIsAssignedToTask(parsed.data, session.user.id);
@@ -882,13 +935,15 @@ export async function deleteTask(id: string) {
     const [existing] = await db
       .select({ title: tasks.title, projectId: tasks.projectId })
       .from(tasks)
-      .where(and(eq(tasks.id, parsed.data), isNull(tasks.deletedAt)))
+      .where(
+        and(eq(tasks.id, parsed.data), isNull(tasks.deletedAt), eq(tasks.organizationId, orgId))
+      )
       .limit(1);
     if (!existing) return { ok: false as const, error: "Task not found" };
     const [row] = await db
       .update(tasks)
       .set({ deletedAt: new Date() })
-      .where(eq(tasks.id, parsed.data))
+      .where(and(eq(tasks.id, parsed.data), eq(tasks.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: "Task not found" };
     await logActivityWithActor({
@@ -918,11 +973,11 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
     return { ok: false as const, error: parsed.error.flatten().fieldErrors };
   }
   try {
-    const session = await getServerSession(authOptions);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     if (sessionUserRole(session) === "member") {
-      if (!session?.user?.id) {
-        return { ok: false as const, error: { _form: ["Not authorized"] } };
-      }
       const mayParent = await memberMayViewTaskById(parsed.data.parentId, session.user.id);
       if (!mayParent) return { ok: false as const, error: { _form: ["Forbidden"] } };
     }
@@ -930,13 +985,20 @@ export async function createSubtask(input: z.infer<typeof createSubtaskSchema>) 
     const [parent] = await db
       .select({ projectId: tasks.projectId })
       .from(tasks)
-      .where(and(eq(tasks.id, parsed.data.parentId), isNull(tasks.deletedAt)))
+      .where(
+        and(
+          eq(tasks.id, parsed.data.parentId),
+          isNull(tasks.deletedAt),
+          eq(tasks.organizationId, orgId)
+        )
+      )
       .limit(1);
     if (!parent) return { ok: false as const, error: { _form: ["Parent task not found"] } };
 
     const [row] = await db
       .insert(tasks)
       .values({
+        organizationId: orgId,
         projectId: parent.projectId,
         parentTaskId: parsed.data.parentId,
         title: parsed.data.title,
@@ -980,9 +1042,11 @@ export async function toggleSubtask(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid task id" };
   try {
-    const session = await getServerSession(authOptions);
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     if (sessionUserRole(session) === "member") {
-      if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
       const may = await memberMayViewTaskById(parsed.data, session.user.id);
       if (!may) return { ok: false as const, error: "Forbidden" };
       const owns = await memberIsAssignedToTask(parsed.data, session.user.id);
@@ -992,14 +1056,16 @@ export async function toggleSubtask(id: string) {
     const [current] = await db
       .select({ status: tasks.status })
       .from(tasks)
-      .where(and(eq(tasks.id, parsed.data), isNull(tasks.deletedAt)))
+      .where(
+        and(eq(tasks.id, parsed.data), isNull(tasks.deletedAt), eq(tasks.organizationId, orgId))
+      )
       .limit(1);
     if (!current) return { ok: false as const, error: "Task not found" };
     const newStatus = current.status === "done" ? "todo" : "done";
     const [row] = await db
       .update(tasks)
       .set({ status: newStatus })
-      .where(eq(tasks.id, parsed.data))
+      .where(and(eq(tasks.id, parsed.data), eq(tasks.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: "Task not found" };
     if (current.status !== newStatus) {
@@ -1019,7 +1085,7 @@ export async function toggleSubtask(id: string) {
         taskTitle: row.title,
         oldStatus: current.status,
         newStatus: row.status,
-        actorUserId: session?.user?.id ?? null,
+        actorUserId: session.user.id ?? null,
       });
     }
     revalidatePath("/dashboard/workspace");

@@ -1,11 +1,13 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { getLocale, getTranslations } from "next-intl/server";
 import { AgencyUsersManage } from "@/components/settings/agency-users-manage";
 import { authOptions } from "@/lib/auth";
 
-export const metadata = {
-  title: "Users",
-};
+export async function generateMetadata() {
+  const t = await getTranslations("settings.users");
+  return { title: t("pageTitle") };
+}
 
 export default async function SettingsUsersPage() {
   const session = await getServerSession(authOptions);
@@ -16,14 +18,15 @@ export default async function SettingsUsersPage() {
     redirect("/dashboard/me");
   }
 
+  const t = await getTranslations("settings.users");
+  const locale = await getLocale();
+  const dir = locale === "ar" ? "rtl" : "ltr";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir} lang={locale}>
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-        <p className="text-muted-foreground text-sm">
-          Manage dashboard team logins (roles and passwords), or invite client portal users linked to CRM
-          clients—both from the Add user card below.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">{t("pageTitle")}</h1>
+        <p className="text-muted-foreground text-sm">{t("pageDescription")}</p>
       </div>
       <AgencyUsersManage currentUserId={session.user.id} showBackLink />
     </div>

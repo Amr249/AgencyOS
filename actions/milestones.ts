@@ -18,6 +18,8 @@ import {
   teamMembers,
 } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireAgencyOrganization } from "@/lib/org-session";
+import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 import { logActivityWithActor } from "@/actions/activity-log";
 
 const milestoneStatusValues = ["pending", "in_progress", "completed", "cancelled"] as const;
@@ -112,6 +114,8 @@ export async function createMilestone(input: z.input<typeof createMilestoneSchem
   }
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [projectExists] = await db
       .select({ id: projects.id })
       .from(projects)
@@ -183,6 +187,8 @@ export async function updateMilestone(input: z.input<typeof updateMilestoneSchem
   }
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [existing] = await db
       .select({ projectId: milestones.projectId })
       .from(milestones)
@@ -231,6 +237,8 @@ export async function deleteMilestone(id: string) {
   if (!parsed.success) return { ok: false as const, error: "Invalid milestone id" };
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [row] = await db.delete(milestones).where(eq(milestones.id, parsed.data)).returning();
     if (!row) return { ok: false as const, error: "Milestone not found" };
 
@@ -498,6 +506,8 @@ export async function completeMilestone(id: string) {
   if (!parsed.success) return { ok: false as const, error: "Invalid milestone id" };
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
     const [row] = await db
       .update(milestones)
       .set({ status: "completed", completedAt: new Date() })
@@ -537,6 +547,11 @@ export async function getUpcomingMilestones(days?: number) {
   const parsed = upcomingDaysSchema.safeParse(days);
   if (!parsed.success) return { ok: false as const, error: "Invalid days value" };
 
+  const ctx = await requireAgencyOrganization();
+  if (!ctx.ok) {
+    return { ok: false as const, error: "Unauthorized" };
+  }
+
   const today = new Date().toISOString().slice(0, 10);
   const until = endDateAfterDays(parsed.data);
 
@@ -556,6 +571,7 @@ export async function getUpcomingMilestones(days?: number) {
       .innerJoin(projects, eq(milestones.projectId, projects.id))
       .where(
         and(
+          eq(projects.organizationId, ctx.organizationId),
           isNull(projects.deletedAt),
           inArray(milestones.status, ["pending", "in_progress"]),
           or(

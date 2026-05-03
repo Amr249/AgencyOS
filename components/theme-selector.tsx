@@ -2,15 +2,24 @@
 
 import { useTheme } from "next-themes";
 import { Moon, Sun, Monitor } from "lucide-react";
+import { useTranslations } from "next-intl";
 
-const options = [
-  { value: "light" as const, label: "Light", icon: Sun },
-  { value: "dark" as const, label: "Dark", icon: Moon },
-  { value: "system" as const, label: "System", icon: Monitor },
-];
+const OPTION_KEYS = ["light", "dark", "system"] as const;
 
 export function ThemeSelector() {
   const { theme, setTheme } = useTheme();
+  const t = useTranslations("settings");
+
+  const options = OPTION_KEYS.map((value) => ({
+    value,
+    label:
+      value === "light"
+        ? t("themeModeLight")
+        : value === "dark"
+          ? t("themeModeDark")
+          : t("themeModeSystem"),
+    icon: value === "light" ? Sun : value === "dark" ? Moon : Monitor,
+  }));
 
   return (
     <div className="flex flex-wrap gap-3">

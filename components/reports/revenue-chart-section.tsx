@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RevenueChart } from "@/components/reports/revenue-chart";
 import { RevenueAreaChart } from "@/components/reports/revenue-area-chart";
 import { useReportsCurrency } from "@/components/reports/reports-currency-context";
 import { ReportsMoney } from "@/components/reports/reports-money";
 import type { MonthlyRevenuePoint } from "@/actions/reports";
+import { cn } from "@/lib/utils";
 
 type RevenueChartSectionProps = {
   monthlyRevenue: MonthlyRevenuePoint[];
@@ -25,7 +27,10 @@ export function RevenueChartSection({
   dashboardLayout = false,
 }: RevenueChartSectionProps) {
   const [view, setView] = React.useState<"monthly" | "area">("monthly");
-  const { formatAmount, convertedRate, formatNumber } = useReportsCurrency();
+  const { convertedRate, formatNumber } = useReportsCurrency();
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const t = useTranslations("reports.revenueChart");
 
   const chartData = React.useMemo(
     () =>
@@ -37,29 +42,31 @@ export function RevenueChartSection({
     [monthlyRevenue, convertedRate]
   );
 
+  const toggleJustify = isAr ? "justify-start" : "justify-end";
+
   const toggleRow = (
-    <div className="flex justify-end gap-1">
+    <div className={cn("flex gap-1", toggleJustify)}>
       <button
         type="button"
         onClick={() => setView("monthly")}
         className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
           view === "monthly"
-            ? "bg-primary text-primary-foreground border-primary"
+            ? "border-primary bg-primary text-primary-foreground"
             : "border-input bg-background hover:bg-muted"
         }`}
       >
-        Monthly
+        {t("toggleMonthly")}
       </button>
       <button
         type="button"
         onClick={() => setView("area")}
         className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
           view === "area"
-            ? "bg-primary text-primary-foreground border-primary"
+            ? "border-primary bg-primary text-primary-foreground"
             : "border-input bg-background hover:bg-muted"
         }`}
       >
-        Area
+        {t("toggleArea")}
       </button>
     </div>
   );
@@ -68,14 +75,14 @@ export function RevenueChartSection({
     <div
       className={`flex flex-wrap justify-start gap-x-4 gap-y-1 ${dashboardLayout ? "mt-1 text-sm" : "mt-4 gap-6 text-sm"}`}
     >
-      <span className="text-muted-foreground inline-flex flex-wrap items-center gap-1">
-        Total profit:{" "}
+      <span className="inline-flex flex-wrap items-center gap-1 text-muted-foreground">
+        {t("totalProfit")}{" "}
         <strong className="text-foreground">
           <ReportsMoney amount={totalProfitsInRange} />
         </strong>
       </span>
-      <span className="text-muted-foreground inline-flex flex-wrap items-center gap-1">
-        Expenses:{" "}
+      <span className="inline-flex flex-wrap items-center gap-1 text-muted-foreground">
+        {t("expenses")}{" "}
         <strong className="text-foreground">
           <ReportsMoney amount={totalExpensesInRange} />
         </strong>
@@ -83,7 +90,7 @@ export function RevenueChartSection({
       <span
         className={`inline-flex flex-wrap items-center gap-1 ${netProfitInRange >= 0 ? "text-green-600" : "text-red-600"}`}
       >
-        Net:{" "}
+        {t("net")}{" "}
         <strong>
           <ReportsMoney amount={netProfitInRange} />
         </strong>
@@ -93,9 +100,9 @@ export function RevenueChartSection({
 
   if (dashboardLayout) {
     return (
-      <Card className="flex w-full min-h-0 flex-col overflow-hidden" dir="ltr">
+      <Card className="flex w-full min-h-0 flex-col overflow-hidden" dir={isAr ? "rtl" : "ltr"}>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-2">
-          <CardTitle className="text-left text-base font-semibold">Revenue by month</CardTitle>
+          <CardTitle className="text-start text-base font-semibold">{t("title")}</CardTitle>
           {toggleRow}
         </CardHeader>
         <CardContent className="flex w-full flex-1 flex-col gap-3 pt-0">
@@ -105,7 +112,7 @@ export function RevenueChartSection({
                 <RevenueChart
                   data={chartData}
                   formatAmount={formatNumber}
-                  className="h-[400px] w-full max-w-full aspect-auto"
+                  className="aspect-auto h-[400px] w-full max-w-full"
                 />
               </div>
               {statsRow}
@@ -124,9 +131,9 @@ export function RevenueChartSection({
     <div className="space-y-4">
       {toggleRow}
       {view === "monthly" ? (
-        <Card>
+        <Card dir={isAr ? "rtl" : "ltr"}>
           <CardHeader>
-            <CardTitle className="text-left">Revenue by month</CardTitle>
+            <CardTitle className="text-start">{t("title")}</CardTitle>
           </CardHeader>
           <CardContent>
             <RevenueChart data={chartData} formatAmount={formatNumber} />

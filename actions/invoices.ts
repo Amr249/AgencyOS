@@ -1,9 +1,8 @@
 "use server";
 
-import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth";
+import { getRequiredSession } from "@/lib/session";
 import { runLegacyPaidInvoicePaymentMigration } from "@/lib/migrate-legacy-payments";
 import { eq, and, gte, lte, or, ilike, desc, inArray, ne, asc, sql, sum } from "drizzle-orm";
 import {
@@ -20,6 +19,9 @@ import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { invoiceCollectedAmount } from "@/lib/invoice-collected";
 import { formatInvoiceSerial } from "@/lib/invoice-number";
 import { logActivityWithActor } from "@/actions/activity-log";
+import { ensureSettingsForOrganization } from "@/lib/db/default-organization";
+import { requireAgencyOrganization } from "@/lib/org-session";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 const invoiceStatusValues = ["pending", "partial", "paid"] as const;
 const lineItemSchema = z.object({
@@ -64,12 +66,22 @@ function mergeProjectIds(
   return [...new Set([...(projectIds ?? []), ...(projectId ? [projectId] : [])])];
 }
 
-async function assertProjectsBelongToClient(clientId: string, projectIds: string[]) {
+async function assertProjectsBelongToClient(
+  clientId: string,
+  projectIds: string[],
+  organizationId: string
+) {
   if (projectIds.length === 0) return;
   const rows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.clientId, clientId), inArray(projects.id, projectIds)));
+    .where(
+      and(
+        eq(projects.clientId, clientId),
+        inArray(projects.id, projectIds),
+        eq(projects.organizationId, organizationId)
+      )
+    );
   if (rows.length !== projectIds.length) {
     throw new Error("INVALID_PROJECTS");
   }
@@ -83,7 +95,8 @@ async function syncInvoiceProjectLinks(invoiceId: string, projectIds: string[]) 
 }
 
 async function enrichInvoiceRowsProjectNames<T extends { id: string; projectName: string | null }>(
-  rows: T[]
+  rows: T[],
+  organizationId: string
 ): Promise<T[]> {
   if (rows.length === 0) return rows;
   const ids = rows.map((r) => r.id);
@@ -94,7 +107,14 @@ async function enrichInvoiceRowsProjectNames<T extends { id: string; projectName
     })
     .from(invoiceProjects)
     .innerJoin(projects, eq(invoiceProjects.projectId, projects.id))
-    .where(inArray(invoiceProjects.invoiceId, ids))
+    .innerJoin(invoices, eq(invoiceProjects.invoiceId, invoices.id))
+    .where(
+      and(
+        inArray(invoiceProjects.invoiceId, ids),
+        eq(invoices.organizationId, organizationId),
+        eq(projects.organizationId, organizationId)
+      )
+    )
     .orderBy(projects.name);
   const byInv = new Map<string, string[]>();
   for (const r of linkRows) {
@@ -156,7 +176,9 @@ export async function getInvoices(filters?: {
   clientId?: string;
 }) {
   try {
-    const conditions = [];
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
+    const conditions = [eq(invoices.organizationId, orgId), eq(clients.organizationId, orgId)];
     if (filters?.status && filters.status !== "all") {
       conditions.push(eq(invoices.status, filters.status as (typeof invoices.$inferSelect)["status"]));
     }
@@ -222,10 +244,13 @@ export async function getInvoices(filters?: {
       })
       .from(invoices)
       .innerJoin(clients, eq(invoices.clientId, clients.id))
-      .leftJoin(projects, eq(invoices.projectId, projects.id))
-      .where(conditions.length ? and(...conditions) : undefined)
+      .leftJoin(
+        projects,
+        and(eq(invoices.projectId, projects.id), eq(projects.organizationId, orgId))
+      )
+      .where(and(...conditions))
       .orderBy(desc(invoices.issueDate), invoices.invoiceNumber);
-    const enriched = await enrichInvoiceRowsProjectNames(rows);
+    const enriched = await enrichInvoiceRowsProjectNames(rows, orgId);
     return { ok: true as const, data: enriched };
   } catch (e) {
     console.error("getInvoices", e);
@@ -391,7 +416,12 @@ export async function getInvoicesExportData(filters?: InvoicesExportFilters): Pr
  */
 export async function getInvoiceStatsWithPayments() {
   try {
-    const allInvoices = await db.select({ total: invoices.total }).from(invoices);
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
+    const allInvoices = await db
+      .select({ total: invoices.total })
+      .from(invoices)
+      .where(eq(invoices.organizationId, orgId));
     if (allInvoices.length === 0) {
       return {
         ok: true as const,
@@ -404,13 +434,18 @@ export async function getInvoiceStatsWithPayments() {
       totalInvoiced += parseFloat(String(inv.total));
     }
 
-    const [paymentAgg] = await db.select({ total: sum(payments.amount) }).from(payments);
+    const [paymentAgg] = await db
+      .select({ total: sum(payments.amount) })
+      .from(payments)
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .where(eq(invoices.organizationId, orgId));
     const sumPayments = parseFloat(String(paymentAgg?.total ?? "0"));
 
     const legacyRaw = await db.execute(sql`
       SELECT COALESCE(SUM(${invoices.total}::numeric), 0)::text AS total
       FROM ${invoices}
-      WHERE ${invoices.status} = 'paid'
+      WHERE ${invoices.organizationId} = ${orgId}
+        AND ${invoices.status} = 'paid'
         AND NOT EXISTS (
           SELECT 1 FROM ${payments} WHERE ${payments.invoiceId} = ${invoices.id}
         )
@@ -448,6 +483,8 @@ export async function getInvoicesByClientId(clientId: string) {
   const parsed = z.string().uuid().safeParse(clientId);
   if (!parsed.success) return { ok: false as const, error: "Invalid client id" };
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const rows = await db
       .select({
         id: invoices.id,
@@ -466,8 +503,17 @@ export async function getInvoicesByClientId(clientId: string) {
       })
       .from(invoices)
       .innerJoin(clients, eq(invoices.clientId, clients.id))
-      .leftJoin(projects, eq(invoices.projectId, projects.id))
-      .where(eq(invoices.clientId, parsed.data))
+      .leftJoin(
+        projects,
+        and(eq(invoices.projectId, projects.id), eq(projects.organizationId, orgId))
+      )
+      .where(
+        and(
+          eq(invoices.clientId, parsed.data),
+          eq(invoices.organizationId, orgId),
+          eq(clients.organizationId, orgId)
+        )
+      )
       .orderBy(desc(invoices.createdAt), invoices.invoiceNumber);
     return { ok: true as const, data: rows };
   } catch (e) {
@@ -481,7 +527,9 @@ export async function getInvoicesByClientId(clientId: string) {
 
 export async function getInvoiceStats() {
   try {
-    const rows = await db.select().from(invoices);
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
+    const rows = await db.select().from(invoices).where(eq(invoices.organizationId, orgId));
     let totalInvoiced = 0;
     let collected = 0;
     let outstanding = 0;
@@ -508,6 +556,8 @@ export async function getInvoiceById(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid invoice id" };
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const [row] = await db
       .select({
         invoice: invoices,
@@ -518,8 +568,17 @@ export async function getInvoiceById(id: string) {
       })
       .from(invoices)
       .innerJoin(clients, eq(invoices.clientId, clients.id))
-      .leftJoin(projects, eq(invoices.projectId, projects.id))
-      .where(eq(invoices.id, parsed.data));
+      .leftJoin(
+        projects,
+        and(eq(invoices.projectId, projects.id), eq(projects.organizationId, orgId))
+      )
+      .where(
+        and(
+          eq(invoices.id, parsed.data),
+          eq(invoices.organizationId, orgId),
+          eq(clients.organizationId, orgId)
+        )
+      );
     if (!row) return { ok: false as const, error: "Invoice not found" };
     const items = await db
       .select()
@@ -534,7 +593,14 @@ export async function getInvoiceById(id: string) {
       })
       .from(invoiceProjects)
       .innerJoin(projects, eq(invoiceProjects.projectId, projects.id))
-      .where(eq(invoiceProjects.invoiceId, parsed.data))
+      .innerJoin(invoices, eq(invoiceProjects.invoiceId, invoices.id))
+      .where(
+        and(
+          eq(invoiceProjects.invoiceId, parsed.data),
+          eq(invoices.organizationId, orgId),
+          eq(projects.organizationId, orgId)
+        )
+      )
       .orderBy(projects.name);
 
     let linkedProjectIds = linkRows.map((l) => l.projectId);
@@ -569,8 +635,10 @@ export async function getInvoiceWithPayments(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid invoice id" };
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, parsed.data),
+      where: and(eq(invoices.id, parsed.data), eq(invoices.organizationId, orgId)),
       with: {
         client: true,
         project: true,
@@ -631,10 +699,13 @@ export async function getInvoiceWithPayments(id: string) {
 
 export async function getOverdueInvoices() {
   try {
+    const session = await getRequiredSession();
+    const orgId = session.user.organizationId;
     const today = new Date().toISOString().split("T")[0]!;
 
     const overdueInvoices = await db.query.invoices.findMany({
       where: and(
+        eq(invoices.organizationId, orgId),
         ne(invoices.status, "paid"),
         sql`coalesce(${invoices.dueDate}, ${invoices.issueDate}) < ${today}`
       ),
@@ -693,14 +764,6 @@ export async function createInvoice(input: CreateInvoiceInput) {
   // Sequential invoice number is assigned from settings; `data.invoiceNumber` is ignored (UI shows next preview).
   void data.invoiceNumber;
   const mergedProjectIds = mergeProjectIds(data.projectId ?? null, data.projectIds);
-  try {
-    await assertProjectsBelongToClient(data.clientId, mergedProjectIds);
-  } catch (e) {
-    if (e instanceof Error && e.message === "INVALID_PROJECTS") {
-      return { ok: false as const, error: { _form: ["Invalid project selection for this client"] } };
-    }
-    throw e;
-  }
   const primaryProjectId = mergedProjectIds[0] ?? null;
 
   let subtotalTotal = 0;
@@ -717,7 +780,27 @@ export async function createInvoice(input: CreateInvoiceInput) {
   });
   const grandTotal = subtotalTotal + taxTotal;
   try {
-    const [settingsRow] = await db.select().from(settings).where(eq(settings.id, 1));
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const ctx = await requireAgencyOrganization();
+    const organizationId = ctx.organizationId;
+    const [clientRow] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(and(eq(clients.id, data.clientId), eq(clients.organizationId, organizationId)))
+      .limit(1);
+    if (!clientRow) {
+      return { ok: false as const, error: { _form: ["Invalid client"] } };
+    }
+    try {
+      await assertProjectsBelongToClient(data.clientId, mergedProjectIds, organizationId);
+    } catch (e) {
+      if (e instanceof Error && e.message === "INVALID_PROJECTS") {
+        return { ok: false as const, error: { _form: ["Invalid project selection for this client"] } };
+      }
+      throw e;
+    }
+    const settingsRow = await ensureSettingsForOrganization(organizationId);
     const seq = settingsRow?.invoiceNextNumber ?? 1;
     const prefix = (settingsRow?.invoicePrefix ?? "INV").trim() || "INV";
     const invoiceNumber = formatInvoiceSerial(prefix, seq);
@@ -725,6 +808,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
     const [inv] = await db
       .insert(invoices)
       .values({
+        organizationId,
         invoiceNumber,
         clientId: data.clientId,
         projectId: primaryProjectId,
@@ -753,7 +837,10 @@ export async function createInvoice(input: CreateInvoiceInput) {
 
     await syncInvoiceProjectLinks(inv.id, mergedProjectIds);
 
-    await db.update(settings).set({ invoiceNextNumber: seq + 1 }).where(eq(settings.id, 1));
+    await db
+      .update(settings)
+      .set({ invoiceNextNumber: seq + 1 })
+      .where(eq(settings.organizationId, organizationId));
 
     await logActivityWithActor({
       entityType: "invoice",
@@ -789,17 +876,35 @@ export async function updateInvoice(input: UpdateInvoiceInput) {
   }
   const { id, lineItems, projectIds, ...data } = parsed.data;
   try {
-    const [existing] = await db.select().from(invoices).where(eq(invoices.id, id));
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const [existing] = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.organizationId, orgId)));
     if (!existing) return { ok: false as const, error: { _form: ["Invoice not found"] } };
     if (existing.status !== "pending") {
       return { ok: false as const, error: { _form: ["Only pending invoices can be edited"] } };
+    }
+    if (data.clientId !== undefined) {
+      const [c] = await db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(and(eq(clients.id, data.clientId), eq(clients.organizationId, orgId)))
+        .limit(1);
+      if (!c) {
+        return { ok: false as const, error: { _form: ["Invalid client"] } };
+      }
     }
     const updatePayload: Record<string, unknown> = {};
     if (data.clientId !== undefined) updatePayload.clientId = data.clientId;
     if (projectIds !== undefined) {
       const merged = mergeProjectIds(null, projectIds);
+      const clientIdForProjects = data.clientId ?? existing.clientId;
       try {
-        await assertProjectsBelongToClient(existing.clientId, merged);
+        await assertProjectsBelongToClient(clientIdForProjects, merged, orgId);
       } catch (e) {
         if (e instanceof Error && e.message === "INVALID_PROJECTS") {
           return { ok: false as const, error: { _form: ["Invalid project selection for this client"] } };
@@ -811,7 +916,7 @@ export async function updateInvoice(input: UpdateInvoiceInput) {
     } else if (data.projectId !== undefined) {
       const merged = mergeProjectIds(data.projectId, undefined);
       try {
-        await assertProjectsBelongToClient(existing.clientId, merged);
+        await assertProjectsBelongToClient(existing.clientId, merged, orgId);
       } catch (e) {
         if (e instanceof Error && e.message === "INVALID_PROJECTS") {
           return { ok: false as const, error: { _form: ["Invalid project selection for this client"] } };
@@ -857,7 +962,7 @@ export async function updateInvoice(input: UpdateInvoiceInput) {
     const [row] = await db
       .update(invoices)
       .set(updatePayload as typeof invoices.$inferInsert)
-      .where(eq(invoices.id, id))
+      .where(and(eq(invoices.id, id), eq(invoices.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["Update failed"] } };
     revalidatePath("/dashboard/invoices");
@@ -890,6 +995,10 @@ export async function updateInvoiceStatus(
     return { ok: false as const, error: "Invalid input" };
   }
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const payload =
       status === "paid"
         ? { status: "paid" as const, paidAt: new Date(), paymentMethod: "other" as const }
@@ -897,7 +1006,7 @@ export async function updateInvoiceStatus(
     const [row] = await db
       .update(invoices)
       .set(payload)
-      .where(eq(invoices.id, parsed.data.id))
+      .where(and(eq(invoices.id, parsed.data.id), eq(invoices.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: "Invoice not found" };
     revalidatePath("/dashboard/invoices");
@@ -919,8 +1028,12 @@ export async function markAsPaid(input: z.infer<typeof markAsPaidSchema>) {
   }
   const { id, paidAt, paymentMethod } = parsed.data;
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, id),
+      where: and(eq(invoices.id, id), eq(invoices.organizationId, orgId)),
     });
 
     if (!invoice) {
@@ -968,7 +1081,7 @@ export async function markAsPaid(input: z.infer<typeof markAsPaidSchema>) {
         paidAt: paidAtForInvoice,
         paymentMethod: paymentMethod ?? null,
       })
-      .where(eq(invoices.id, id))
+      .where(and(eq(invoices.id, id), eq(invoices.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: "Invoice not found" };
     await logActivityWithActor({
@@ -1034,9 +1147,18 @@ export async function deleteInvoice(id: string) {
     return { ok: false as const, error: "Invalid invoice id" };
   }
   try {
-    const [inv] = await db.select({ status: invoices.status }).from(invoices).where(eq(invoices.id, parsed.data));
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const [inv] = await db
+      .select({ status: invoices.status })
+      .from(invoices)
+      .where(and(eq(invoices.id, parsed.data), eq(invoices.organizationId, orgId)));
     if (!inv) return { ok: false as const, error: "Invoice not found" };
-    await db.delete(invoices).where(eq(invoices.id, parsed.data));
+    await db
+      .delete(invoices)
+      .where(and(eq(invoices.id, parsed.data), eq(invoices.organizationId, orgId)));
     revalidatePath("/dashboard/invoices");
     return { ok: true as const };
   } catch (e) {
@@ -1055,7 +1177,14 @@ export async function deleteInvoices(ids: string[]) {
   const parsed = z.array(z.string().uuid()).min(1).safeParse(ids);
   if (!parsed.success) return { ok: false as const, error: "Invalid invoice ids" };
   try {
-    const deleted = await db.delete(invoices).where(inArray(invoices.id, parsed.data)).returning({ id: invoices.id });
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const deleted = await db
+      .delete(invoices)
+      .where(and(inArray(invoices.id, parsed.data), eq(invoices.organizationId, orgId)))
+      .returning({ id: invoices.id });
     if (deleted.length === 0) return { ok: false as const, error: "No invoices found" };
     revalidatePath("/dashboard/invoices");
     return { ok: true as const, count: deleted.length };
@@ -1070,7 +1199,9 @@ export async function deleteInvoices(ids: string[]) {
 
 export async function getNextInvoiceNumber() {
   try {
-    const [row] = await db.select().from(settings).where(eq(settings.id, 1));
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    const row = await ensureSettingsForOrganization(orgId);
     const next = row?.invoiceNextNumber ?? 1;
     const prefix = (row?.invoicePrefix ?? "INV").trim() || "INV";
     return { ok: true as const, data: formatInvoiceSerial(prefix, next) };
@@ -1086,15 +1217,21 @@ export async function getNextInvoiceNumber() {
 /** One-time migration: renumber invoices to INV-001, INV-002, … by creation order and sync settings counter. */
 export async function migrateInvoicesToNewFormat() {
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
+    await ensureSettingsForOrganization(orgId);
     const all = await db
       .select({ id: invoices.id })
       .from(invoices)
+      .where(eq(invoices.organizationId, orgId))
       .orderBy(invoices.createdAt);
     if (all.length === 0) {
       await db
         .update(settings)
         .set({ invoicePrefix: "INV", invoiceNextNumber: 1 })
-        .where(eq(settings.id, 1));
+        .where(eq(settings.organizationId, orgId));
       revalidatePath("/dashboard/invoices");
       return { ok: true as const, data: { updated: 0 } };
     }
@@ -1103,12 +1240,12 @@ export async function migrateInvoicesToNewFormat() {
       await db
         .update(invoices)
         .set({ invoiceNumber: formatInvoiceSerial(prefix, i + 1) })
-        .where(eq(invoices.id, all[i].id));
+        .where(and(eq(invoices.id, all[i].id), eq(invoices.organizationId, orgId)));
     }
     await db
       .update(settings)
       .set({ invoicePrefix: prefix, invoiceNextNumber: all.length + 1 })
-      .where(eq(settings.id, 1));
+      .where(eq(settings.organizationId, orgId));
     revalidatePath("/dashboard/invoices");
     return { ok: true as const, data: { updated: all.length } };
   } catch (e) {
@@ -1122,15 +1259,15 @@ export async function migrateInvoicesToNewFormat() {
 
 /** Admin-only: backfill `payments` for old paid invoices (same logic as `scripts/migrate-paid-invoices.ts`). */
 export async function migrateLegacyPaidInvoicePayments() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return { ok: false as const, error: "Unauthorized" };
-  }
+  const session = await getRequiredSession();
   if (session.user.role !== "admin") {
     return { ok: false as const, error: "Forbidden" };
   }
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return trialExpiredPlain();
+  const orgId = session.user.organizationId;
   try {
-    const result = await runLegacyPaidInvoicePaymentMigration();
+    const result = await runLegacyPaidInvoicePaymentMigration(orgId);
     revalidatePath("/dashboard/reports");
     revalidatePath("/dashboard/invoices");
     return {

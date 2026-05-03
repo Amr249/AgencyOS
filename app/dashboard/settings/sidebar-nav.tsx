@@ -19,9 +19,7 @@ export function SidebarNav({ className, items, ...props }: SidebarNavProps) {
   const pathname = usePathname();
 
   return (
-    <nav
-      className={cn("flex space-x-2 lg:flex-col lg:space-x-0 lg:space-y-1", className)}
-      {...props}>
+    <nav className={cn("flex flex-row gap-2 lg:flex-col lg:gap-1", className)} {...props}>
       {items.map((item) => {
         const active = item.exact
           ? pathname === item.href
@@ -34,7 +32,8 @@ export function SidebarNav({ className, items, ...props }: SidebarNavProps) {
               buttonVariants({ variant: "ghost" }),
               active ? "bg-muted hover:bg-muted" : "hover:bg-muted",
               "justify-start"
-            )}>
+            )}
+          >
             {item.title}
           </Link>
         );

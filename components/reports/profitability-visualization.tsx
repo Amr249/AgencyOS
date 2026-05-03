@@ -11,7 +11,8 @@ import {
   startOfYear,
   subMonths,
 } from "date-fns";
-import { enUS } from "date-fns/locale";
+import { arSA, enUS } from "date-fns/locale";
+import { useLocale, useTranslations } from "next-intl";
 import { BarChart3, Download, LayoutGrid, PieChart } from "lucide-react";
 import {
   Bar,
@@ -197,15 +198,15 @@ function ChartMoneyInline({
   className,
 }: {
   amount: number;
-  currency: "SAR" | "EGP";
+  currency: "SAR" | "USD";
   formatNumber: (n: number) => string;
   className?: string;
 }) {
-  if (currency === "EGP") {
+  if (currency === "USD") {
     return (
       <span className={cn("inline-flex items-center gap-1 tabular-nums", className)} dir="ltr">
         {formatNumber(amount)}
-        <span className="opacity-90">EGP</span>
+        <span className="opacity-90">USD</span>
       </span>
     );
   }
@@ -226,7 +227,7 @@ function ChartMoneyInline({
 
 function createTreemapCellRenderer(
   formatNumber: (n: number) => string,
-  currency: "SAR" | "EGP"
+  currency: "SAR" | "USD"
 ) {
   return function TreemapCell(props: {
     depth?: number;
@@ -305,6 +306,11 @@ function createTreemapCellRenderer(
 
 export function ProfitabilityVisualization() {
   const { formatNumber, currency } = useReportsCurrency();
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const t = useTranslations("reports.profitability");
+  const dateLocale = isAr ? arSA : enUS;
+  const selectDir = isAr ? "rtl" : "ltr";
   const isLgChart = useMediaQuery("(min-width: 1024px)");
   const isSmChart = useMediaQuery("(min-width: 640px)");
   const barYAxisWidth = isLgChart ? 268 : isSmChart ? 168 : 96;
@@ -327,7 +333,7 @@ export function ProfitabilityVisualization() {
         const res = await getProjectProfitability(range);
         if (!res.ok) {
           setRows([]);
-          toast.error("Could not load project profitability.");
+          toast.error(t("toastLoadProjects"));
           return;
         }
         setRows(mapProjects(res.data));
@@ -337,7 +343,7 @@ export function ProfitabilityVisualization() {
         const res = await getClientProfitability(range);
         if (!res.ok) {
           setRows([]);
-          toast.error("Could not load client profitability.");
+          toast.error(t("toastLoadClients"));
           return;
         }
         setRows(mapClients(res.data));
@@ -346,14 +352,14 @@ export function ProfitabilityVisualization() {
       const res = await getServiceProfitability(range);
       if (!res.ok) {
         setRows([]);
-        toast.error("Could not load service profitability.");
+        toast.error(t("toastLoadServices"));
         return;
       }
       setRows(mapServices(res.data));
     } finally {
       setLoading(false);
     }
-  }, [dataType, range?.dateFrom, range?.dateTo]);
+  }, [dataType, range?.dateFrom, range?.dateTo, t]);
 
   useEffect(() => {
     void load();
@@ -424,10 +430,10 @@ export function ProfitabilityVisualization() {
 
   const emptyLabel =
     dataType === "projects"
-      ? "No projects found for this period."
+      ? t("emptyProjects")
       : dataType === "clients"
-        ? "No clients found for this period."
-        : "No services found for this period.";
+        ? t("emptyClients")
+        : t("emptyServices");
 
   const handlePdf = async () => {
     try {
@@ -443,13 +449,13 @@ export function ProfitabilityVisualization() {
         dateTo: range?.dateTo,
       });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not download PDF.");
+      toast.error(e instanceof Error ? e.message : t("toastPdfFailed"));
     }
   };
 
   const SarAmount = ({ amount, className }: { amount: number; className?: string }) => {
-    if (currency === "EGP") {
-      return <span className={cn("tabular-nums", className)}>{formatNumber(amount)} EGP</span>;
+    if (currency === "USD") {
+      return <span className={cn("tabular-nums", className)}>{formatNumber(amount)} USD</span>;
     }
     return (
       <span className={cn("inline-flex items-center gap-1 tabular-nums", className)} dir="ltr">
@@ -461,34 +467,34 @@ export function ProfitabilityVisualization() {
 
   return (
     <Card
-      className="w-full border shadow-sm text-left [unicode-bidi:isolate]"
-      dir="ltr"
-      lang="en"
+      className="w-full border shadow-sm text-start [unicode-bidi:isolate]"
+      dir={isAr ? "rtl" : "ltr"}
+      lang={locale}
     >
-      <CardContent className="space-y-4 p-4 pt-5 text-left md:p-6" dir="ltr" lang="en">
+      <CardContent
+        className="space-y-4 p-4 pt-5 text-start md:p-6"
+        dir={isAr ? "rtl" : "ltr"}
+        lang={locale}
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <h2 className="text-left text-lg font-semibold tracking-tight">Profitability analysis</h2>
+          <h2 className="text-start text-lg font-semibold tracking-tight">{t("title")}</h2>
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="gap-2 self-start lg:self-auto"
-            dir="ltr"
-            lang="en"
             onClick={() => void handlePdf()}
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            {t("downloadPdf")}
           </Button>
         </div>
 
-        <div
-          className="flex flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center xl:justify-between"
-          dir="ltr"
-          lang="en"
-        >
+        <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center xl:justify-between">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <span className="text-left text-muted-foreground text-xs font-medium uppercase tracking-wide">Data</span>
+            <span className="text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("sectionData")}
+            </span>
             <ToggleGroup
               type="single"
               value={dataType}
@@ -498,20 +504,22 @@ export function ProfitabilityVisualization() {
               spacing={0}
               className="justify-start"
             >
-              <ToggleGroupItem value="projects" aria-label="Projects">
-                Projects
+              <ToggleGroupItem value="projects" aria-label={t("ariaProjects")}>
+                {t("dataProjects")}
               </ToggleGroupItem>
-              <ToggleGroupItem value="clients" aria-label="Clients">
-                Clients
+              <ToggleGroupItem value="clients" aria-label={t("ariaClients")}>
+                {t("dataClients")}
               </ToggleGroupItem>
-              <ToggleGroupItem value="services" aria-label="Services">
-                Services
+              <ToggleGroupItem value="services" aria-label={t("ariaServices")}>
+                {t("dataServices")}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <span className="text-left text-muted-foreground text-xs font-medium uppercase tracking-wide">Chart</span>
+            <span className="text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("sectionChart")}
+            </span>
             <ToggleGroup
               type="single"
               value={chartType}
@@ -521,58 +529,62 @@ export function ProfitabilityVisualization() {
               spacing={0}
               className="justify-start"
             >
-              <ToggleGroupItem value="bar" aria-label="Bar chart" className="gap-1.5 px-2.5">
+              <ToggleGroupItem value="bar" aria-label={t("ariaBar")} className="gap-1.5 px-2.5">
                 <BarChart3 className="h-4 w-4" />
-                Bar
+                {t("chartBar")}
               </ToggleGroupItem>
-              <ToggleGroupItem value="treemap" aria-label="Treemap" className="gap-1.5 px-2.5">
+              <ToggleGroupItem value="treemap" aria-label={t("ariaTreemap")} className="gap-1.5 px-2.5">
                 <LayoutGrid className="h-4 w-4" />
-                Treemap
+                {t("chartTreemap")}
               </ToggleGroupItem>
-              <ToggleGroupItem value="donut" aria-label="Donut" className="gap-1.5 px-2.5">
+              <ToggleGroupItem value="donut" aria-label={t("ariaDonut")} className="gap-1.5 px-2.5">
                 <PieChart className="h-4 w-4" />
-                Donut
+                {t("chartDonut")}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
 
           <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto">
             <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-[220px]">
-              <span className="text-left text-muted-foreground text-xs font-medium uppercase tracking-wide">Period</span>
+              <span className="text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t("sectionPeriod")}
+              </span>
               <Select value={period} onValueChange={(v) => setPeriod(v as PeriodKind)}>
-                <SelectTrigger className="w-full min-w-0" dir="ltr" lang="en">
+                <SelectTrigger className="w-full min-w-0" dir={selectDir}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent dir="ltr" lang="en" className="text-left">
-                  <SelectItem value="all">All time</SelectItem>
-                  <SelectItem value="year">This year</SelectItem>
-                  <SelectItem value="quarter">This quarter</SelectItem>
-                  <SelectItem value="month">This month</SelectItem>
-                  <SelectItem value="last_month">Last month</SelectItem>
-                  <SelectItem value="custom">Custom range</SelectItem>
+                <SelectContent dir={selectDir} className="text-start">
+                  <SelectItem value="all">{t("periodAll")}</SelectItem>
+                  <SelectItem value="year">{t("periodYear")}</SelectItem>
+                  <SelectItem value="quarter">{t("periodQuarter")}</SelectItem>
+                  <SelectItem value="month">{t("periodMonth")}</SelectItem>
+                  <SelectItem value="last_month">{t("periodLastMonth")}</SelectItem>
+                  <SelectItem value="custom">{t("periodCustom")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {period === "custom" ? (
-              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end" dir="ltr" lang="en">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
                 <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
-                  <div className="space-y-1 text-left">
-                    <span className="text-muted-foreground text-xs">From</span>
+                  <div className="space-y-1 text-start">
+                    <span className="text-xs text-muted-foreground">{t("customFrom")}</span>
                     <DatePickerAr
                       value={customRange.from}
                       onChange={(d) => setCustomRange((p) => ({ ...p, from: d }))}
-                      direction="ltr"
-                      locale={enUS}
+                      direction={isAr ? "rtl" : "ltr"}
+                      locale={dateLocale}
+                      popoverAlign={isAr ? "end" : "start"}
                       className="w-full"
                     />
                   </div>
-                  <div className="space-y-1 text-left">
-                    <span className="text-muted-foreground text-xs">To</span>
+                  <div className="space-y-1 text-start">
+                    <span className="text-xs text-muted-foreground">{t("customTo")}</span>
                     <DatePickerAr
                       value={customRange.to}
                       onChange={(d) => setCustomRange((p) => ({ ...p, to: d }))}
-                      direction="ltr"
-                      locale={enUS}
+                      direction={isAr ? "rtl" : "ltr"}
+                      locale={dateLocale}
+                      popoverAlign={isAr ? "end" : "start"}
                       className="w-full"
                     />
                   </div>
@@ -582,32 +594,32 @@ export function ProfitabilityVisualization() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" dir="ltr" lang="en">
-          <Card className="shadow-none" dir="ltr" lang="en">
-            <CardContent className="p-3 text-left">
-              <p className="text-muted-foreground text-xs font-medium">Items analyzed</p>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Card className="shadow-none">
+            <CardContent className="p-3 text-start">
+              <p className="text-xs font-medium text-muted-foreground">{t("kpiItems")}</p>
               <p className="text-xl font-bold tabular-nums">{loading ? "—" : summary.n}</p>
             </CardContent>
           </Card>
-          <Card className="shadow-none" dir="ltr" lang="en">
-            <CardContent className="p-3 text-left">
-              <p className="text-muted-foreground text-xs font-medium">Total revenue</p>
+          <Card className="shadow-none">
+            <CardContent className="p-3 text-start">
+              <p className="text-xs font-medium text-muted-foreground">{t("kpiRevenue")}</p>
               <p className={cn("text-xl font-bold", loading && "text-muted-foreground")}>
                 {loading ? "—" : <SarAmount amount={summary.rev} />}
               </p>
             </CardContent>
           </Card>
-          <Card className="shadow-none" dir="ltr" lang="en">
-            <CardContent className="p-3 text-left">
-              <p className="text-muted-foreground text-xs font-medium">Total expenses</p>
+          <Card className="shadow-none">
+            <CardContent className="p-3 text-start">
+              <p className="text-xs font-medium text-muted-foreground">{t("kpiExpenses")}</p>
               <p className={cn("text-xl font-bold", loading && "text-muted-foreground")}>
                 {loading ? "—" : <SarAmount amount={summary.exp} />}
               </p>
             </CardContent>
           </Card>
-          <Card className="shadow-none" dir="ltr" lang="en">
-            <CardContent className="p-3 text-left">
-              <p className="text-muted-foreground text-xs font-medium">Net profit</p>
+          <Card className="shadow-none">
+            <CardContent className="p-3 text-start">
+              <p className="text-xs font-medium text-muted-foreground">{t("kpiNetProfit")}</p>
               <p
                 className={cn(
                   "text-xl font-bold",
@@ -622,13 +634,11 @@ export function ProfitabilityVisualization() {
           </Card>
         </div>
 
-        <div
-          className="bg-muted/20 min-h-[320px] w-full rounded-lg border p-2 text-left md:min-h-[420px] md:p-3 lg:min-h-[450px]"
-          dir="ltr"
-          lang="en"
-        >
+        <div className="min-h-[320px] w-full rounded-lg border bg-muted/20 p-2 text-start md:min-h-[420px] md:p-3 lg:min-h-[450px]">
           {loading ? (
-            <p className="text-muted-foreground flex h-[300px] items-center justify-center text-sm md:h-[400px]">Loading…</p>
+            <p className="flex h-[300px] items-center justify-center text-sm text-muted-foreground md:h-[400px]">
+              {t("loading")}
+            </p>
           ) : rows.length === 0 ? (
             <p className="text-muted-foreground flex h-[300px] items-center justify-center text-sm md:h-[400px]">{emptyLabel}</p>
           ) : chartType === "bar" ? (
@@ -686,14 +696,10 @@ export function ProfitabilityVisualization() {
                       if (!active || !payload?.length) return null;
                       const d = payload[0]?.payload as (typeof barData)[0];
                       return (
-                        <div
-                          className="bg-popover text-popover-foreground rounded-md border px-3 py-2 text-left text-xs shadow-md"
-                          dir="ltr"
-                          lang="en"
-                        >
+                        <div className="rounded-md border bg-popover px-3 py-2 text-start text-xs text-popover-foreground shadow-md">
                           <p className="mb-1 font-semibold">{d.fullName}</p>
                           <p className="flex flex-wrap items-center gap-1">
-                            Revenue:{" "}
+                            {t("tooltipRevenue")}{" "}
                             <ChartMoneyInline
                               amount={d.revenue}
                               currency={currency}
@@ -701,7 +707,7 @@ export function ProfitabilityVisualization() {
                             />
                           </p>
                           <p className="flex flex-wrap items-center gap-1">
-                            Expenses:{" "}
+                            {t("tooltipExpenses")}{" "}
                             <ChartMoneyInline
                               amount={d.expenses}
                               currency={currency}
@@ -709,28 +715,31 @@ export function ProfitabilityVisualization() {
                             />
                           </p>
                           <p className="flex flex-wrap items-center gap-1">
-                            Profit:{" "}
+                            {t("tooltipProfit")}{" "}
                             <ChartMoneyInline
                               amount={d.profit}
                               currency={currency}
                               formatNumber={formatNumber}
                             />
                           </p>
-                          <p>Margin: {d.margin == null ? "—" : `${d.margin.toFixed(1)}%`}</p>
+                          <p>
+                            {t("tooltipMargin")}{" "}
+                            {d.margin == null ? "—" : `${d.margin.toFixed(1)}%`}
+                          </p>
                         </div>
                       );
                     }}
                   />
                   <Bar
                     dataKey="revenue"
-                    name="Revenue"
+                    name={t("legendRevenue")}
                     fill={REV_GREEN}
                     radius={[0, 4, 4, 0]}
                     maxBarSize={isSmChart ? 28 : 22}
                   />
                   <Bar
                     dataKey="expenses"
-                    name="Expenses"
+                    name={t("legendExpenses")}
                     fill={EXP_RED}
                     radius={[0, 4, 4, 0]}
                     maxBarSize={isSmChart ? 28 : 22}
@@ -756,11 +765,7 @@ export function ProfitabilityVisualization() {
                       const p = payload?.[0]?.payload as TreemapPayload | undefined;
                       if (!p?.name) return null;
                       return (
-                        <div
-                          className="bg-popover text-popover-foreground max-w-xs rounded-md border px-3 py-2 text-left text-xs shadow-md"
-                          dir="ltr"
-                          lang="en"
-                        >
+                        <div className="max-w-xs rounded-md border bg-popover px-3 py-2 text-start text-xs text-popover-foreground shadow-md">
                           <p className="mb-1 font-semibold">
                             {p.name}
                             {p.sharePercent != null && Number.isFinite(p.sharePercent)
@@ -768,7 +773,7 @@ export function ProfitabilityVisualization() {
                               : ""}
                           </p>
                           <p className="flex flex-wrap items-center gap-1">
-                            Revenue:{" "}
+                            {t("tooltipRevenue")}{" "}
                             <ChartMoneyInline
                               amount={p.revenue ?? 0}
                               currency={currency}
@@ -776,7 +781,7 @@ export function ProfitabilityVisualization() {
                             />
                           </p>
                           <p className="flex flex-wrap items-center gap-1">
-                            Expenses:{" "}
+                            {t("tooltipExpenses")}{" "}
                             <ChartMoneyInline
                               amount={p.expenses ?? 0}
                               currency={currency}
@@ -784,14 +789,17 @@ export function ProfitabilityVisualization() {
                             />
                           </p>
                           <p className="flex flex-wrap items-center gap-1">
-                            Profit:{" "}
+                            {t("tooltipProfit")}{" "}
                             <ChartMoneyInline
                               amount={p.profit ?? 0}
                               currency={currency}
                               formatNumber={formatNumber}
                             />
                           </p>
-                          <p>Margin: {p.margin == null ? "—" : `${Number(p.margin).toFixed(1)}%`}</p>
+                          <p>
+                            {t("tooltipMargin")}{" "}
+                            {p.margin == null ? "—" : `${Number(p.margin).toFixed(1)}%`}
+                          </p>
                         </div>
                       );
                     }}
@@ -800,8 +808,8 @@ export function ProfitabilityVisualization() {
               </ResponsiveContainer>
             </div>
           ) : donutData.length === 0 ? (
-            <p className="text-muted-foreground flex min-h-[220px] items-center justify-center text-sm sm:min-h-[260px]">
-              No positive profit segments for this period.
+            <p className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground sm:min-h-[260px]">
+              {t("emptyDonut")}
             </p>
           ) : (
             <div
@@ -846,11 +854,7 @@ export function ProfitabilityVisualization() {
                           percent: number;
                         };
                         return (
-                          <div
-                            className="bg-popover text-popover-foreground max-w-xs rounded-md border px-3 py-2 text-left text-xs shadow-md"
-                            dir="ltr"
-                            lang="en"
-                          >
+                          <div className="max-w-xs rounded-md border bg-popover px-3 py-2 text-start text-xs text-popover-foreground shadow-md">
                             <p className="mb-1 font-semibold">{p.fullName ?? p.name}</p>
                             <p className="flex flex-wrap items-center gap-1">
                               <ChartMoneyInline
@@ -859,7 +863,9 @@ export function ProfitabilityVisualization() {
                                 formatNumber={formatNumber}
                               />
                               <span className="text-muted-foreground">
-                                ({p.percent != null ? p.percent.toFixed(1) : "0.0"}% of positive profit)
+                                {t("donutPercentOfPositive", {
+                                  pct: p.percent != null ? p.percent.toFixed(1) : "0.0",
+                                })}
                               </span>
                             </p>
                           </div>
@@ -880,8 +886,8 @@ export function ProfitabilityVisualization() {
                         formatNumber={formatNumber}
                       />
                     </div>
-                    <p className="text-muted-foreground mt-1 text-[10px] leading-snug sm:text-xs">
-                      Net profit (all)
+                    <p className="mt-1 text-[10px] leading-snug text-muted-foreground sm:text-xs">
+                      {t("netProfitAll")}
                     </p>
                   </div>
                 </div>
@@ -892,7 +898,7 @@ export function ProfitabilityVisualization() {
                   "grid w-full max-w-2xl grid-cols-1 gap-x-8 gap-y-2.5 px-1 sm:grid-cols-2",
                   "lg:max-h-[400px] lg:max-w-[300px] lg:shrink-0 lg:grid-cols-1 lg:gap-y-2 lg:overflow-y-auto lg:px-0 lg:text-left"
                 )}
-                aria-label="Profit segments"
+                aria-label={t("profitSegmentsAria")}
               >
                 {donutData.map((d, i) => (
                   <li

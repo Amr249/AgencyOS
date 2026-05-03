@@ -59,7 +59,11 @@ export function GlobalSearch() {
       setLoading(true);
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        const data = await res.json();
+        if (!res.ok) {
+          setResults(emptyResults);
+          return;
+        }
+        const data = (await res.json()) as SearchResults;
         setResults(data);
       } catch {
         setResults(emptyResults);

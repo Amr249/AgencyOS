@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { formatAmount } from "@/lib/utils";
+import { cn, formatAmount } from "@/lib/utils";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { Cross2Icon } from "@radix-ui/react-icons";
 import { Lock } from "lucide-react";
@@ -48,7 +48,7 @@ import {
   ProjectSelectOptionRow,
   entityInitials,
 } from "@/components/entity-select-option";
-
+import { useLocale, useTranslations } from "next-intl";
 function SarAmount({ value }: { value: string }) {
   const f = formatAmount(value);
   if (f === "—") return <span>—</span>;
@@ -60,23 +60,29 @@ function SarAmount({ value }: { value: string }) {
   );
 }
 
-const lineItemSchema = z.object({
-  description: z.string().min(1, "Description required"),
-  quantity: z.coerce.number().min(0.01),
-  unitPrice: z.coerce.number().min(0),
-  taxRate: z.coerce.number().min(0).max(100),
-});
+function buildInvoiceFormSchema(messages: {
+  selectClient: string;
+  invoiceNumber: string;
+  minOneLine: string;
+  lineDescription: string;
+}) {
+  const lineItem = z.object({
+    description: z.string().min(1, messages.lineDescription),
+    quantity: z.coerce.number().min(0.01),
+    unitPrice: z.coerce.number().min(0),
+    taxRate: z.coerce.number().min(0).max(100),
+  });
+  return z.object({
+    clientId: z.string().uuid(messages.selectClient),
+    projectIds: z.array(z.string().uuid()).optional(),
+    invoiceNumber: z.string().min(1, messages.invoiceNumber),
+    issueDate: z.string().min(1),
+    notes: z.string().optional().nullable(),
+    lineItems: z.array(lineItem).min(1, messages.minOneLine),
+  });
+}
 
-const formSchema = z.object({
-  clientId: z.string().uuid("Select a client"),
-  projectIds: z.array(z.string().uuid()).optional(),
-  invoiceNumber: z.string().min(1, "Invoice number required"),
-  issueDate: z.string().min(1),
-  notes: z.string().optional().nullable(),
-  lineItems: z.array(lineItemSchema).min(1, "Add at least one line item"),
-});
-
-type FormValues = z.infer<typeof formSchema>;
+type FormValues = z.infer<ReturnType<typeof buildInvoiceFormSchema>>;
 
 type ClientOption = { id: string; companyName: string | null; logoUrl?: string | null };
 type ProjectOption = {
@@ -133,6 +139,21 @@ export function NewInvoiceDialog({
   open: openProp,
   onOpenChange: setOpenProp,
 }: NewInvoiceDialogProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
+  const selectDir = isAr ? "rtl" : "ltr";
+  const td = useTranslations("invoices.newInvoiceDialog");
+  const formSchema = React.useMemo(
+    () =>
+      buildInvoiceFormSchema({
+        selectClient: td("validation.selectClient"),
+        invoiceNumber: td("validation.invoiceNumber"),
+        minOneLine: td("validation.minOneLine"),
+        lineDescription: td("validation.lineDescription"),
+      }),
+    [td]
+  );
+
   const [openLocal, setOpenLocal] = React.useState(false);
   const isControlled = openProp !== undefined && setOpenProp !== undefined;
   const open = isControlled ? openProp : openLocal;
@@ -198,7 +219,7 @@ export function NewInvoiceDialog({
       lineItems: milestonePrefill
         ? [
             {
-              description: `Milestone: ${milestonePrefill.milestoneName}`,
+              description: td("milestoneLinePrefix", { name: milestonePrefill.milestoneName }),
               quantity: 1,
               unitPrice,
               taxRate: 0,
@@ -206,7 +227,7 @@ export function NewInvoiceDialog({
           ]
         : [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0 }],
     });
-  }, [open, nextInvoiceNumber, defaultNotes, defaultClientId, form, milestonePrefill, prefillKey]);
+  }, [open, nextInvoiceNumber, defaultNotes, defaultClientId, form, milestonePrefill, prefillKey, td]);
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "lineItems" });
 
@@ -233,7 +254,7 @@ export function NewInvoiceDialog({
     });
     if (!result.ok) {
       const err = result.error as { _form?: string[] };
-      toast.error(err._form?.[0] ?? "Failed to create invoice");
+      toast.error(err._form?.[0] ?? td("toastCreateFailed"));
       return;
     }
     try {
@@ -247,9 +268,9 @@ export function NewInvoiceDialog({
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      toast.error("Invoice created but PDF download failed");
+      toast.error(td("toastPdfFailed"));
     }
-    toast.success("Invoice created and PDF downloaded");
+    toast.success(td("toastCreated"));
     const ret = onSuccess?.({ id: result.data.id, invoiceNumber: result.data.invoiceNumber });
     if (ret instanceof Promise) await ret;
     setOpen(false);
@@ -258,10 +279,14 @@ export function NewInvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger != null ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="max-h-[90vh] w-[95vw] max-w-[95vw] overflow-y-auto sm:max-w-3xl" dir="ltr">
-        <DialogHeader className="text-left">
-          <DialogTitle>New invoice</DialogTitle>
-          <DialogDescription>Create a new invoice. Client is required; add at least one line item.</DialogDescription>
+      <DialogContent
+        className="max-h-[90vh] w-[95vw] max-w-[95vw] overflow-y-auto text-start sm:max-w-3xl"
+        dir={isAr ? "rtl" : "ltr"}
+        lang={isAr ? "ar" : "en"}
+      >
+        <DialogHeader className="text-start">
+          <DialogTitle>{td("title")}</DialogTitle>
+          <DialogDescription>{td("description")}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-4 py-4">
@@ -270,8 +295,8 @@ export function NewInvoiceDialog({
                 control={form.control}
                 name="clientId"
                 render={({ field }) => (
-                  <FormItem className="text-left">
-                    <FormLabel>Client *</FormLabel>
+                  <FormItem className="text-start">
+                    <FormLabel>{td("clientLabel")}</FormLabel>
                     {lockedClient ? (
                       <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
                         {(() => {
@@ -291,11 +316,11 @@ export function NewInvoiceDialog({
                     ) : (
                       <Select onValueChange={field.onChange} value={field.value || undefined}>
                         <FormControl>
-                          <SelectTrigger className="text-left">
-                            <SelectValue placeholder="Select a client" />
+                          <SelectTrigger className="text-start">
+                            <SelectValue placeholder={td("selectClient")} />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
+                        <SelectContent dir={selectDir}>
                           {clients.map((c) => {
                             const label = c.companyName || c.id;
                             return (
@@ -315,13 +340,11 @@ export function NewInvoiceDialog({
                 control={form.control}
                 name="projectIds"
                 render={() => (
-                  <FormItem className="text-left">
-                    <FormLabel>Projects (optional)</FormLabel>
-                    <p className="text-muted-foreground mb-2 text-xs">
-                      Select one or more projects for this client, or leave empty.
-                    </p>
+                  <FormItem className="text-start">
+                    <FormLabel>{td("projectsLabel")}</FormLabel>
+                    <p className="text-muted-foreground mb-2 text-xs">{td("projectsHint")}</p>
                     {projects.length === 0 ? (
-                      <p className="text-muted-foreground text-sm">No projects for this client yet.</p>
+                      <p className="text-muted-foreground text-sm">{td("noProjectsForClient")}</p>
                     ) : (
                       <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
                         {projects.map((p) => (
@@ -364,8 +387,8 @@ export function NewInvoiceDialog({
                 control={form.control}
                 name="invoiceNumber"
                 render={({ field }) => (
-                  <FormItem className="text-left">
-                    <FormLabel>Invoice number</FormLabel>
+                  <FormItem className="text-start">
+                    <FormLabel>{td("invoiceNumberLabel")}</FormLabel>
                     <FormControl>
                       <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
                         <Lock className="h-4 w-4 shrink-0" />
@@ -380,14 +403,14 @@ export function NewInvoiceDialog({
                 control={form.control}
                 name="issueDate"
                 render={({ field }) => (
-                  <FormItem className="text-left">
-                    <FormLabel>Issue date</FormLabel>
+                  <FormItem className="text-start">
+                    <FormLabel>{td("issueDateLabel")}</FormLabel>
                     <FormControl>
                       <DatePickerAr
-                        popoverAlign="start"
+                        popoverAlign={isAr ? "end" : "start"}
                         value={field.value ? new Date(field.value + "T12:00:00") : undefined}
                         onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        placeholder="Pick a date"
+                        placeholder={td("pickDate")}
                       />
                     </FormControl>
                     <FormMessage />
@@ -398,27 +421,27 @@ export function NewInvoiceDialog({
 
             <div>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <FormLabel className="mb-0">Line items</FormLabel>
+                <FormLabel className="mb-0">{td("lineItemsLabel")}</FormLabel>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => append({ description: "", quantity: 1, unitPrice: 0, taxRate: 0 })}
                 >
-                  + Add line
+                  {td("addLine")}
                 </Button>
               </div>
               <div className="space-y-2 rounded-md border p-3">
-                <div className="grid grid-cols-1 gap-2 text-left text-xs font-medium text-muted-foreground sm:grid-cols-12">
-                  <div className="hidden sm:block sm:col-span-4">Description</div>
-                  <div className="hidden sm:block sm:col-span-2">Qty</div>
+                <div className="text-muted-foreground grid grid-cols-1 gap-2 text-start text-xs font-medium sm:grid-cols-12">
+                  <div className="hidden sm:block sm:col-span-4">{td("colDescription")}</div>
+                  <div className="hidden sm:block sm:col-span-2">{td("colQty")}</div>
                   <div className="hidden items-center gap-1 sm:col-span-2 sm:flex">
-                    <span>Unit price</span>
+                    <span>{td("colUnitPrice")}</span>
                     <SarCurrencyIcon className="h-3 w-3 text-neutral-500" aria-hidden />
                   </div>
-                  <div className="hidden sm:block sm:col-span-2">Tax %</div>
+                  <div className="hidden sm:block sm:col-span-2">{td("colTaxPercent")}</div>
                   <div className="hidden items-center gap-1 sm:col-span-1 sm:flex">
-                    <span>Total</span>
+                    <span>{td("colLineTotal")}</span>
                     <SarCurrencyIcon className="h-3 w-3 text-neutral-500" aria-hidden />
                   </div>
                   <div className="hidden sm:col-span-1 sm:block" />
@@ -431,7 +454,7 @@ export function NewInvoiceDialog({
                       render={({ field: f }) => (
                         <FormItem className="col-span-1 sm:col-span-4">
                           <FormControl>
-                            <Input placeholder="Description" className="text-left" {...f} />
+                            <Input placeholder={td("descriptionPlaceholder")} className="text-start" {...f} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -443,7 +466,7 @@ export function NewInvoiceDialog({
                       render={({ field: f }) => (
                         <FormItem className="col-span-1 sm:col-span-2">
                           <FormControl>
-                            <Input type="number" min={0.01} step={0.01} className="text-left" {...f} />
+                            <Input type="number" min={0.01} step={0.01} className="text-start" {...f} />
                           </FormControl>
                         </FormItem>
                       )}
@@ -454,7 +477,7 @@ export function NewInvoiceDialog({
                       render={({ field: f }) => (
                         <FormItem className="col-span-1 sm:col-span-2">
                           <FormControl>
-                            <Input type="number" min={0} step={0.01} className="text-left" {...f} />
+                            <Input type="number" min={0} step={0.01} className="text-start" {...f} />
                           </FormControl>
                         </FormItem>
                       )}
@@ -465,12 +488,12 @@ export function NewInvoiceDialog({
                       render={({ field: f }) => (
                         <FormItem className="col-span-1 sm:col-span-2">
                           <FormControl>
-                            <Input type="number" min={0} max={100} step={0.01} className="text-left" {...f} />
+                            <Input type="number" min={0} max={100} step={0.01} className="text-start" {...f} />
                           </FormControl>
                         </FormItem>
                       )}
                     />
-                    <div className="col-span-1 text-left text-sm sm:col-span-1">
+                    <div className="col-span-1 text-start text-sm sm:col-span-1">
                       <SarAmount
                         value={String(
                           (lineItems[i]?.quantity ?? 0) * (lineItems[i]?.unitPrice ?? 0) * (1 + (lineItems[i]?.taxRate ?? 0) / 100)
@@ -489,17 +512,17 @@ export function NewInvoiceDialog({
                     </Button>
                   </div>
                 ))}
-                <div className="mt-3 flex flex-col gap-1 border-t pt-3 text-left text-sm">
+                <div className="mt-3 flex flex-col gap-1 border-t pt-3 text-start text-sm">
                   <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">{td("subtotal")}</span>
                     <SarAmount value={String(subtotal.toFixed(2))} />
                   </div>
                   <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Tax</span>
+                    <span className="text-muted-foreground">{td("tax")}</span>
                     <SarAmount value={String(taxTotal.toFixed(2))} />
                   </div>
                   <div className="flex justify-between gap-4 font-semibold">
-                    <span>Grand total</span>
+                    <span>{td("grandTotal")}</span>
                     <SarAmount value={String(grandTotal.toFixed(2))} />
                   </div>
                 </div>
@@ -510,12 +533,12 @@ export function NewInvoiceDialog({
               control={form.control}
               name="notes"
               render={({ field }) => (
-                <FormItem className="text-left">
-                  <FormLabel>Notes / payment instructions</FormLabel>
+                <FormItem className="text-start">
+                  <FormLabel>{td("notesLabel")}</FormLabel>
                   <FormControl>
                     <Textarea
-                      className="min-h-[80px] resize-y text-left"
-                      placeholder="Payment terms, bank details…"
+                      className="min-h-[80px] resize-y text-start"
+                      placeholder={td("notesPlaceholder")}
                       {...field}
                       value={field.value ?? ""}
                     />
@@ -525,12 +548,12 @@ export function NewInvoiceDialog({
               )}
             />
 
-            <DialogFooter className="gap-2 sm:justify-end">
+            <DialogFooter className={cn("gap-2", isAr ? "flex-row-reverse sm:justify-start" : "sm:justify-end")}>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Cancel
+                {td("cancel")}
               </Button>
               <Button type="button" onClick={form.handleSubmit(onSubmit)}>
-                Create & download
+                {td("submit")}
               </Button>
             </DialogFooter>
           </form>

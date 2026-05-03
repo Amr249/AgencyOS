@@ -7,6 +7,13 @@ const MEMBER_DRIVE = "/dashboard/member-drive";
 
 const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
 
+/** Lets `app/dashboard/layout.tsx` read the pathname (replaces legacy `middleware.ts`). */
+function nextWithDashboardPathname(request: NextRequest) {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", request.nextUrl.pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 function isMemberAllowedPath(pathname: string): boolean {
   if (pathname === "/dashboard" || pathname === "/dashboard/") return true;
   if (pathname === MEMBER_HOME || pathname.startsWith(`${MEMBER_HOME}/`)) return true;
@@ -58,10 +65,6 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
   if (!pathname.startsWith("/dashboard")) {
     return NextResponse.next();
   }
@@ -72,12 +75,12 @@ export async function proxy(request: NextRequest) {
   });
 
   if (!token?.sub) {
-    return NextResponse.next();
+    return nextWithDashboardPathname(request);
   }
 
   const role = token.role as string | undefined;
   if (role !== "member") {
-    return NextResponse.next();
+    return nextWithDashboardPathname(request);
   }
 
   if (pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/")) {
@@ -88,12 +91,12 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isMemberAllowedPath(pathname)) {
-    return NextResponse.next();
+    return nextWithDashboardPathname(request);
   }
 
   return NextResponse.redirect(new URL(MEMBER_HOME, request.url));
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*", "/portal", "/portal/:path*"],
+  matcher: ["/", "/dashboard", "/dashboard/:path*", "/portal", "/portal/:path*"],
 };

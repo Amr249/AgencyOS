@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -41,7 +42,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ExpenseCategoryBadge, CATEGORY_LABELS } from "./expense-category-badge";
+import { ExpenseCategoryBadge } from "./expense-category-badge";
 import { NewExpenseDialog, type ExpenseDialogClient, type ExpenseDialogProject, type ExpenseDialogService } from "./new-expense-dialog";
 import { formatAmount } from "@/lib/utils";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
@@ -87,18 +88,6 @@ function avatarInitial(name: string | null | undefined): string {
   const t = (name ?? "?").trim();
   return t ? t.slice(0, 1).toUpperCase() : "?";
 }
-
-const EXPENSE_CSV_COLUMNS: CsvColumn<ExpenseExportRow>[] = [
-  { key: "title", header: "Title" },
-  { key: "amount", header: "Amount" },
-  { key: "category", header: "Category" },
-  { key: "date", header: "Date" },
-  { key: "projectName", header: "Project" },
-  { key: "clientName", header: "Client" },
-  { key: "teamMemberName", header: "Team member" },
-  { key: "isBillable", header: "Billable" },
-  { key: "notes", header: "Notes" },
-];
 
 function buildExpenseExportFilters(
   categoryParam: string,
@@ -149,6 +138,26 @@ export function ExpensesListView({
   clients = [],
   services = [],
 }: ExpensesListViewProps) {
+  const t = useTranslations("expenses");
+  const tCategories = useTranslations("expenses.categories");
+  const locale = useLocale();
+  const isRtl = locale === "ar";
+
+  const expenseCsvColumns = React.useMemo(
+    (): CsvColumn<ExpenseExportRow>[] => [
+      { key: "title", header: t("csvTitle") },
+      { key: "amount", header: t("csvAmount") },
+      { key: "category", header: t("csvCategory") },
+      { key: "date", header: t("csvDate") },
+      { key: "projectName", header: t("csvProject") },
+      { key: "clientName", header: t("csvClient") },
+      { key: "teamMemberName", header: t("csvTeamMember") },
+      { key: "isBillable", header: t("csvBillable") },
+      { key: "notes", header: t("csvNotes") },
+    ],
+    [t]
+  );
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const categoryParam = searchParams.get("category") ?? "";
@@ -261,12 +270,12 @@ export function ExpensesListView({
         )
       );
       if (!result.ok) {
-        toast.error("Failed to export expenses");
+        toast.error(t("toastExportFail"));
         return;
       }
-      const csv = stringifyCsv(result.data, EXPENSE_CSV_COLUMNS);
+      const csv = stringifyCsv(result.data, expenseCsvColumns);
       triggerTextDownload(csv, `expenses-${exportFilenameDate}.csv`);
-      toast.success("CSV downloaded");
+      toast.success(t("toastCsvOk"));
     } finally {
       setExporting(false);
     }
@@ -285,28 +294,28 @@ export function ExpensesListView({
         )
       );
       if (!result.ok) {
-        toast.error("Failed to export expenses");
+        toast.error(t("toastExportFail"));
         return;
       }
       const XLSX = await import("xlsx");
       const sheetRows = result.data.map((r) => ({
-        Title: r.title,
-        Amount: r.amount,
-        Category: r.category,
-        Date: r.date,
-        Project: r.projectName,
-        Client: r.clientName,
-        "Team member": r.teamMemberName,
-        Billable: r.isBillable,
-        Notes: r.notes,
+        [t("csvTitle")]: r.title,
+        [t("csvAmount")]: r.amount,
+        [t("csvCategory")]: r.category,
+        [t("csvDate")]: r.date,
+        [t("csvProject")]: r.projectName,
+        [t("csvClient")]: r.clientName,
+        [t("csvTeamMember")]: r.teamMemberName,
+        [t("csvBillable")]: r.isBillable,
+        [t("csvNotes")]: r.notes,
       }));
       const ws = XLSX.utils.json_to_sheet(sheetRows);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Expenses");
+      XLSX.utils.book_append_sheet(wb, ws, t("sheetName"));
       XLSX.writeFile(wb, `expenses-${exportFilenameDate}.xlsx`);
-      toast.success("Excel file downloaded");
+      toast.success(t("toastExcelOk"));
     } catch {
-      toast.error("Excel export failed");
+      toast.error(t("toastExcelFail"));
     } finally {
       setExporting(false);
     }
@@ -315,11 +324,11 @@ export function ExpensesListView({
   async function handleDelete(id: string) {
     const res = await deleteExpense(id);
     if (res.ok) {
-      toast.success("Expense deleted");
+      toast.success(t("toastDeleted"));
       setDeleteId(null);
       router.refresh();
     } else {
-      toast.error(res.error ?? "Failed to delete expense");
+      toast.error(res.error ?? t("toastDeleteFail"));
     }
   }
 
@@ -331,12 +340,12 @@ export function ExpensesListView({
     }
     const res = await deleteExpenses(ids);
     if (res.ok) {
-      toast.success("Expenses deleted");
+      toast.success(t("toastBulkDeleted"));
       setSelectedIds(new Set());
       setBulkDeleteOpen(false);
       router.refresh();
     } else {
-      toast.error(res.error ?? "Failed to delete selected expenses");
+      toast.error(res.error ?? t("toastBulkFail"));
     }
   }
 
@@ -361,7 +370,7 @@ export function ExpensesListView({
             className="h-3.5 w-3.5 rounded accent-neutral-900"
             checked={allVisibleSelected}
             onChange={toggleSelectAll}
-            aria-label="Select all rows"
+            aria-label={t("selectAllRows")}
           />
         ),
         cell: ({ row }) => (
@@ -380,8 +389,15 @@ export function ExpensesListView({
         accessorKey: "title",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Title {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full items-end justify-start gap-1 rtl:flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-start">
+              {t("columnTitle")}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+            </span>
           </Button>
         ),
         cell: ({ row }) => (
@@ -447,8 +463,15 @@ export function ExpensesListView({
         accessorKey: "clientName",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Client {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full items-end justify-start gap-1 rtl:flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-start">
+              {t("columnClient")}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+            </span>
           </Button>
         ),
         cell: ({ row }) => {
@@ -478,8 +501,15 @@ export function ExpensesListView({
         accessorKey: "category",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Category {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full items-end justify-start gap-1 rtl:flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-start">
+              {t("columnCategory")}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+            </span>
           </Button>
         ),
         cell: ({ row }) => <ExpenseCategoryBadge category={row.original.category} />,
@@ -488,8 +518,15 @@ export function ExpensesListView({
         accessorKey: "amount",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Amount {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full items-end justify-start gap-1 rtl:flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-start">
+              {t("columnAmount")}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+            </span>
           </Button>
         ),
         cell: ({ row }) => <AmountWithSarIcon value={row.original.amount} />,
@@ -498,14 +535,21 @@ export function ExpensesListView({
         accessorKey: "isBillable",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Billable {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full items-end justify-start gap-1 rtl:flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-start">
+              {t("columnBillable")}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+            </span>
           </Button>
         ),
         cell: ({ row }) =>
           row.original.isBillable ? (
             <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">
-              Yes
+              {t("billableYes")}
             </Badge>
           ) : (
             <span className="text-muted-foreground">—</span>
@@ -515,8 +559,15 @@ export function ExpensesListView({
         accessorKey: "date",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Date {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full items-end justify-start gap-1 rtl:flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-start">
+              {t("columnDate")}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+            </span>
           </Button>
         ),
         cell: ({ row }) => formatDateDDMMYYYY(row.original.date),
@@ -525,11 +576,20 @@ export function ExpensesListView({
         accessorKey: "notes",
         enableSorting: true,
         header: ({ column }) => (
-          <Button variant="ghost" className="-ms-3 flex w-full justify-start items-end gap-1" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            <span className="text-left">Notes {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}</span>
+          <Button
+            variant="ghost"
+            className="-ms-3 flex w-full items-end justify-start gap-1 rtl:flex-row-reverse"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            <span className="text-start">
+              {t("columnNotes")}{" "}
+              {column.getIsSorted() === "asc" ? "↑" : column.getIsSorted() === "desc" ? "↓" : "↕"}
+            </span>
           </Button>
         ),
-        cell: ({ row }) => <span className="block max-w-[200px] truncate text-left text-muted-foreground">{row.original.notes ?? "—"}</span>,
+        cell: ({ row }) => (
+          <span className="block max-w-[200px] truncate text-start text-muted-foreground">{row.original.notes ?? "—"}</span>
+        ),
       },
       {
         id: "actions",
@@ -557,21 +617,21 @@ export function ExpensesListView({
         ),
       },
     ],
-    [allVisibleSelected, selectedIds]
+    [allVisibleSelected, selectedIds, t]
   );
 
   return (
-    <div className="space-y-6" dir="ltr">
+    <div className="space-y-6" dir={isRtl ? "rtl" : "ltr"}>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" asChild>
-            <Link href="/dashboard/expenses/recurring">
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Recurring
+            <Link href="/dashboard/expenses/recurring" className="inline-flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 shrink-0" />
+              {t("recurring")}
             </Link>
           </Button>
-          <Button onClick={openNew}>+ New Expense</Button>
+          <Button onClick={openNew}>{t("newExpense")}</Button>
         </div>
       </div>
 
@@ -579,9 +639,9 @@ export function ExpensesListView({
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-left">Total expenses this month</CardTitle>
+            <CardTitle className="text-sm font-medium text-start">{t("summaryMonth")}</CardTitle>
           </CardHeader>
-          <CardContent className="text-left">
+          <CardContent className="text-start">
             <p className="text-2xl font-bold">
               <AmountWithSarIcon value={String(summary.totalThisMonth)} />
             </p>
@@ -589,9 +649,9 @@ export function ExpensesListView({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-left">Total expenses this year</CardTitle>
+            <CardTitle className="text-sm font-medium text-start">{t("summaryYear")}</CardTitle>
           </CardHeader>
-          <CardContent className="text-left">
+          <CardContent className="text-start">
             <p className="text-2xl font-bold">
               <AmountWithSarIcon value={String(summary.totalThisYear)} />
             </p>
@@ -599,13 +659,13 @@ export function ExpensesListView({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-left">Top expense category</CardTitle>
+            <CardTitle className="text-sm font-medium text-start">{t("topCategory")}</CardTitle>
           </CardHeader>
-          <CardContent className="text-left">
+          <CardContent className="text-start">
             <p className="text-2xl font-bold">
               {summary.topCategory ? (
                 <span className="inline-flex flex-wrap items-center gap-1.5">
-                  <span>{CATEGORY_LABELS[summary.topCategory.category]} —</span>
+                  <span>{tCategories(summary.topCategory.category)} —</span>
                   <AmountWithSarIcon value={String(summary.topCategory.total)} />
                 </span>
               ) : (
@@ -623,23 +683,23 @@ export function ExpensesListView({
           onValueChange={(v) => handleFiltersChange(v === "all" ? "" : v, dateFromParam, dateToParam)}
         >
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Category" />
+            <SelectValue placeholder={t("categoryFilter")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
+            <SelectItem value="all">{t("allCategories")}</SelectItem>
             {categoryValues.map((c) => (
               <SelectItem key={c} value={c}>
-                {CATEGORY_LABELS[c]}
+                {tCategories(c)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={projectIdParam || "all"} onValueChange={handleProjectFilterChange}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="All projects" />
+            <SelectValue placeholder={t("allProjects")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All projects</SelectItem>
+            <SelectItem value="all">{t("allProjects")}</SelectItem>
             {projects.map((project) => (
               <SelectItem key={project.id} value={project.id} textValue={project.name}>
                 <ProjectSelectOptionRow
@@ -653,12 +713,12 @@ export function ExpensesListView({
         </Select>
         <Select value={clientIdParam || "all"} onValueChange={handleClientFilterChange}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="All clients" />
+            <SelectValue placeholder={t("allClients")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All clients</SelectItem>
+            <SelectItem value="all">{t("allClients")}</SelectItem>
             {clients.map((client) => {
-              const label = client.companyName?.trim() ? client.companyName : "Unnamed client";
+              const label = client.companyName?.trim() ? client.companyName : t("unnamedClient");
               return (
                 <SelectItem key={client.id} value={client.id} textValue={label}>
                   <ClientSelectOptionRow logoUrl={client.logoUrl} label={label} />
@@ -668,7 +728,7 @@ export function ExpensesListView({
           </SelectContent>
         </Select>
         <DatePickerAr
-          placeholder="From date"
+          placeholder={t("fromDate")}
           className="w-[160px]"
           popoverAlign="start"
           value={dateFromParam ? new Date(dateFromParam + "T12:00:00") : undefined}
@@ -681,7 +741,7 @@ export function ExpensesListView({
           }
         />
         <DatePickerAr
-          placeholder="To date"
+          placeholder={t("toDate")}
           className="w-[160px]"
           popoverAlign="start"
           value={dateToParam ? new Date(dateToParam + "T12:00:00") : undefined}
@@ -695,20 +755,20 @@ export function ExpensesListView({
         />
         {hasActiveFilters ? (
           <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/expenses")}>
-            Clear filters
+            {t("clearFilters")}
           </Button>
         ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="outline" size="sm" disabled={exporting} className="gap-1">
               <Download className="h-4 w-4" />
-              Export
+              {t("export")}
               <ChevronDown className="h-3.5 w-3.5 opacity-60" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => void runExportCsv()}>Export CSV</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void runExportExcel()}>Export Excel</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void runExportCsv()}>{t("exportCsv")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void runExportExcel()}>{t("exportExcel")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -737,7 +797,7 @@ export function ExpensesListView({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-neutral-100 bg-white" dir="ltr">
+      <div className="overflow-hidden rounded-xl border border-neutral-100 bg-white">
         <CardContent className="pt-4">
           <SortableDataTable<ExpenseRow>
             columns={expenseTableColumns}
@@ -746,14 +806,14 @@ export function ExpensesListView({
             getRowId={(r) => r.id}
             uiVariant="clients"
             columnLabels={{
-              title: "Title",
-              projectName: "Project",
-              clientName: "Client",
-              category: "Category",
-              amount: "Amount",
-              isBillable: "Billable",
-              date: "Date",
-              notes: "Notes",
+              title: t("columnTitle"),
+              projectName: t("columnProject"),
+              clientName: t("columnClient"),
+              category: t("columnCategory"),
+              amount: t("columnAmount"),
+              isBillable: t("columnBillable"),
+              date: t("columnDate"),
+              notes: t("columnNotes"),
             }}
             enablePagination={false}
           />
@@ -772,35 +832,31 @@ export function ExpensesListView({
       />
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={isRtl ? "rtl" : "ltr"}>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This expense will be permanently deleted. This action cannot be undone.
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t("deleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("deleteConfirmDescription")}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className={isRtl ? "flex-row-reverse sm:flex-row-reverse" : undefined}>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteId && handleDelete(deleteId)}
             >
-              Delete
+              {t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={isRtl ? "rtl" : "ltr"}>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete selected expenses?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`This will permanently delete ${selectedIds.size} selected expenses. This action cannot be undone.`}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t("bulkDeleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("bulkDeleteDescription", { count: selectedIds.size })}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className={isRtl ? "flex-row-reverse sm:flex-row-reverse" : undefined}>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -808,7 +864,7 @@ export function ExpensesListView({
                 await handleBulkDelete();
               }}
             >
-              Delete
+              {t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

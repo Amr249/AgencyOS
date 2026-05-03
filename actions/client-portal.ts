@@ -8,6 +8,8 @@ import { db } from "@/lib/db";
 import { clientUsers, clients } from "@/lib/db/schema";
 import { findPostgresErrorCode, getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { assertAdminSession } from "@/lib/auth-helpers";
+import { requireAgencyOrganization, requireAgencyWriteContext } from "@/lib/org-session";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 function revalidateClient(clientId: string) {
   revalidatePath("/dashboard/clients");
@@ -32,6 +34,7 @@ export async function listClientsForPortalInvite(): Promise<
 > {
   const gate = await assertAdminSession();
   if (!gate.ok) return { ok: false, error: gate.error };
+  const { organizationId } = await requireAgencyOrganization();
 
   try {
     const rows = await db
@@ -42,7 +45,7 @@ export async function listClientsForPortalInvite(): Promise<
         contactEmail: clients.contactEmail,
       })
       .from(clients)
-      .where(isNull(clients.deletedAt))
+      .where(and(isNull(clients.deletedAt), eq(clients.organizationId, organizationId)))
       .orderBy(asc(clients.companyName));
 
     return { ok: true, data: rows };
@@ -71,6 +74,7 @@ export async function listAllClientPortalUsers(): Promise<
 > {
   const gate = await assertAdminSession();
   if (!gate.ok) return { ok: false, error: gate.error };
+  const { organizationId } = await requireAgencyOrganization();
 
   try {
     const rows = await db
@@ -87,7 +91,9 @@ export async function listAllClientPortalUsers(): Promise<
       })
       .from(clientUsers)
       .innerJoin(clients, eq(clientUsers.clientId, clients.id))
-      .where(isNull(clients.deletedAt))
+      .where(
+        and(isNull(clients.deletedAt), eq(clients.organizationId, organizationId))
+      )
       .orderBy(desc(clientUsers.createdAt));
 
     return { ok: true, data: rows };
@@ -123,10 +129,19 @@ export async function inviteClientUser(input: z.input<typeof inviteSchema>) {
   const { clientId, name } = parsed.data;
   const email = parsed.data.email.trim().toLowerCase();
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
+
     const [clientRow] = await db
       .select({ id: clients.id })
       .from(clients)
-      .where(eq(clients.id, clientId))
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.organizationId, ctx.organizationId),
+          isNull(clients.deletedAt)
+        )
+      )
       .limit(1);
     if (!clientRow) {
       return { ok: false as const, error: "Client not found" };
@@ -228,6 +243,20 @@ export async function getClientUsers(clientId: string) {
   const parsed = z.string().uuid().safeParse(clientId);
   if (!parsed.success) return { ok: false as const, error: "Invalid client id" };
   try {
+    const { organizationId } = await requireAgencyOrganization();
+    const [clientOk] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(
+        and(
+          eq(clients.id, parsed.data),
+          eq(clients.organizationId, organizationId),
+          isNull(clients.deletedAt)
+        )
+      )
+      .limit(1);
+    if (!clientOk) return { ok: false as const, error: "Client not found" };
+
     const rows = await db
       .select({
         id: clientUsers.id,
@@ -255,6 +284,22 @@ export async function deactivateClientUser(id: string) {
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { ok: false as const, error: "Invalid user id" };
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
+
+    const [scoped] = await db
+      .select({ id: clientUsers.id })
+      .from(clientUsers)
+      .innerJoin(clients, eq(clientUsers.clientId, clients.id))
+      .where(
+        and(
+          eq(clientUsers.id, parsed.data),
+          eq(clients.organizationId, ctx.organizationId)
+        )
+      )
+      .limit(1);
+    if (!scoped) return { ok: false as const, error: "User not found" };
+
     const [row] = await db
       .update(clientUsers)
       .set({ isActive: false })
@@ -276,10 +321,14 @@ export async function enableClientPortal(clientId: string) {
   const parsed = z.string().uuid().safeParse(clientId);
   if (!parsed.success) return { ok: false as const, error: "Invalid client id" };
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
     const [row] = await db
       .update(clients)
       .set({ portalEnabled: true })
-      .where(eq(clients.id, parsed.data))
+      .where(
+        and(eq(clients.id, parsed.data), eq(clients.organizationId, ctx.organizationId))
+      )
       .returning({ id: clients.id });
     if (!row) return { ok: false as const, error: "Client not found" };
     revalidateClient(parsed.data);
@@ -303,6 +352,22 @@ export async function setClientPortalUserPassword(input: z.input<typeof setPassw
   }
 
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredForm();
+
+    const [inOrg] = await db
+      .select({ id: clientUsers.id })
+      .from(clientUsers)
+      .innerJoin(clients, eq(clientUsers.clientId, clients.id))
+      .where(
+        and(
+          eq(clientUsers.id, parsed.data.clientUserId),
+          eq(clients.organizationId, ctx.organizationId)
+        )
+      )
+      .limit(1);
+    if (!inOrg) return { ok: false as const, error: "User not found" };
+
     const hash = await bcrypt.hash(parsed.data.password, 12);
     const [updated] = await db
       .update(clientUsers)
@@ -325,10 +390,14 @@ export async function disableClientPortal(clientId: string) {
   const parsed = z.string().uuid().safeParse(clientId);
   if (!parsed.success) return { ok: false as const, error: "Invalid client id" };
   try {
+    const ctx = await requireAgencyWriteContext();
+    if (!ctx.ok) return trialExpiredPlain();
     const [row] = await db
       .update(clients)
       .set({ portalEnabled: false })
-      .where(eq(clients.id, parsed.data))
+      .where(
+        and(eq(clients.id, parsed.data), eq(clients.organizationId, ctx.organizationId))
+      )
       .returning({ id: clients.id });
     if (!row) return { ok: false as const, error: "Client not found" };
     revalidateClient(parsed.data);

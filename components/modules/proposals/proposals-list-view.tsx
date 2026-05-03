@@ -41,7 +41,7 @@ import { ProposalsStatusChart } from "./proposals-status-donut";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 import { SarMoney } from "@/components/ui/sar-money";
-import { MoreHorizontal, Pencil, UserPlus, Trash2 } from "lucide-react";
+import { BarChart3, MoreHorizontal, Pencil, UserPlus, Trash2 } from "lucide-react";
 
 type ProposalRow = {
   id: string;
@@ -326,22 +326,30 @@ export function ProposalsListView({
 
   return (
     <div className="space-y-6" dir="ltr">
-      <div className="mb-7 flex items-center justify-between">
+      <div className="mb-7 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-medium text-neutral-900">Proposals</h1>
-        <NewProposalDialog
-          open={newOpen}
-          onOpenChange={setNewOpen}
-          onSuccess={() => router.refresh()}
-          serviceOptions={serviceOptions}
-          trigger={
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 sm:inline-flex"
-            >
-              + New proposal
-            </button>
-          }
-        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" className="inline-flex shrink-0" asChild>
+            <Link href="/dashboard/proposals/mostaql-reports" title="تقارير مستقل">
+              <BarChart3 className="me-1.5 h-4 w-4" />
+              Mostaql reports
+            </Link>
+          </Button>
+          <NewProposalDialog
+            open={newOpen}
+            onOpenChange={setNewOpen}
+            onSuccess={() => router.refresh()}
+            serviceOptions={serviceOptions}
+            trigger={
+              <button
+                type="button"
+                className="hidden items-center gap-1 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 sm:inline-flex"
+              >
+                + New proposal
+              </button>
+            }
+          />
+        </div>
       </div>
 
       {/* KPI cards */}

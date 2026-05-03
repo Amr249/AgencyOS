@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sessionUserRole } from "@/lib/auth-helpers";
@@ -9,9 +10,10 @@ import { TasksPageContent } from "@/components/modules/tasks/tasks-page-content"
 import { getTeamMemberIdsForSessionUser } from "@/lib/member-context";
 
 export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("tasks");
   return {
-    title: "Tasks",
-    description: "View and manage tasks in Kanban or list view.",
+    title: t("title"),
+    description: t("metaDescription"),
   };
 }
 

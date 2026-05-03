@@ -56,6 +56,7 @@ import { ProjectSelectThumb } from "@/components/entity-select-option";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { TaskAttachments } from "@/components/modules/tasks/task-attachments";
+import { useLocale } from "next-intl";
 
 type TaskWithSubtasks = {
   id: string;
@@ -258,10 +259,10 @@ const AR_UI: { [K in keyof TaskDetailUi]: string } = {
   tTaskDeleted: "تم حذف المهمة",
 };
 
-function formatTaskDate(d: string | null, memberView: boolean) {
+function formatTaskDate(d: string | null, useArabicLocale: boolean) {
   if (!d) return "—";
   try {
-    return new Date(d + "T12:00:00").toLocaleDateString(memberView ? "ar-SA" : "en-US", {
+    return new Date(d + "T12:00:00").toLocaleDateString(useArabicLocale ? "ar-SA" : "en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -285,15 +286,17 @@ export function TaskDetailModal({
   onSuccess,
   memberView = false,
 }: TaskDetailModalProps) {
+  const appLocale = useLocale();
+  const isAr = appLocale === "ar";
   const { data: session } = useSession();
   const sessionUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
   const sessionUserEmail = (session?.user as { email?: string | null } | undefined)?.email ?? null;
   const isAdmin = (session?.user as { role?: string })?.role === "admin";
-  const ui = React.useMemo(() => (memberView ? AR_UI : EN_UI), [memberView]);
-  const statusLabels = memberView ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
-  const priorityLabels = memberView ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
-  const layoutDir = memberView ? "rtl" : "ltr";
-  const layoutLang = memberView ? "ar" : "en";
+  const ui = React.useMemo(() => (isAr ? AR_UI : EN_UI), [isAr]);
+  const statusLabels = isAr ? TASK_STATUS_LABELS : TASK_STATUS_LABELS_EN;
+  const priorityLabels = isAr ? TASK_PRIORITY_LABELS : TASK_PRIORITY_LABELS_EN;
+  const layoutDir = isAr ? "rtl" : "ltr";
+  const layoutLang = isAr ? "ar" : "en";
 
   const [task, setTask] = React.useState<TaskWithSubtasks | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -788,12 +791,12 @@ export function TaskDetailModal({
                       )}
                     >
                       <CalendarIcon className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
-                      {formatTaskDate(task.dueDate, memberView)}
+                      {formatTaskDate(task.dueDate, isAr)}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
                     className="w-auto p-0"
-                    align={memberView ? "end" : "start"}
+                    align={isAr ? "end" : "start"}
                     dir={layoutDir}
                   >
                     <Calendar
@@ -1123,7 +1126,7 @@ export function TaskDetailModal({
             <AlertDialogTitle>{ui.deleteTaskTitle}</AlertDialogTitle>
             <AlertDialogDescription>{ui.deleteTaskDesc}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className={memberView ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
+          <AlertDialogFooter className={isAr ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
             <AlertDialogCancel>{ui.cancel}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
               {ui.delete}
@@ -1138,7 +1141,7 @@ export function TaskDetailModal({
             <AlertDialogTitle>{ui.deleteSubtaskTitle}</AlertDialogTitle>
             <AlertDialogDescription>{ui.deleteSubtaskDesc}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className={memberView ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
+          <AlertDialogFooter className={isAr ? "flex-row-reverse gap-2 sm:justify-start" : undefined}>
             <AlertDialogCancel>{ui.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={executeDeleteSubtask}

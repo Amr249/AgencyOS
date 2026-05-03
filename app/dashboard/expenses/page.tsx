@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { z } from "zod";
+import { getTranslations } from "next-intl/server";
 import { getExpenses, getExpensesSummary, type ExpenseCategory } from "@/actions/expenses";
 import { getTeamMembers } from "@/actions/team-members";
 import { getProjects } from "@/actions/projects";
@@ -7,10 +8,13 @@ import { getClientsList } from "@/actions/clients";
 import { getServices } from "@/actions/services";
 import { ExpensesListView } from "@/components/modules/expenses/expenses-list-view";
 
-export const metadata: Metadata = {
-  title: "Expenses",
-  description: "Track expenses and categories",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("expenses");
+  return {
+    title: t("title"),
+    description: t("metaDescription"),
+  };
+}
 
 const categoryValues: ExpenseCategory[] = [
   "software",

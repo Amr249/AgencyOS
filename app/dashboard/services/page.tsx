@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getServices } from "@/actions/services";
 import { ServicesListView } from "@/components/modules/services/services-list-view";
+import { requireAgencyOrganization } from "@/lib/org-session";
 
 export const metadata: Metadata = {
   title: "Services",
@@ -8,6 +9,8 @@ export const metadata: Metadata = {
 };
 
 export default async function ServicesPage() {
+  await requireAgencyOrganization();
+
   const result = await getServices();
   if (!result.ok) {
     return (

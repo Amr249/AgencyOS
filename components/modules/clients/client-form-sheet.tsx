@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslations } from "next-intl";
 import { createClient, updateClient, type CreateClientInput } from "@/actions/clients";
-import { CLIENT_SOURCE_OPTIONS, clientTagBadgeClass } from "@/lib/client-metadata";
+import { clientTagBadgeClass } from "@/lib/client-metadata";
 import { CLIENT_LOSS_CATEGORIES } from "@/lib/client-loss";
 import { CLIENT_SOURCE_VALUES, type ClientSourceValue } from "@/lib/client-constants";
 import { Button } from "@/components/ui/button";
@@ -39,29 +39,57 @@ import {
 import { toast } from "sonner";
 import type { clients } from "@/lib/db/schema";
 import { useTranslateActionError } from "@/hooks/use-translate-action-error";
-import { isDbErrorKey } from "@/lib/i18n-errors";
+import { useTrialStatus, useUpgradeToContinueTitle } from "@/hooks/use-trial-status";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { X } from "lucide-react";
 
-const baseFormSchema = z.object({
-  companyName: z.string().min(1, "Company name is required"),
-  status: z.enum(["lead", "active", "on_hold", "completed", "closed"]),
-  contactName: z.string().optional(),
-  contactEmail: z.string().email("Invalid email").optional().or(z.literal("")),
-  contactPhone: z.string().min(1, "Phone is required"),
-  website: z.string().url("Invalid URL").optional().or(z.literal("")),
-  logoUrl: z.string().url().optional().or(z.literal("")),
-  notes: z.string().optional(),
-  source: z.string().optional(),
-  sourceDetails: z.string().optional(),
-  tagIds: z.array(z.string().uuid()).optional(),
-  serviceIds: z.array(z.string()).optional(),
-  lossCategory: z.enum(CLIENT_LOSS_CATEGORIES).optional(),
-  lossNotes: z.string().max(5000).optional(),
-});
+function createClientFormSchema(
+  t: (key: string) => string,
+  opts: { isEdit: boolean; prevClientStatus?: string | null }
+) {
+  return z
+    .object({
+      companyName: z.string().min(1, t("validation.companyRequired")),
+      status: z.enum(["lead", "active", "on_hold", "completed", "closed"]),
+      contactName: z.string().optional(),
+      contactEmail: z.string().email(t("validation.invalidEmail")).optional().or(z.literal("")),
+      contactPhone: z.string().min(1, t("validation.phoneRequired")),
+      website: z.string().url(t("validation.invalidUrl")).optional().or(z.literal("")),
+      logoUrl: z.string().url(t("validation.invalidUrl")).optional().or(z.literal("")),
+      notes: z.string().optional(),
+      source: z.string().optional(),
+      sourceDetails: z.string().optional(),
+      tagIds: z.array(z.string().uuid()).optional(),
+      serviceIds: z.array(z.string()).optional(),
+      lossCategory: z.enum(CLIENT_LOSS_CATEGORIES).optional(),
+      lossNotes: z.string().max(5000).optional(),
+    })
+    .superRefine((data, ctx) => {
+      const needsLoss =
+        data.status === "closed" &&
+        (!opts.isEdit || (opts.prevClientStatus ?? "lead") !== "closed");
+      if (needsLoss) {
+        if (!data.lossCategory) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: t("validation.required"),
+            path: ["lossCategory"],
+          });
+        }
+        if (!data.lossNotes?.trim()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: t("validation.required"),
+            path: ["lossNotes"],
+          });
+        }
+      }
+    });
+}
 
-type FormValues = z.infer<typeof baseFormSchema>;
+type FormValues = z.infer<ReturnType<typeof createClientFormSchema>>;
 
 type ClientRow = typeof clients.$inferSelect;
 
@@ -96,6 +124,38 @@ export function ClientFormSheet({
   const t = useTranslations("clients");
   const tc = useTranslations("common");
   const translateErr = useTranslateActionError();
+  /** Maps server English `_form` / upload messages so Arabic UI shows Arabic toasts. */
+  const translateClientMsg = React.useCallback(
+    (msg: string) => {
+      if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(msg)) {
+        return msg;
+      }
+      switch (msg) {
+        case "Failed to create client":
+        case "Failed to create":
+          return t("actionErrors.failedCreate");
+        case "Failed to update client":
+        case "Failed to update":
+          return t("actionErrors.failedUpdate");
+        case "Invalid service selection":
+          return t("actionErrors.invalidService");
+        case "Client not found":
+          return t("actionErrors.clientNotFound");
+        case "Invalid tag id":
+          return t("actionErrors.invalidTag");
+        case "Upload failed":
+          return t("actionErrors.uploadFailed");
+        case "Logo upload failed":
+          return t("actionErrors.logoUploadFailed");
+        default:
+          return translateErr(msg);
+      }
+    },
+    [t, translateErr]
+  );
+  const trial = useTrialStatus();
+  const upgradeTip = useUpgradeToContinueTitle();
+  const writeBlocked = trial?.writeBlocked ?? false;
   const isEdit = !!client;
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const isControlled = open !== undefined && onOpenChange !== undefined;
@@ -103,30 +163,11 @@ export function ClientFormSheet({
   const setEffectiveOpen = isControlled ? onOpenChange : setDialogOpen;
 
   const [logoUploading, setLogoUploading] = React.useState(false);
+  const logoFileInputRef = React.useRef<HTMLInputElement>(null);
 
   const formSchema = React.useMemo(
-    () =>
-      baseFormSchema.superRefine((data, ctx) => {
-        const needsLoss =
-          data.status === "closed" && (!isEdit || (client?.status ?? "lead") !== "closed");
-        if (needsLoss) {
-          if (!data.lossCategory) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Required",
-              path: ["lossCategory"],
-            });
-          }
-          if (!data.lossNotes?.trim()) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Required",
-              path: ["lossNotes"],
-            });
-          }
-        }
-      }),
-    [isEdit, client?.status]
+    () => createClientFormSchema(t, { isEdit, prevClientStatus: client?.status }),
+    [t, isEdit, client?.status]
   );
 
   const statusLabel = (status: FormValues["status"]) => {
@@ -221,6 +262,11 @@ export function ClientFormSheet({
   async function onLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (writeBlocked) {
+      toast.error(translateErr("trial_expired"));
+      e.target.value = "";
+      return;
+    }
     setLogoUploading(true);
     try {
       const formData = new FormData();
@@ -229,10 +275,14 @@ export function ClientFormSheet({
       formData.set("entityId", client?.id ?? crypto.randomUUID());
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      if (!res.ok) {
+        const errKey = typeof data.error === "string" ? data.error : "Upload failed";
+        throw new Error(errKey);
+      }
       if (data.url) form.setValue("logoUrl", data.url);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Logo upload failed");
+      const m = err instanceof Error ? err.message : "Logo upload failed";
+      toast.error(m === "trial_expired" ? translateErr(m) : translateClientMsg(m));
     } finally {
       setLogoUploading(false);
       e.target.value = "";
@@ -240,6 +290,10 @@ export function ClientFormSheet({
   }
 
   async function onSubmit(values: FormValues) {
+    if (writeBlocked) {
+      toast.error(translateErr("trial_expired"));
+      return;
+    }
     const mustSendLoss =
       values.status === "closed" && (!isEdit || client?.status !== "closed");
 
@@ -273,7 +327,7 @@ export function ClientFormSheet({
       } else {
         const err = result.error as { _form?: string[] };
         const msg = err._form?.[0] ?? "Failed to update";
-        toast.error(isDbErrorKey(msg) ? translateErr(msg) : msg);
+        toast.error(translateClientMsg(msg));
       }
     } else {
       const result = await createClient({
@@ -304,7 +358,7 @@ export function ClientFormSheet({
       } else {
         const err = result.error as { _form?: string[] };
         const msg = err._form?.[0] ?? "Failed to create";
-        toast.error(isDbErrorKey(msg) ? translateErr(msg) : msg);
+        toast.error(translateClientMsg(msg));
       }
     }
   }
@@ -458,7 +512,7 @@ export function ClientFormSheet({
               <FormItem>
                 <FormLabel>{t("emailOptional")}</FormLabel>
                 <FormControl>
-                  <Input type="email" placeholder="email@example.com" {...field} />
+                  <Input type="email" placeholder={t("emailPlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -484,7 +538,7 @@ export function ClientFormSheet({
               <FormItem>
                 <FormLabel>{t("websiteOptional")}</FormLabel>
                 <FormControl>
-                  <Input placeholder="https://..." {...field} />
+                  <Input placeholder={t("websitePlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -495,21 +549,21 @@ export function ClientFormSheet({
             name="source"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Source</FormLabel>
+                <FormLabel>{t("pipelineSource")}</FormLabel>
                 <Select
                   onValueChange={(v) => field.onChange(v === "__none" ? "" : v)}
                   value={field.value ? field.value : "__none"}
                 >
                   <FormControl>
                     <SelectTrigger className="justify-start">
-                      <SelectValue placeholder="Select source" />
+                      <SelectValue placeholder={t("sourcePlaceholder")} />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent position="popper" sideOffset={4}>
-                    <SelectItem value="__none">— None —</SelectItem>
-                    {CLIENT_SOURCE_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
+                    <SelectItem value="__none">{t("sourceNone")}</SelectItem>
+                    {CLIENT_SOURCE_VALUES.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {t(`sourceOptions.${value}`)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -523,9 +577,9 @@ export function ClientFormSheet({
             name="sourceDetails"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Source Details</FormLabel>
+                <FormLabel>{t("sourceDetailsLabel")}</FormLabel>
                 <FormControl>
-                  <Input placeholder="Optional notes (referrer, campaign, link…)" {...field} />
+                  <Input placeholder={t("sourceDetailsPlaceholder")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -538,19 +592,35 @@ export function ClientFormSheet({
               <FormItem>
                 <FormLabel>{t("logoOptional")}</FormLabel>
                 <FormControl>
-                  <div className="flex items-center gap-3">
-                    <Input
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      ref={logoFileInputRef}
                       type="file"
                       accept="image/*"
-                      className="cursor-pointer"
-                      disabled={logoUploading}
+                      className="sr-only"
+                      disabled={logoUploading || writeBlocked}
+                      title={writeBlocked ? upgradeTip : undefined}
                       onChange={onLogoChange}
                     />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={logoUploading || writeBlocked}
+                      title={writeBlocked ? upgradeTip : undefined}
+                      className="shrink-0"
+                      onClick={() => logoFileInputRef.current?.click()}
+                    >
+                      {t("logoChooseFile")}
+                    </Button>
+                    <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
+                      {form.watch("logoUrl") ? t("logoUploadedBadge") : t("logoNoFileChosen")}
+                    </span>
                     {form.watch("logoUrl") && (
                       <img
                         src={form.watch("logoUrl")}
-                        alt="Logo preview"
-                        className="h-10 w-10 rounded object-cover"
+                        alt={t("logoPreviewAlt")}
+                        className="h-10 w-10 shrink-0 rounded object-cover"
                       />
                     )}
                   </div>
@@ -577,12 +647,10 @@ export function ClientFormSheet({
             name="tagIds"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Tags</FormLabel>
+                <FormLabel>{t("tagsLabel")}</FormLabel>
                 <FormControl>
                   {tagOptions.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">
-                      No tags yet. Create tags under Settings → Client tags.
-                    </p>
+                    <p className="text-muted-foreground text-sm">{t("tagsEmptyHint")}</p>
                   ) : (
                     <div className="space-y-2">
                       <Select
@@ -595,7 +663,7 @@ export function ClientFormSheet({
                         }}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Add tag" />
+                          <SelectValue placeholder={t("addTagPlaceholder")} />
                         </SelectTrigger>
                         <SelectContent position="popper" sideOffset={4}>
                           {tagOptions
@@ -663,7 +731,7 @@ export function ClientFormSheet({
               name="serviceIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Services</FormLabel>
+                  <FormLabel>{t("servicesLabel")}</FormLabel>
                   <FormControl>
                     <div className="space-y-2">
                       <Select
@@ -676,7 +744,7 @@ export function ClientFormSheet({
                         }}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Add service" />
+                          <SelectValue placeholder={t("addServicePlaceholder")} />
                         </SelectTrigger>
                         <SelectContent position="popper" sideOffset={4}>
                           {serviceOptions
@@ -721,7 +789,9 @@ export function ClientFormSheet({
             <Button type="button" variant="outline" onClick={() => setEffectiveOpen(false)}>
               {t("cancel")}
             </Button>
-            <Button type="submit">{isEdit ? t("saveChanges") : t("createClientSubmit")}</Button>
+            <Button type="submit" disabled={writeBlocked} title={writeBlocked ? upgradeTip : undefined}>
+              {isEdit ? t("saveChanges") : t("createClientSubmit")}
+            </Button>
           </DialogFooter>
         </form>
       </Form>
@@ -734,21 +804,48 @@ export function ClientFormSheet({
     </DialogContent>
   );
 
+  const resolvedOpen = writeBlocked ? false : effectiveOpen;
+  const onDialogOpenChange = (v: boolean) => {
+    if (writeBlocked && v) return;
+    setEffectiveOpen(v);
+  };
+
+  const triggerNode =
+    writeBlocked && trigger ? (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              {React.isValidElement(trigger)
+                ? React.cloneElement(trigger as React.ReactElement<{ disabled?: boolean }>, {
+                    disabled: true,
+                  })
+                : trigger}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            {upgradeTip}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    ) : (
+      trigger
+    );
+
   if (isControlled) {
     return (
-      <Dialog modal={false} open={effectiveOpen} onOpenChange={setEffectiveOpen}>
+      <Dialog modal={false} open={resolvedOpen} onOpenChange={onDialogOpenChange}>
         {dialogContent}
       </Dialog>
     );
   }
 
   return (
-    <Dialog modal={false} open={effectiveOpen} onOpenChange={setEffectiveOpen}>
-      {trigger && (
-        <DialogTrigger asChild={asChild}>
-          {trigger}
-        </DialogTrigger>
-      )}
+    <Dialog modal={false} open={resolvedOpen} onOpenChange={onDialogOpenChange}>
+      {trigger && !writeBlocked ? (
+        <DialogTrigger asChild={asChild}>{trigger}</DialogTrigger>
+      ) : null}
+      {writeBlocked ? triggerNode : null}
       {dialogContent}
     </Dialog>
   );

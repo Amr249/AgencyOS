@@ -28,6 +28,8 @@ import {
   files,
 } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
+import { requireWriteAccess, trialExpiredForm } from "@/lib/trial";
+import { requireAgencyOrganization } from "@/lib/org-session";
 
 type ActivityLogRow = typeof activityLogs.$inferSelect;
 
@@ -127,9 +129,13 @@ export async function logActivity(input: LogActivityInput) {
   const { entityType, entityId, action, actorName, actorId, metadata } = parsed.data;
 
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+    const ctx = await requireAgencyOrganization();
     const [row] = await db
       .insert(activityLogs)
       .values({
+        organizationId: ctx.organizationId,
         entityType,
         entityId,
         action,
@@ -181,7 +187,10 @@ export async function getActivityByEntity(entityType: string, entityId: string, 
   }
 }
 
-async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentActivityEntry[]> {
+async function enrichRecentActivityLogs(
+  logs: ActivityLogRow[],
+  orgId: string
+): Promise<RecentActivityEntry[]> {
   if (logs.length === 0) return [];
 
   const byType = new Map<string, string[]>();
@@ -216,7 +225,7 @@ async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentA
     const rows = await db
       .select({ id: tasks.id, title: tasks.title, projectId: tasks.projectId })
       .from(tasks)
-      .where(inArray(tasks.id, taskEntityIds));
+      .where(and(inArray(tasks.id, taskEntityIds), eq(tasks.organizationId, orgId)));
     for (const r of rows) {
       taskMap.set(r.id, { title: r.title, projectId: r.projectId });
       projectIdsForNames.add(r.projectId);
@@ -228,7 +237,8 @@ async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentA
     const rows = await db
       .select({ id: milestones.id, name: milestones.name, projectId: milestones.projectId })
       .from(milestones)
-      .where(inArray(milestones.id, milestoneEntityIds));
+      .innerJoin(projects, eq(milestones.projectId, projects.id))
+      .where(and(inArray(milestones.id, milestoneEntityIds), eq(projects.organizationId, orgId)));
     for (const r of rows) {
       milestoneMap.set(r.id, { name: r.name, projectId: r.projectId });
       projectIdsForNames.add(r.projectId);
@@ -274,7 +284,7 @@ async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentA
     const rows = await db
       .select({ id: clients.id, companyName: clients.companyName })
       .from(clients)
-      .where(inArray(clients.id, clientEntityIds));
+      .where(and(inArray(clients.id, clientEntityIds), eq(clients.organizationId, orgId)));
     for (const r of rows) {
       clientMap.set(r.id, r.companyName ?? "Client");
     }
@@ -284,7 +294,9 @@ async function enrichRecentActivityLogs(logs: ActivityLogRow[]): Promise<RecentA
     const rows = await db
       .select({ id: projects.id, name: projects.name })
       .from(projects)
-      .where(inArray(projects.id, [...projectIdsForNames]));
+      .where(
+        and(inArray(projects.id, [...projectIdsForNames]), eq(projects.organizationId, orgId))
+      );
     for (const r of rows) projectMap.set(r.id, r.name);
   }
 
@@ -437,13 +449,15 @@ export async function getRecentActivity(limit?: number) {
   }
 
   try {
+    const ctx = await requireAgencyOrganization();
     const logs = await db
       .select()
       .from(activityLogs)
+      .where(eq(activityLogs.organizationId, ctx.organizationId))
       .orderBy(desc(activityLogs.createdAt))
       .limit(parsed.data);
 
-    const data = await enrichRecentActivityLogs(logs);
+    const data = await enrichRecentActivityLogs(logs, ctx.organizationId);
 
     return { ok: true as const, data };
   } catch (e) {
@@ -464,6 +478,16 @@ export async function getProjectActivity(projectId: string, limit?: number) {
   const lim = limitParsed.data;
 
   try {
+    const ctx = await requireAgencyOrganization();
+    const [projRow] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, pid), eq(projects.organizationId, ctx.organizationId)))
+      .limit(1);
+    if (!projRow) {
+      return { ok: false as const, error: "Project not found" };
+    }
+
     const [taskRows, milestoneRows, invoiceDirectRows, invoiceJunctionRows] = await Promise.all([
       db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, pid)),
       db.select({ id: milestones.id }).from(milestones).where(eq(milestones.projectId, pid)),
@@ -498,7 +522,10 @@ export async function getProjectActivity(projectId: string, limit?: number) {
       );
     }
 
-    const whereClause = orParts.length === 1 ? orParts[0]! : or(...orParts);
+    const whereClause = and(
+      orParts.length === 1 ? orParts[0]! : or(...orParts),
+      eq(activityLogs.organizationId, ctx.organizationId)
+    );
 
     const data = await db
       .select()
@@ -622,13 +649,15 @@ export async function getClientTimeline(clientId: string, limit = 150) {
   const lim = limParsed.data;
 
   try {
+    const ctx = await requireAgencyOrganization();
+    const orgId = ctx.organizationId;
     const [clientRow] = await db
       .select({
         createdAt: clients.createdAt,
         companyName: clients.companyName,
       })
       .from(clients)
-      .where(eq(clients.id, cid))
+      .where(and(eq(clients.id, cid), eq(clients.organizationId, orgId)))
       .limit(1);
     if (!clientRow) {
       return { ok: false as const, error: "Client not found" };
@@ -637,13 +666,13 @@ export async function getClientTimeline(clientId: string, limit = 150) {
     const projectRows = await db
       .select({ id: projects.id })
       .from(projects)
-      .where(eq(projects.clientId, cid));
+      .where(and(eq(projects.clientId, cid), eq(projects.organizationId, orgId)));
     const projectIds = projectRows.map((r) => r.id);
 
     const invoiceRows = await db
       .select({ id: invoices.id })
       .from(invoices)
-      .where(eq(invoices.clientId, cid));
+      .where(and(eq(invoices.clientId, cid), eq(invoices.organizationId, orgId)));
     const invoiceIds = invoiceRows.map((r) => r.id);
 
     let taskIds: string[] = [];
@@ -651,7 +680,7 @@ export async function getClientTimeline(clientId: string, limit = 150) {
       const tr = await db
         .select({ id: tasks.id })
         .from(tasks)
-        .where(inArray(tasks.projectId, projectIds));
+        .where(and(inArray(tasks.projectId, projectIds), eq(tasks.organizationId, orgId)));
       taskIds = tr.map((r) => r.id);
     }
 
@@ -660,7 +689,10 @@ export async function getClientTimeline(clientId: string, limit = 150) {
       const mr = await db
         .select({ id: milestones.id })
         .from(milestones)
-        .where(inArray(milestones.projectId, projectIds));
+        .innerJoin(projects, eq(milestones.projectId, projects.id))
+        .where(
+          and(inArray(milestones.projectId, projectIds), eq(projects.organizationId, orgId))
+        );
       milestoneIds = mr.map((r) => r.id);
     }
 
@@ -670,7 +702,9 @@ export async function getClientTimeline(clientId: string, limit = 150) {
     const fileRows = await db
       .select({ id: files.id })
       .from(files)
-      .where(and(isNull(files.deletedAt), or(...fileParts)));
+      .where(
+        and(isNull(files.deletedAt), eq(files.organizationId, orgId), or(...fileParts))
+      );
     const fileIds = fileRows.map((r) => r.id);
 
     const orParts = [and(eq(activityLogs.entityType, "client"), eq(activityLogs.entityId, cid))];
@@ -700,7 +734,10 @@ export async function getClientTimeline(clientId: string, limit = 150) {
       );
     }
 
-    const whereClause = orParts.length === 1 ? orParts[0]! : or(...orParts);
+    const whereClause = and(
+      orParts.length === 1 ? orParts[0]! : or(...orParts),
+      eq(activityLogs.organizationId, orgId)
+    );
 
     const logs = await db
       .select()
@@ -730,7 +767,7 @@ export async function getClientTimeline(clientId: string, limit = 150) {
       });
     }
 
-    const enriched = await enrichRecentActivityLogs(logs);
+    const enriched = await enrichRecentActivityLogs(logs, orgId);
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i]!;
       const e = enriched[i]!;

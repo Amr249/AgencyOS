@@ -6,6 +6,7 @@ import { and, desc, eq, gte, isNotNull, isNull, lte, lt, sql, gt } from "drizzle
 import { z } from "zod";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { revalidateTimeTrackingCaches } from "@/lib/revalidate-time-tracking-caches";
+import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
 // ============ Schemas ============
 
@@ -63,6 +64,9 @@ export async function logTime(input: z.infer<typeof logTimeSchema>) {
       return { ok: false as const, error: parsed.error.flatten().fieldErrors };
     }
 
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
+
     const { taskId, hours, description, date, teamMemberId, isBillable, hourlyRate } = parsed.data;
 
     const task = await db.query.tasks.findFirst({
@@ -107,6 +111,9 @@ export async function startTimer(input: z.infer<typeof startTimerSchema>) {
     if (!parsed.success) {
       return { ok: false as const, error: parsed.error.flatten().fieldErrors };
     }
+
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
 
     const { taskId, teamMemberId, description } = parsed.data;
 
@@ -165,6 +172,9 @@ export async function stopTimer(input: z.infer<typeof stopTimerSchema>) {
     if (!parsed.success) {
       return { ok: false as const, error: parsed.error.flatten().fieldErrors };
     }
+
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredForm();
 
     const { timeLogId } = parsed.data;
 
@@ -401,6 +411,9 @@ export async function getTimesheet(params: { teamMemberId?: string; weekStart: s
 
 export async function deleteTimeLog(id: string) {
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+
     const entry = await db.query.timeLogs.findFirst({
       where: eq(timeLogs.id, id),
     });
@@ -441,6 +454,9 @@ export async function updateTimeLog(input: {
   hourlyRate?: number | null;
 }) {
   try {
+    const wa = await requireWriteAccess();
+    if (!wa.ok) return trialExpiredPlain();
+
     const { id, ...updates } = input;
 
     const entry = await db.query.timeLogs.findFirst({

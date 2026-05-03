@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { notifyUserAndAdmins } from "@/actions/notifications";
+import { requireWriteAccess } from "@/lib/trial";
 
 type ErrorCode =
   | "unauthorized"
@@ -91,6 +92,9 @@ export async function updateMyName(
   const parsed = updateNameSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
+
   const nextName = parsed.data.name.trim();
   if (nextName === gate.name) {
     return { ok: true };
@@ -136,6 +140,9 @@ export async function updateMyEmail(
   if (!gate.ok) return { ok: false, error: gate.error };
   const parsed = updateEmailSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
+
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
 
   const emailNorm = parsed.data.email.trim().toLowerCase();
   try {
@@ -188,6 +195,9 @@ export async function updateMyPassword(
   const parsed = updatePasswordSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
 
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
+
   try {
     const [row] = await db
       .select({ id: users.id, passwordHash: users.passwordHash, name: users.name })
@@ -231,6 +241,9 @@ export async function updateMyAvatar(
   if (!gate.ok) return { ok: false, error: gate.error };
   const parsed = updateAvatarSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "validation" };
+
+  const wa = await requireWriteAccess();
+  if (!wa.ok) return { ok: false, error: wa.error };
 
   try {
     const [row] = await db

@@ -2,6 +2,26 @@ import { randomUUID } from "crypto";
 
 import { sanitizeFilename } from "./r2";
 
+/** Public object key prefix for tenant-scoped uploads (`agencyos/{orgSlug}/…`). */
+export const R2_STORAGE_ROOT = "agencyos";
+
+/** Normalize org slug for use inside R2 keys (lowercase, safe segment). */
+export function sanitizeOrgSlugForPath(slug: string): string {
+  const t = slug
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (t.length > 0 ? t : "org").slice(0, 128);
+}
+
+/** Prefix a logical object key with `agencyos/{orgSlug}/`. */
+export function withTenantStoragePrefix(orgSlug: string, objectKey: string): string {
+  const seg = sanitizeOrgSlugForPath(orgSlug);
+  const rel = objectKey.replace(/^\/+/, "");
+  return `${R2_STORAGE_ROOT}/${seg}/${rel}`;
+}
+
 /**
  * Folder scopes for R2 keys. `CLIENT_LOGO_SCOPE` and `CLIENT_FILES_SCOPE` are both `"clients"`;
  * `buildR2Key` tells them apart by `entityId`: logo uses plain `clientId`, files uses `clientId/fileId`.
@@ -163,66 +183,83 @@ export type BuildUploadKeyInput = {
 /**
  * Maps the upload API `scope` (and related ids) to an R2 object key.
  * Uses {@link buildR2Key} for standard layout; attachment scopes use dedicated prefixes.
+ * All keys are prefixed with {@link R2_STORAGE_ROOT}/{@link sanitizeOrgSlugForPath}(orgSlug)/…
  */
 export function buildUploadStorageKey(
   scope: string,
   input: BuildUploadKeyInput,
-  filename: string
+  filename: string,
+  orgSlug: string
 ): string {
   const safe = sanitizeFilename(filename);
   const ts = Date.now();
 
+  let inner: string;
   switch (scope) {
     case "client-logo":
-      return buildR2Key("clients", orRandomId(input.entityId), filename);
+      inner = buildR2Key("clients", orRandomId(input.entityId), filename);
+      break;
     case "client-files": {
       const clientId = orRandomId(input.entityId);
       const fileId = orRandomId(input.fileId);
-      return buildR2Key("clients", `${clientId}/${fileId}`, filename);
+      inner = buildR2Key("clients", `${clientId}/${fileId}`, filename);
+      break;
     }
     case "project-cover": {
       const projectId = orRandomId(input.entityId ?? input.projectId);
-      return buildR2Key("projects", projectId, filename);
+      inner = buildR2Key("projects", projectId, filename);
+      break;
     }
     case "project-files": {
       const projectId = orRandomId(input.entityId ?? input.projectId);
       const fid = orRandomId(input.fileId);
-      return `projects/${projectId}/files/${fid}_${safe}`;
+      inner = `projects/${projectId}/files/${fid}_${safe}`;
+      break;
     }
     case "team-avatar":
-      return buildR2Key("team", orRandomId(input.entityId), filename);
+      inner = buildR2Key("team", orRandomId(input.entityId), filename);
+      break;
     case "agency-logo":
-      return buildR2Key("agency", "", filename);
+      inner = buildR2Key("agency", "", filename);
+      break;
     case "expense-receipt":
-      return buildR2Key("expenses", orRandomId(input.entityId ?? input.expenseId), filename);
+      inner = buildR2Key("expenses", orRandomId(input.entityId ?? input.expenseId), filename);
+      break;
     case "drive":
-      return buildDriveObjectKey(
+      inner = buildDriveObjectKey(
         (input.folderId ?? input.entityId ?? "").trim(),
         filename,
         orRandomId(input.fileId)
       );
+      break;
     case "ai-chat":
-      return `ai-chat/${ts}_${safe}`;
+      inner = `ai-chat/${ts}_${safe}`;
+      break;
     case "invoice-attachment": {
       const iid = input.invoiceId?.trim();
       if (!isUuid(iid)) throw new Error("invoiceId is required and must be a UUID");
-      return `invoices/${iid}/${ts}_${safe}`;
+      inner = `invoices/${iid}/${ts}_${safe}`;
+      break;
     }
     case "expense-attachment": {
       const eid = input.expenseId?.trim();
       if (!isUuid(eid)) throw new Error("expenseId is required and must be a UUID");
-      return `expenses/attachments/${eid}/${ts}_${safe}`;
+      inner = `expenses/attachments/${eid}/${ts}_${safe}`;
+      break;
     }
     case "task-attachment": {
       const tid = input.taskId?.trim();
       if (!isUuid(tid)) throw new Error("taskId is required and must be a UUID");
-      return `tasks/${tid}/${ts}_${safe}`;
+      inner = `tasks/${tid}/${ts}_${safe}`;
+      break;
     }
     case "recurring-vendor-logo":
-      return `vendors/recurring/${ts}_${safe}`;
+      inner = `vendors/recurring/${ts}_${safe}`;
+      break;
     default:
       throw new Error(`Invalid scope: ${scope}`);
   }
+  return withTenantStoragePrefix(orgSlug, inner);
 }
 
 export function isValidUploadScope(scope: string): scope is UploadApiScope {

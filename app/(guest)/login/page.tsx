@@ -2,11 +2,21 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
+import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
+import { applyPendingInvitationsAfterLogin } from "@/actions/invitations";
 import { LanguageToggle } from "@/components/language-toggle";
+
+function safePostLoginRedirect(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const raw = new URLSearchParams(window.location.search).get("callbackUrl");
+  if (raw && raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  return "/dashboard";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,7 +53,15 @@ export default function LoginPage() {
     if (result?.error) {
       setError(t("invalidCredentials"));
     } else {
-      router.push("/dashboard");
+      const inviteResult = await applyPendingInvitationsAfterLogin();
+      if (inviteResult.ok && inviteResult.addedTo.length > 0) {
+        if (inviteResult.addedTo.length === 1) {
+          toast.success(t("invitationJoinedOne", { org: inviteResult.addedTo[0]! }));
+        } else {
+          toast.success(t("invitationJoinedMany", { orgs: inviteResult.addedTo.join(", ") }));
+        }
+      }
+      router.push(safePostLoginRedirect());
       router.refresh();
     }
   }
@@ -206,6 +224,15 @@ export default function LoginPage() {
                   {loading ? t("signingIn") : t("loginButton")}
                 </button>
               </form>
+
+              <p className="mt-4 text-center text-sm text-neutral-600">
+                <Link
+                  href="/signup"
+                  className="font-medium text-neutral-900 underline-offset-2 hover:underline"
+                >
+                  {t("noAccountSignUp")}
+                </Link>
+              </p>
 
               <div
                 className="mt-8 flex items-center justify-between gap-4"

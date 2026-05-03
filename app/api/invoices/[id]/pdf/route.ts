@@ -1,26 +1,28 @@
 import React from "react";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { eq } from "drizzle-orm";
 import { Document, renderToBuffer } from "@react-pdf/renderer";
 import { getInvoiceWithPayments } from "@/actions/invoices";
-import { getSettings } from "@/actions/settings";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
+import { db, settings } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 import { InvoicePdfDocument, type InvoicePdfStatus } from "@/components/modules/invoices/invoice-pdf-document";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const orgId = session.user.organizationId;
+  if (!orgId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
-  const [invoiceResult, settingsResult] = await Promise.all([
-    getInvoiceWithPayments(id),
-    getSettings(),
-  ]);
+  const invoiceResult = await getInvoiceWithPayments(id);
 
   if (!invoiceResult.ok) {
     return NextResponse.json(
@@ -30,15 +32,23 @@ export async function GET(_request: Request, { params }: Params) {
   }
 
   const invoice = invoiceResult.data;
+  if (invoice.organizationId !== orgId) {
+    return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+  }
+
   const role = (session.user as { role?: string }).role;
   if (role === "client_portal") {
     const portalClientId = session.user.clientId ?? null;
     if (!portalClientId || invoice.clientId !== portalClientId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
   }
 
-  const settings = settingsResult.ok ? settingsResult.data : null;
+  const [settingsRow] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.organizationId, orgId))
+    .limit(1);
 
   const client = invoice.client;
 
@@ -77,17 +87,17 @@ export async function GET(_request: Request, { params }: Params) {
         amount: i.amount,
       })),
     },
-    settings: settings
+    settings: settingsRow
       ? {
-          agencyName: settings.agencyName,
-          agencyLogoUrl: settings.agencyLogoUrl,
-          agencyEmail: settings.agencyEmail,
-          agencyAddress: settings.agencyAddress,
-          invoiceColor: settings.invoiceColor,
-          invoiceFooter: settings.invoiceFooter,
+          agencyName: settingsRow.agencyName,
+          agencyLogoUrl: settingsRow.agencyLogoUrl,
+          agencyEmail: settingsRow.agencyEmail,
+          agencyAddress: settingsRow.agencyAddress,
+          invoiceColor: settingsRow.invoiceColor,
+          invoiceFooter: settingsRow.invoiceFooter,
         }
       : null,
-    accentColor: settings?.invoiceColor ?? undefined,
+    accentColor: settingsRow?.invoiceColor ?? undefined,
     payments: paymentRows,
     totalPaid: invoice.totalPaid,
     amountDue: invoice.amountDue,
