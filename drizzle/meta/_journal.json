@@ -162,6 +162,27 @@
       "when": 1778400000000,
       "tag": "0038_users_has_seen_welcome",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1778500000000,
+      "tag": "0039_users_password_theme",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1778600000000,
+      "tag": "0040_drive_system_paths_per_org",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778605000000,
+      "tag": "0041_mostaql_run_live_progress",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 import type { SQL } from "drizzle-orm";
 import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { getServerSession } from "next-auth";
 import { db, clients, expenses, files, folders, invoices, projects, teamMembers } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
@@ -11,17 +11,18 @@ import { sessionUserRole } from "@/lib/auth-helpers";
 import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 import { r2ObjectKeyFromPublicUrl } from "@/lib/r2-public-url";
 import { createFile } from "@/actions/files";
+import { agencySystemDrivePathPrefix } from "@/lib/agency-drive-prefix";
+import { requireAgencyOrganization } from "@/lib/org-session";
 
-const SYSTEM_DRIVE_PREFIX = "/drive/system";
+function systemFolderSyncTag(organizationId: string): string {
+  return `system-folders-${organizationId}`;
+}
 
-/** Invalidated whenever `ensureSystemFoldersInternal` runs so Drive picks up new clients/projects/expenses. */
-const SYSTEM_FOLDER_SYNC_TAG = "system-folders";
-
-async function runSystemFolderSyncWithRetry(): Promise<void> {
+async function runSystemFolderSyncWithRetry(organizationId: string): Promise<void> {
   let last: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      await runSystemFolderSync();
+      await runSystemFolderSync(organizationId);
       return;
     } catch (e) {
       last = e;
@@ -35,14 +36,16 @@ async function runSystemFolderSyncWithRetry(): Promise<void> {
   throw last;
 }
 
-const runDriveSystemFolderSyncCached = unstable_cache(
-  async () => {
-    await runSystemFolderSyncWithRetry();
-    return true;
-  },
-  ["drive-full-system-folder-sync-v1"],
-  { revalidate: 300, tags: [SYSTEM_FOLDER_SYNC_TAG] }
-);
+function cachedDriveSystemFolderSync(organizationId: string) {
+  return unstable_cache(
+    async () => {
+      await runSystemFolderSyncWithRetry(organizationId);
+      return true;
+    },
+    ["drive-system-sync-v2", organizationId],
+    { revalidate: 300, tags: [systemFolderSyncTag(organizationId)] }
+  );
+}
 
 const ROOT_DEFS = [
   { name: "Clients", systemType: "root_clients" },
@@ -112,9 +115,12 @@ async function insertSystemFolder(values: {
   return row ?? null;
 }
 
-async function ensureRoot(name: string, systemType: string): Promise<string> {
-  const path = `${SYSTEM_DRIVE_PREFIX}/${seg(name)}`;
-  const existing = await findOne(and(isNull(folders.parentId), eq(folders.systemType, systemType)));
+async function ensureRoot(name: string, systemType: string, organizationId: string): Promise<string> {
+  const prefix = agencySystemDrivePathPrefix(organizationId);
+  const path = `${prefix}/${seg(name)}`;
+  const existing = await findOne(
+    and(isNull(folders.parentId), eq(folders.systemType, systemType), eq(folders.path, path))
+  );
   if (existing) return existing.id;
   const row = await insertSystemFolder({
     name,
@@ -126,27 +132,47 @@ async function ensureRoot(name: string, systemType: string): Promise<string> {
   return row.id;
 }
 
-async function removeOrphanedClientFolders() {
-  const archived = await db.select({ id: clients.id }).from(clients).where(isNotNull(clients.deletedAt));
+async function removeOrphanedClientFolders(organizationId: string) {
+  const archived = await db
+    .select({ id: clients.id })
+    .from(clients)
+    .where(and(isNotNull(clients.deletedAt), eq(clients.organizationId, organizationId)));
   const ids = archived.map((r) => r.id);
   if (ids.length === 0) return;
+  const sysPrefix = agencySystemDrivePathPrefix(organizationId);
   const rows = await db
     .select({ id: folders.id })
     .from(folders)
-    .where(and(eq(folders.systemType, "client"), inArray(folders.clientId, ids)));
+    .where(
+      and(
+        eq(folders.systemType, "client"),
+        inArray(folders.clientId, ids),
+        sql`${folders.path} like ${sysPrefix + "%"}`
+      )
+    );
   for (const r of rows) {
     await db.delete(folders).where(eq(folders.id, r.id));
   }
 }
 
-async function removeOrphanedProjectFolders() {
-  const gone = await db.select({ id: projects.id }).from(projects).where(isNotNull(projects.deletedAt));
+async function removeOrphanedProjectFolders(organizationId: string) {
+  const gone = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(isNotNull(projects.deletedAt), eq(projects.organizationId, organizationId)));
   const ids = gone.map((r) => r.id);
   if (ids.length === 0) return;
+  const sysPrefix = agencySystemDrivePathPrefix(organizationId);
   const rows = await db
     .select({ id: folders.id })
     .from(folders)
-    .where(and(eq(folders.systemType, "project"), inArray(folders.projectId, ids)));
+    .where(
+      and(
+        eq(folders.systemType, "project"),
+        inArray(folders.projectId, ids),
+        sql`${folders.path} like ${sysPrefix + "%"}`
+      )
+    );
   for (const r of rows) {
     await db.delete(folders).where(eq(folders.id, r.id));
   }
@@ -223,8 +249,9 @@ export async function ensureSystemFolders(): Promise<{ ok: true } | { ok: false;
   }
   const wa = await requireWriteAccess();
   if (!wa.ok) return trialExpiredPlain();
+  const organizationId = wa.organizationId;
   try {
-    await runDriveSystemFolderSyncCached();
+    await cachedDriveSystemFolderSync(organizationId)();
     return { ok: true };
   } catch (e) {
     if (isDbConnectionError(e)) {
@@ -239,17 +266,18 @@ export async function ensureSystemFolders(): Promise<{ ok: true } | { ok: false;
 
 /** Trusted internal full sync (e.g. after entity create). */
 export async function ensureSystemFoldersInternal(): Promise<void> {
-  await runSystemFolderSync();
-  revalidateTag(SYSTEM_FOLDER_SYNC_TAG, "max");
+  const ctx = await requireAgencyOrganization();
+  await runSystemFolderSync(ctx.organizationId);
+  revalidateTag(systemFolderSyncTag(ctx.organizationId), "max");
 }
 
-async function runSystemFolderSync() {
-  await removeOrphanedClientFolders();
-  await removeOrphanedProjectFolders();
+async function runSystemFolderSync(organizationId: string) {
+  await removeOrphanedClientFolders(organizationId);
+  await removeOrphanedProjectFolders(organizationId);
 
   const roots: Record<string, string> = {};
   for (const r of ROOT_DEFS) {
-    roots[r.systemType] = await ensureRoot(r.name, r.systemType);
+    roots[r.systemType] = await ensureRoot(r.name, r.systemType, organizationId);
   }
 
   const clientsRoot = roots.root_clients!;
@@ -268,7 +296,7 @@ async function runSystemFolderSync() {
   const activeClients = await db
     .select()
     .from(clients)
-    .where(isNull(clients.deletedAt))
+    .where(and(isNull(clients.deletedAt), eq(clients.organizationId, organizationId)))
     .orderBy(asc(clients.companyName));
   for (const c of activeClients) {
     const clientFolderId = await ensureChildFolder({
@@ -311,7 +339,13 @@ async function runSystemFolderSync() {
     })
     .from(projects)
     .innerJoin(clients, eq(projects.clientId, clients.id))
-    .where(isNull(projects.deletedAt))
+    .where(
+      and(
+        isNull(projects.deletedAt),
+        eq(projects.organizationId, organizationId),
+        eq(clients.organizationId, organizationId)
+      )
+    )
     .orderBy(asc(clients.companyName), asc(projects.name));
 
   for (const p of activeProjects) {
@@ -356,7 +390,13 @@ async function runSystemFolderSync() {
     .selectDistinct({ clientId: invoices.clientId, companyName: clients.companyName })
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
-    .where(isNull(clients.deletedAt));
+    .where(
+      and(
+        isNull(clients.deletedAt),
+        eq(invoices.organizationId, organizationId),
+        eq(clients.organizationId, organizationId)
+      )
+    );
   for (const ic of invoiceClients) {
     await ensureChildFolder({
       parentId: invoicesRoot,
@@ -386,7 +426,14 @@ async function runSystemFolderSync() {
       .selectDistinct({ id: teamMembers.id, name: teamMembers.name })
       .from(expenses)
       .innerJoin(teamMembers, eq(expenses.teamMemberId, teamMembers.id))
-      .where(and(eq(expenses.category, "salaries"), eq(teamMembers.status, "active")));
+      .where(
+        and(
+          eq(expenses.category, "salaries"),
+          eq(teamMembers.status, "active"),
+          eq(expenses.organizationId, organizationId),
+          eq(teamMembers.organizationId, organizationId)
+        )
+      );
     for (const m of salaryMembers) {
       await ensureChildFolder({
         parentId: salariesParentId,
@@ -406,7 +453,12 @@ async function runSystemFolderSync() {
     const titles = await db
       .selectDistinct({ title: expenses.title })
       .from(expenses)
-      .where(eq(expenses.category, cat as (typeof expenses.$inferSelect)["category"]));
+      .where(
+        and(
+          eq(expenses.category, cat as (typeof expenses.$inferSelect)["category"]),
+          eq(expenses.organizationId, organizationId)
+        )
+      );
     for (const t of titles) {
       const title = t.title?.trim();
       if (!title) continue;
@@ -422,7 +474,7 @@ async function runSystemFolderSync() {
   const members = await db
     .select()
     .from(teamMembers)
-    .where(eq(teamMembers.status, "active"))
+    .where(and(eq(teamMembers.status, "active"), eq(teamMembers.organizationId, organizationId)))
     .orderBy(asc(teamMembers.name));
   for (const m of members) {
     await ensureChildFolder({
@@ -457,20 +509,37 @@ export async function getSystemFolderForEntity(
   entityType: "client" | "project" | "team_member",
   entityId: string
 ): Promise<string | null> {
+  const { organizationId } = await requireAgencyOrganization();
+  const sysPrefix = agencySystemDrivePathPrefix(organizationId);
+  const underOrgTree = sql`${folders.path} like ${sysPrefix + "%"}`;
   if (entityType === "client") {
-    const row = await findOne(and(eq(folders.systemType, "client"), eq(folders.clientId, entityId)));
+    const row = await findOne(
+      and(eq(folders.systemType, "client"), eq(folders.clientId, entityId), underOrgTree)
+    );
     return row?.id ?? null;
   }
   if (entityType === "project") {
-    const row = await findOne(and(eq(folders.systemType, "project"), eq(folders.projectId, entityId)));
+    const row = await findOne(
+      and(eq(folders.systemType, "project"), eq(folders.projectId, entityId), underOrgTree)
+    );
     return row?.id ?? null;
   }
-  const row = await findOne(and(eq(folders.systemType, "team_member"), eq(folders.teamMemberId, entityId)));
+  const row = await findOne(
+    and(eq(folders.systemType, "team_member"), eq(folders.teamMemberId, entityId), underOrgTree)
+  );
   return row?.id ?? null;
 }
 
 export async function getClientBrandFolderId(clientId: string): Promise<string | null> {
-  const row = await findOne(and(eq(folders.systemType, "client_brand"), eq(folders.clientId, clientId)));
+  const { organizationId } = await requireAgencyOrganization();
+  const sysPrefix = agencySystemDrivePathPrefix(organizationId);
+  const row = await findOne(
+    and(
+      eq(folders.systemType, "client_brand"),
+      eq(folders.clientId, clientId),
+      sql`${folders.path} like ${sysPrefix + "%"}`
+    )
+  );
   return row?.id ?? null;
 }
 
@@ -478,7 +547,11 @@ export async function getExpenseSystemFolderId(
   category: string,
   opts?: { teamMemberId?: string | null; title?: string | null }
 ): Promise<string | null> {
-  const root = await findOne(eq(folders.systemType, "root_expenses"));
+  const { organizationId } = await requireAgencyOrganization();
+  const expenseRootPath = `${agencySystemDrivePathPrefix(organizationId)}/${seg("Expenses")}`;
+  const root = await findOne(
+    and(eq(folders.systemType, "root_expenses"), eq(folders.path, expenseRootPath))
+  );
   if (!root) return null;
   const catKey = category in EXPENSE_CATEGORY_LABELS ? category : "other";
   const label = EXPENSE_CATEGORY_LABELS[catKey]!;

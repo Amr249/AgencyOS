@@ -90,6 +90,8 @@ type MostaqlScrapeRunRow = {
   pagesRequested: number;
   pagesFetched: number;
   projectsFound: number;
+  projectsProcessed: number;
+  projectsTotal: number;
   projectsSaved: number;
   categoriesJson: string[];
   errorMessage: string | null;
@@ -123,6 +125,7 @@ function StatusPill({ status }: { status: string | null }) {
     open: "bg-emerald-100 text-emerald-700 border-emerald-200",
     closed: "bg-neutral-200 text-neutral-700 border-neutral-300",
     success: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    queued: "bg-sky-100 text-sky-700 border-sky-200",
     running: "bg-amber-100 text-amber-700 border-amber-200",
     partial: "bg-amber-100 text-amber-700 border-amber-200",
     failed: "bg-red-100 text-red-700 border-red-200",
@@ -356,6 +359,18 @@ export function MostaqlReportsView({
     setEndPicked(endDate ? parseCalendarDate(endDate) : undefined);
   }, [endDate]);
 
+  const hasInFlightRun = React.useMemo(
+    () => runs.some((r) => r.status === "queued" || r.status === "running"),
+    [runs]
+  );
+  React.useEffect(() => {
+    if (!hasInFlightRun) return;
+    const id = setInterval(() => {
+      router.refresh();
+    }, 6000);
+    return () => clearInterval(id);
+  }, [hasInFlightRun, router]);
+
   const buildHref = React.useCallback(
     (overrides: { run?: string | null; start?: string | null; end?: string | null }) => {
       const params = new URLSearchParams();
@@ -375,6 +390,13 @@ export function MostaqlReportsView({
     () => runs.find((r) => r.id === activeRunId) ?? null,
     [runs, activeRunId]
   );
+  const activeRunProgressPct = React.useMemo(() => {
+    if (!activeRun) return 0;
+    const total = Math.max(0, activeRun.projectsTotal || activeRun.projectsFound || 0);
+    const processed = Math.max(0, activeRun.projectsProcessed || 0);
+    if (total <= 0) return 0;
+    return Math.min(100, Math.round((processed / total) * 100));
+  }, [activeRun]);
 
   const hasFilters = !!(activeRunId || startDate || endDate);
 
@@ -423,20 +445,11 @@ export function MostaqlReportsView({
     toast.promise(promise, {
       loading:
         pages === "all"
-          ? "Scraping all Mostaql pages — this may take several minutes…"
-          : `Scraping ${pages} page(s) from Mostaql…`,
+          ? "Queueing all Mostaql pages scrape…"
+          : `Queueing ${pages} page(s) scrape…`,
       success: (res) => {
         if (!res.ok) return res.error ?? "Scrape failed";
-        const d = res.data!;
-        const skipped = d.projectsSkippedDuplicate ?? 0;
-        const failed = d.projectsFailedDetail ?? 0;
-        const parts = [
-          `Saved ${d.projectsSaved} new project${d.projectsSaved === 1 ? "" : "s"}`,
-          `skipped ${skipped} duplicate${skipped === 1 ? "" : "s"}`,
-        ];
-        if (failed > 0) parts.push(`${failed} rate-limited (will retry next run)`);
-        if (d.abortedByRateLimit) parts.push("crawl stopped early (rate-limit)");
-        return parts.join(" · ");
+        return "Scrape queued in background. This page will auto-refresh.";
       },
       error: "Scrape failed",
     });
@@ -810,13 +823,13 @@ export function MostaqlReportsView({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button onClick={handleScrape} disabled={isScraping}>
+          <Button onClick={handleScrape} disabled={isScraping || hasInFlightRun}>
             {isScraping ? (
               <Loader2 className="me-2 h-4 w-4 animate-spin" />
             ) : (
               <RefreshCw className="me-2 h-4 w-4" />
             )}
-            {isScraping ? "Scraping…" : "Scrape now"}
+            {isScraping ? "Queueing…" : hasInFlightRun ? "Scrape running…" : "Scrape now"}
           </Button>
         </div>
       </div>
@@ -940,6 +953,12 @@ export function MostaqlReportsView({
             Pages fetched: {activeRun.pagesFetched} · Saved {activeRun.projectsSaved} /{" "}
             {activeRun.projectsFound}
           </span>
+          {(activeRun.status === "queued" || activeRun.status === "running") && (
+            <span className="text-muted-foreground">
+              Progress: {activeRun.projectsProcessed}/{Math.max(activeRun.projectsTotal, activeRun.projectsFound)} (
+              {activeRunProgressPct}%)
+            </span>
+          )}
           <Button
             variant="ghost"
             size="sm"

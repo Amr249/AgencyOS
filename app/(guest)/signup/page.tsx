@@ -4,14 +4,12 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Eye, EyeOff } from "lucide-react";
 import { LanguageToggle } from "@/components/language-toggle";
 import { signUp } from "@/actions/auth";
 
 export default function SignupPage() {
-  const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("auth");
   const [mounted, setMounted] = useState(false);
@@ -58,8 +56,8 @@ export default function SignupPage() {
       setFieldErrors({ _form: [t("invalidCredentials")] });
       return;
     }
-    router.push("/dashboard");
-    router.refresh();
+    // Full navigation so session + middleware `x-pathname` apply before RSC; avoids blank onboarding/dashboard after client transition.
+    window.location.assign("/dashboard");
   }
 
   function err(key: string): string | undefined {

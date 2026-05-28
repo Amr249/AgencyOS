@@ -827,6 +827,10 @@ export const mostaqlScrapeRuns = pgTable(
     pagesRequested: integer("pages_requested").notNull().default(1),
     pagesFetched: integer("pages_fetched").notNull().default(0),
     projectsFound: integer("projects_found").notNull().default(0),
+    /** How many detail pages have been attempted in this run. */
+    projectsProcessed: integer("projects_processed").notNull().default(0),
+    /** Total detail pages scheduled for this run after dedupe/listing. */
+    projectsTotal: integer("projects_total").notNull().default(0),
     projectsSaved: integer("projects_saved").notNull().default(0),
     /** Categories filter applied (slugs). */
     categoriesJson: jsonb("categories_json").$type<string[]>().notNull().default([]),

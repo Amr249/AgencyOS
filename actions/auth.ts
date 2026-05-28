@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { orgMembers, organizations, settings, users } from "@/lib/db/schema";
+import { findPostgresErrorCode } from "@/lib/db-errors";
 
 const signUpSchema = z
   .object({
@@ -72,6 +73,7 @@ export async function signUp(
   trialEndsAt.setDate(trialEndsAt.getDate() + 14);
   const now = new Date();
 
+  let createdOrgId: string | null = null;
   try {
     const [org] = await db
       .insert(organizations)
@@ -84,6 +86,7 @@ export async function signUp(
       })
       .returning({ id: organizations.id });
     if (!org?.id) throw new Error("Failed to create organization");
+    createdOrgId = org.id;
 
     const [user] = await db
       .insert(users)
@@ -108,10 +111,38 @@ export async function signUp(
       agencyName: agencyName.trim(),
     });
   } catch (e) {
+    if (createdOrgId) {
+      try {
+        await db.delete(organizations).where(eq(organizations.id, createdOrgId));
+      } catch (cleanupErr) {
+        console.error("signUp: failed to remove orphan organization", createdOrgId, cleanupErr);
+      }
+    }
     console.error("signUp", e);
+    const pg = findPostgresErrorCode(e);
+    if (pg === "23505") {
+      return {
+        ok: false,
+        error: { email: ["An account with this email already exists"] },
+      };
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    const looksLikeMissingColumn =
+      /column .* does not exist/i.test(msg) ||
+      (typeof msg === "string" && msg.includes("42703"));
+    if (looksLikeMissingColumn) {
+      return {
+        ok: false,
+        error: {
+          _form: [
+            "The database is missing required columns (often password_hash on users). Apply pending migrations on the server (e.g. drizzle/0039_users_password_theme.sql), then try again.",
+          ],
+        },
+      };
+    }
     return {
       ok: false,
-      error: { _form: [e instanceof Error ? e.message : "Sign up failed"] },
+      error: { _form: [msg || "Sign up failed"] },
     };
   }
 

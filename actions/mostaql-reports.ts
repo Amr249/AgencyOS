@@ -1,15 +1,13 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
-import { db, mostaqlScrapeRuns, mostaqlProjects } from "@/lib/db";
+import { db, mostaqlProjects, mostaqlScrapeRuns } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { requireAgencyOrganization } from "@/lib/org-session";
-import {
-  crawlMostaql,
-  type MostaqlScrapedProject,
-} from "@/lib/mostaql/scraper";
+import { processMostaqlScrapeRunById } from "@/lib/mostaql/scrape-runner";
 import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 
 const PAGES_VALUES = ["1", "3", "5", "all"] as const;
@@ -26,14 +24,34 @@ function pagesParamToValue(p: (typeof PAGES_VALUES)[number]): number | "all" {
   return parseInt(p, 10);
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+function appBaseUrl(): string | null {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (appUrl) return appUrl.replace(/\/+$/, "");
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl) return `https://${vercelUrl.replace(/\/+$/, "")}`;
+  return null;
 }
 
-function toNumericString(n: number | null): string | null {
-  return n == null || Number.isNaN(n) ? null : String(n);
+function internalJobSecret(): string | null {
+  return process.env.MOSTAQL_SCRAPE_SECRET?.trim() || process.env.CRON_SECRET?.trim() || null;
+}
+
+async function triggerMostaqlRunWorker(runId: string): Promise<void> {
+  const base = appBaseUrl();
+  const secret = internalJobSecret();
+  if (!base || !secret) {
+    await processMostaqlScrapeRunById(runId);
+    return;
+  }
+  await fetch(`${base}/api/internal/mostaql-scrape-run`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${secret}`,
+    },
+    body: JSON.stringify({ runId }),
+    cache: "no-store",
+  });
 }
 
 export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
@@ -55,8 +73,10 @@ export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
       .insert(mostaqlScrapeRuns)
       .values({
         organizationId: waRun.organizationId,
-        status: "running",
+        status: "queued",
         pagesRequested,
+        projectsProcessed: 0,
+        projectsTotal: 0,
         categoriesJson: categories,
       })
       .returning({ id: mostaqlScrapeRuns.id });
@@ -70,123 +90,18 @@ export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
     return { ok: false as const, error: "Failed to start scrape run" };
   }
 
-  let skipMostaqlIds = new Set<string>();
-  let skipUrls = new Set<string>();
-  try {
-    const existing = await db
-      .select({
-        mostaqlId: mostaqlProjects.mostaqlId,
-        url: mostaqlProjects.url,
-      })
-      .from(mostaqlProjects)
-      .innerJoin(mostaqlScrapeRuns, eq(mostaqlProjects.runId, mostaqlScrapeRuns.id))
-      .where(eq(mostaqlScrapeRuns.organizationId, waRun.organizationId));
-    skipMostaqlIds = new Set(
-      existing
-        .map((e) => e.mostaqlId)
-        .filter((x): x is string => !!x)
-    );
-    skipUrls = new Set(existing.map((e) => e.url));
-  } catch (e) {
-    console.error("runMostaqlScrape:loadExisting", e);
-  }
-
-  let projects: MostaqlScrapedProject[] = [];
-  let pagesFetched = 0;
-  let projectsFound = 0;
-  let projectsSkippedDuplicate = 0;
-  let projectsFailedDetail = 0;
-  let abortedByRateLimit = false;
-  let crawlError: string | null = null;
-  try {
-    const result = await crawlMostaql({
-      pages: pagesValue,
-      categories,
-      skipMostaqlIds,
-      skipUrls,
-    });
-    projects = result.projects;
-    pagesFetched = result.pagesFetched;
-    projectsFound = result.projectsFound;
-    projectsSkippedDuplicate = result.projectsSkippedDuplicate;
-    projectsFailedDetail = result.projectsFailedDetail;
-    abortedByRateLimit = result.abortedByRateLimit;
-    if (abortedByRateLimit) {
-      crawlError =
-        "Mostaql rate-limited the crawler. Saved what we got — re-run later to fetch the rest (already-scraped projects will be skipped).";
-    } else if (projectsFailedDetail > 0) {
-      crawlError = `${projectsFailedDetail} project page${projectsFailedDetail === 1 ? "" : "s"} failed to load and were skipped — re-run later to retry.`;
-    }
-  } catch (e) {
-    crawlError = e instanceof Error ? e.message : "Unknown scrape error";
-    console.error("runMostaqlScrape:crawl", e);
-  }
-
-  let projectsSaved = 0;
-  if (projects.length > 0) {
+  after(async () => {
     try {
-      const seen = new Set<string>(skipMostaqlIds);
-      const seenUrls = new Set<string>(skipUrls);
-      const rows = projects
-        .filter((p) => {
-          const idKey = p.mostaqlId;
-          if (idKey && seen.has(idKey)) return false;
-          if (!idKey && seenUrls.has(p.url)) return false;
-          if (idKey) seen.add(idKey);
-          seenUrls.add(p.url);
-          return true;
-        })
-        .map((p) => ({
-          runId,
-          mostaqlId: p.mostaqlId,
-          url: p.url,
-          title: p.title,
-          category: p.category,
-          subcategory: p.subcategory,
-          budgetMin: toNumericString(p.budgetMin),
-          budgetMax: toNumericString(p.budgetMax),
-          currency: p.currency,
-          description: p.description,
-          skillsTags: p.skillsTags,
-          clientName: p.clientName,
-          clientUrl: p.clientUrl,
-          offersCount: p.offersCount,
-          projectStatus: p.projectStatus,
-          publishedAt: p.publishedAt,
-          durationDays: p.durationDays,
-        }));
-      for (const batch of chunk(rows, 100)) {
-        await db.insert(mostaqlProjects).values(batch);
-        projectsSaved += batch.length;
-      }
+      await triggerMostaqlRunWorker(runId);
     } catch (e) {
-      console.error("runMostaqlScrape:insert", e);
-      crawlError =
-        crawlError ?? (e instanceof Error ? e.message : "Failed to save scraped rows");
+      console.error("runMostaqlScrape:triggerWorker", e);
+      try {
+        await processMostaqlScrapeRunById(runId);
+      } catch (fallbackErr) {
+        console.error("runMostaqlScrape:fallbackProcess", fallbackErr);
+      }
     }
-  }
-
-  const status = crawlError
-    ? projectsSaved > 0
-      ? "partial"
-      : "failed"
-    : "success";
-
-  try {
-    await db
-      .update(mostaqlScrapeRuns)
-      .set({
-        status,
-        finishedAt: new Date(),
-        pagesFetched,
-        projectsFound,
-        projectsSaved,
-        errorMessage: crawlError,
-      })
-      .where(eq(mostaqlScrapeRuns.id, runId));
-  } catch (e) {
-    console.error("runMostaqlScrape:update", e);
-  }
+  });
 
   revalidatePath("/dashboard/proposals/mostaql-reports");
 
@@ -194,14 +109,7 @@ export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
     ok: true as const,
     data: {
       runId,
-      status,
-      pagesFetched,
-      projectsFound,
-      projectsSaved,
-      projectsSkippedDuplicate,
-      projectsFailedDetail,
-      abortedByRateLimit,
-      errorMessage: crawlError,
+      status: "queued" as const,
     },
   };
 }

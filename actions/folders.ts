@@ -5,7 +5,7 @@ import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { customAlphabet } from "nanoid";
-import { db, folders, files, projects, folderAccess, teamMembers } from "@/lib/db";
+import { clients, db, files, folderAccess, folders, projects, teamMembers } from "@/lib/db";
 import { deleteFromR2 } from "@/lib/r2";
 import { publicUrlFromR2Key } from "@/lib/r2-public-url";
 import { authOptions } from "@/lib/auth";
@@ -16,6 +16,7 @@ import { resolveSharedFolderRoot } from "@/lib/shared-folder-access";
 import { getMemberDriveVisibleFolderIdsForUser, memberHasAccessToProjectFolder } from "@/lib/member-drive-access";
 import { notifyFolderAccessGranted } from "@/actions/notifications";
 import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
+import { agencySystemDrivePathPrefix } from "@/lib/agency-drive-prefix";
 import { requireAgencyOrganization } from "@/lib/org-session";
 import { isDriveFolderProtectedFromUserEdits, isRootSystemDriveFolder } from "@/lib/drive-folder-permissions";
 
@@ -410,6 +411,22 @@ export async function getAllFoldersForScope(params: z.infer<typeof allFoldersSco
   }
   const { clientId, projectId } = parsed.data;
   try {
+    const ctx = await requireAgencyOrganization();
+    if (clientId) {
+      const [c] = await db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(and(eq(clients.id, clientId), eq(clients.organizationId, ctx.organizationId)))
+        .limit(1);
+      if (!c) return { ok: false as const, error: "Forbidden", data: [] as FolderRow[] };
+    } else {
+      const [p] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId!), eq(projects.organizationId, ctx.organizationId)))
+        .limit(1);
+      if (!p) return { ok: false as const, error: "Forbidden", data: [] as FolderRow[] };
+    }
     const rows = await db
       .select()
       .from(folders)
@@ -467,6 +484,10 @@ export async function getDriveFolders() {
   }
   try {
     const role = sessionUserRole(session);
+    const organizationId = session.user.organizationId;
+    if (!organizationId) {
+      return { ok: false as const, error: "Not authorized", data: [] as FolderRow[] };
+    }
     let projectIds: string[] = [];
     if (role === "member") {
       projectIds = await getMemberProjectIdsForUser(uid);
@@ -485,7 +506,8 @@ export async function getDriveFolders() {
       isNull(folders.projectId),
       sql`${folders.path} like ${standalonePrefix + "%"}`
     );
-    const agencySystemDriveTree = sql`${folders.path} like '/drive/system%'`;
+    const systemTreePrefix = `${agencySystemDrivePathPrefix(organizationId)}/`;
+    const agencySystemDriveTree = sql`${folders.path} like ${systemTreePrefix + "%"}`;
     const personalOrSystemTree = or(standalonePersonalTree, agencySystemDriveTree);
     const scopeCond =
       projectIds.length > 0
