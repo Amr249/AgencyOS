@@ -7,7 +7,7 @@ const MEMBER_DRIVE = "/dashboard/member-drive";
 
 const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
 
-/** Injects `x-pathname` for `app/dashboard/layout.tsx`. Must run from root `middleware.ts` (Next only loads that filename). */
+/** Injects `x-pathname` for `app/dashboard/layout.tsx` via root `proxy.ts`. */
 function nextWithDashboardPathname(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", request.nextUrl.pathname);
