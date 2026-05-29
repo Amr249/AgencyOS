@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { processNextQueuedMostaqlRun } from "@/lib/mostaql/scrape-runner";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 800;
+/** Vercel Hobby max is 300s; Pro allows up to 800s if you raise this later. */
+export const maxDuration = 300;
 
 function authorize(request: Request): boolean {
   const secret = process.env.MOSTAQL_SCRAPE_SECRET ?? process.env.CRON_SECRET;
