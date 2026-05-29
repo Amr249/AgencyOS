@@ -834,6 +834,11 @@ export function MostaqlReportsView({
         </div>
       </div>
 
+      <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+        Automated scrape runs daily at <strong>08:00 UTC</strong> (all listing pages, development +
+        AI/ML). Manual runs are still available below.
+      </div>
+
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           {error}

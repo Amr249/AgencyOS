@@ -260,6 +260,9 @@ export async function processMostaqlScrapeRunById(runId: string): Promise<{
     console.info(`[mostaql] run ${runId} skipped duplicates: ${projectsSkippedDuplicate}`);
   }
 
+  const { chainNextQueuedMostaqlRun } = await import("@/lib/mostaql/worker-client");
+  void chainNextQueuedMostaqlRun();
+
   return { ok: true };
 }
 

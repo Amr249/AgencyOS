@@ -7,11 +7,16 @@ import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db, mostaqlProjects, mostaqlScrapeRuns } from "@/lib/db";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
 import { requireAgencyOrganization } from "@/lib/org-session";
+import {
+  MOSTAQL_ALL_PAGES_REQUESTED,
+  MOSTAQL_DEFAULT_CATEGORIES,
+} from "@/lib/mostaql/daily-scrape";
 import { processMostaqlScrapeRunById } from "@/lib/mostaql/scrape-runner";
+import { triggerMostaqlRunWorker } from "@/lib/mostaql/worker-client";
 import { requireWriteAccess, trialExpiredPlain } from "@/lib/trial";
 
 const PAGES_VALUES = ["1", "3", "5", "all"] as const;
-const DEFAULT_CATEGORIES = ["development", "ai-machine-learning"] as const;
+const DEFAULT_CATEGORIES = MOSTAQL_DEFAULT_CATEGORIES;
 
 const runScrapeSchema = z.object({
   pages: z.enum(PAGES_VALUES).default("1"),
@@ -24,36 +29,6 @@ function pagesParamToValue(p: (typeof PAGES_VALUES)[number]): number | "all" {
   return parseInt(p, 10);
 }
 
-function appBaseUrl(): string | null {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (appUrl) return appUrl.replace(/\/+$/, "");
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  if (vercelUrl) return `https://${vercelUrl.replace(/\/+$/, "")}`;
-  return null;
-}
-
-function internalJobSecret(): string | null {
-  return process.env.MOSTAQL_SCRAPE_SECRET?.trim() || process.env.CRON_SECRET?.trim() || null;
-}
-
-async function triggerMostaqlRunWorker(runId: string): Promise<void> {
-  const base = appBaseUrl();
-  const secret = internalJobSecret();
-  if (!base || !secret) {
-    await processMostaqlScrapeRunById(runId);
-    return;
-  }
-  await fetch(`${base}/api/internal/mostaql-scrape-run`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${secret}`,
-    },
-    body: JSON.stringify({ runId }),
-    cache: "no-store",
-  });
-}
-
 export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
   const parsed = runScrapeSchema.safeParse(input);
   if (!parsed.success) {
@@ -61,7 +36,9 @@ export async function runMostaqlScrape(input: RunMostaqlScrapeInput) {
   }
   const pagesValue = pagesParamToValue(parsed.data.pages);
   const pagesRequested =
-    pagesValue === "all" ? 0 : pagesValue * DEFAULT_CATEGORIES.length;
+    pagesValue === "all"
+      ? MOSTAQL_ALL_PAGES_REQUESTED
+      : pagesValue * DEFAULT_CATEGORIES.length;
   const categories = [...DEFAULT_CATEGORIES];
 
   const waRun = await requireWriteAccess();
