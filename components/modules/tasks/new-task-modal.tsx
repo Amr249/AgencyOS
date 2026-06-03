@@ -73,6 +73,7 @@ type ProjectOption = {
   name: string;
   coverImageUrl?: string | null;
   clientLogoUrl?: string | null;
+  isInternal?: boolean;
 };
 type TeamMemberOption = { id: string; name: string; avatarUrl?: string | null };
 
@@ -142,11 +143,21 @@ export function NewTaskModal({
   );
   const selectDir = isAr ? "rtl" : "ltr";
 
+  const sortedProjects = React.useMemo(() => {
+    const locale = isAr ? "ar" : "en";
+    return [...projects].sort((a, b) => {
+      const ai = a.isInternal ? 1 : 0;
+      const bi = b.isInternal ? 1 : 0;
+      if (ai !== bi) return bi - ai;
+      return (a.name || "").localeCompare(b.name || "", locale, { sensitivity: "base" });
+    });
+  }, [projects, isAr]);
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: "",
-      projectId: projects[0]?.id ?? "",
+      projectId: sortedProjects[0]?.id ?? "",
       description: "",
       status: defaultStatus,
       priority: "medium",
@@ -213,7 +224,7 @@ export function NewTaskModal({
     if (open) {
       form.reset({
         title: "",
-        projectId: projects[0]?.id ?? "",
+        projectId: sortedProjects[0]?.id ?? "",
         description: "",
         status: defaultStatus,
         priority: "medium",
@@ -303,7 +314,7 @@ export function NewTaskModal({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent dir={selectDir}>
-                      {projects.map((p) => (
+                      {sortedProjects.map((p) => (
                         <SelectItem key={p.id} value={p.id} textValue={p.name}>
                           <ProjectSelectOptionRow
                             coverImageUrl={p.coverImageUrl}

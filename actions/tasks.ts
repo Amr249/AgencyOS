@@ -256,7 +256,7 @@ export async function getTasks(filters?: GetTasksFilters) {
       })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(clients, eq(projects.clientId, clients.id))
       .where(and(...conditions))
       .orderBy(desc(tasks.createdAt));
 
@@ -488,7 +488,7 @@ export async function getTaskById(id: string) {
       })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(clients, eq(projects.clientId, clients.id))
       .where(
         and(
           eq(tasks.id, parsed.data),

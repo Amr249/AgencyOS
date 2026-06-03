@@ -58,6 +58,7 @@ export default async function TasksPage() {
           coverImageUrl: p.coverImageUrl,
           clientLogoUrl: p.clientLogoUrl,
           status: p.status ?? null,
+          isInternal: p.isInternal ?? false,
         }))}
         teamMembers={teamMembers}
         assigneesByTaskId={assigneesByTaskId}

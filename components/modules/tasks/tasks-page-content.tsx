@@ -42,6 +42,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 type ProjectOption = ProjectPickerOption & {
   /** `projects.status` – used to surface active projects at the top of the filter. */
   status?: string | null;
+  isInternal?: boolean;
 };
 
 type TeamMember = {
@@ -331,15 +332,18 @@ export function TasksPageContent({
     const collatorLocale = locale === "ar" ? "ar" : "en";
     const compareByName = (a: ProjectOption, b: ProjectOption) =>
       (a.name || "").localeCompare(b.name || "", collatorLocale, { sensitivity: "base" });
+    const internal: ProjectOption[] = [];
     const active: ProjectOption[] = [];
     const other: ProjectOption[] = [];
     for (const p of projects) {
-      if (p.status === "active") active.push(p);
+      if (p.isInternal) internal.push(p);
+      else if (p.status === "active") active.push(p);
       else other.push(p);
     }
+    internal.sort(compareByName);
     active.sort(compareByName);
     other.sort(compareByName);
-    return { active, other };
+    return { internal, active, other };
   }, [projects, locale]);
 
   const projectSummary = React.useMemo(() => {
@@ -489,6 +493,34 @@ export function TasksPageContent({
             </div>
             <div className="max-h-72 overflow-y-auto overscroll-contain">
               <div className="flex flex-col gap-0 p-2">
+                {sortedProjects.internal.length > 0 ? (
+                  <div
+                    className="text-muted-foreground px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide"
+                    aria-hidden
+                  >
+                    {t("workspacePage.internalProjects")}
+                  </div>
+                ) : null}
+                {sortedProjects.internal.map((p) => (
+                  <label
+                    key={p.id}
+                    className="hover:bg-accent/60 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2"
+                  >
+                    <Checkbox
+                      checked={projectFilters.includes(p.id)}
+                      onCheckedChange={() =>
+                        setProjectFilters((prev) =>
+                          prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]
+                        )
+                      }
+                    />
+                    <ProjectSelectOptionRow
+                      coverImageUrl={p.coverImageUrl}
+                      clientLogoUrl={p.clientLogoUrl}
+                      name={p.name}
+                    />
+                  </label>
+                ))}
                 {sortedProjects.active.length > 0 ? (
                   <div
                     className="text-muted-foreground px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide"

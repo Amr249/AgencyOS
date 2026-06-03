@@ -468,7 +468,9 @@
     "metaDescription": "Manage projects and track progress.",
     "newProjectDialog": {
       "title": "New project",
-      "description": "Add a new project linked to a client. Required fields are marked.",
+      "description": "Add a client project or an internal agency project (no client). Required fields are marked.",
+      "isInternalLabel": "Internal agency project",
+      "isInternalHint": "For agency work only (website, ops, marketing) — not billed to a client.",
       "coverLabel": "Project cover image (optional)",
       "uploadCover": "Upload cover",
       "uploading": "Uploading…",
@@ -501,6 +503,7 @@
         "clientRequired": "Select a client"
       }
     },
+    "internalAgency": "Internal (agency)",
     "status": {
       "lead": "Lead",
       "active": "Active",
@@ -514,6 +517,7 @@
       "filterStatusPlaceholder": "Status",
       "filterClientPlaceholder": "Client",
       "allClients": "All clients",
+      "filterInternalOnly": "Internal agency only",
       "kpiTotalTitle": "Total projects",
       "kpiTotalHint": "All projects in your workspace",
       "kpiActiveTitle": "Active projects",
@@ -591,6 +595,7 @@
       "filterMembers": "Members",
       "clearSelection": "Clear selection",
       "activeProjects": "Active projects",
+      "internalProjects": "Internal agency",
       "otherProjects": "Other projects",
       "nProjects": "{count} projects",
       "nPriorities": "{count} priorities",

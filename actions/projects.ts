@@ -16,6 +16,7 @@ import { ensureSystemFoldersInternal, recordProjectCoverInProjectFolder } from "
 import {
   createProjectSchema,
   updateProjectSchema,
+  INTERNAL_PROJECTS_CLIENT_FILTER,
   type CreateProjectInput,
   type UpdateProjectInput,
 } from "@/lib/project-schemas";
@@ -44,13 +45,16 @@ export async function createProject(input: CreateProjectInput) {
     const wa = await requireWriteAccess();
     if (!wa.ok) return trialExpiredForm();
     const orgId = gate.session.user.organizationId;
-    const [clientRow] = await db
-      .select({ id: clients.id })
-      .from(clients)
-      .where(and(eq(clients.id, data.clientId), eq(clients.organizationId, orgId)))
-      .limit(1);
-    if (!clientRow) {
-      return { ok: false as const, error: { _form: ["Client not found"] } };
+    const isInternal = !!data.isInternal;
+    if (!isInternal) {
+      const [clientRow] = await db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(and(eq(clients.id, data.clientId!), eq(clients.organizationId, orgId)))
+        .limit(1);
+      if (!clientRow) {
+        return { ok: false as const, error: { _form: ["Client not found"] } };
+      }
     }
     if (data.teamMemberIds?.length) {
       const memberRows = await db
@@ -68,7 +72,8 @@ export async function createProject(input: CreateProjectInput) {
       .values({
         organizationId: orgId,
         name: data.name,
-        clientId: data.clientId,
+        clientId: isInternal ? null : data.clientId!,
+        isInternal,
         status: data.status,
         coverImageUrl: data.coverImageUrl || null,
         startDate: data.startDate || null,
@@ -113,6 +118,7 @@ export async function createProject(input: CreateProjectInput) {
     }
     revalidatePath("/dashboard/projects");
     revalidatePath(`/dashboard/projects/${row.id}`);
+    revalidatePath("/dashboard/workspace");
     revalidatePath("/dashboard");
     return { ok: true as const, data: row };
   } catch (e) {
@@ -141,19 +147,27 @@ export async function updateProject(input: UpdateProjectInput) {
   try {
     const wa = await requireWriteAccess();
     if (!wa.ok) return trialExpiredForm();
-    if (data.clientId !== undefined) {
+    const updatePayload: Record<string, unknown> = {};
+    if (data.name !== undefined) updatePayload.name = data.name;
+    if (data.isInternal === true) {
+      updatePayload.isInternal = true;
+      updatePayload.clientId = null;
+    } else if (data.isInternal === false || data.clientId !== undefined) {
+      const nextClientId = data.clientId;
+      if (!nextClientId) {
+        return { ok: false as const, error: { _form: ["Select a client"] } };
+      }
       const [targetClient] = await db
         .select({ id: clients.id })
         .from(clients)
-        .where(and(eq(clients.id, data.clientId), eq(clients.organizationId, orgId)))
+        .where(and(eq(clients.id, nextClientId), eq(clients.organizationId, orgId)))
         .limit(1);
       if (!targetClient) {
         return { ok: false as const, error: { _form: ["Client not found"] } };
       }
+      updatePayload.isInternal = false;
+      updatePayload.clientId = nextClientId;
     }
-    const updatePayload: Record<string, unknown> = {};
-    if (data.name !== undefined) updatePayload.name = data.name;
-    if (data.clientId !== undefined) updatePayload.clientId = data.clientId;
     if (data.status !== undefined) updatePayload.status = data.status;
     if (data.startDate !== undefined) updatePayload.startDate = data.startDate || null;
     if (data.endDate !== undefined) updatePayload.endDate = data.endDate || null;
@@ -314,6 +328,7 @@ export async function getProjects(filters?: {
   status?: string;
   clientId?: string;
   search?: string;
+  internalOnly?: boolean;
 }) {
   try {
     const session = await getRequiredSession();
@@ -321,7 +336,7 @@ export async function getProjects(filters?: {
     const role = sessionUserRole(session);
     const orgId = session.user.organizationId;
 
-    const conditions = [isNull(projects.deletedAt), eq(projects.organizationId, orgId), eq(clients.organizationId, orgId)];
+    const conditions = [isNull(projects.deletedAt), eq(projects.organizationId, orgId)];
     if (role === "member") {
       const memberIds = await getMemberProjectIdsForUser(userId);
       if (memberIds.length === 0) {
@@ -332,8 +347,13 @@ export async function getProjects(filters?: {
     if (filters?.status && filters.status !== "all") {
       conditions.push(eq(projects.status, filters.status as (typeof projects.$inferSelect)["status"]));
     }
-    if (filters?.clientId) {
+    const internalOnly =
+      filters?.internalOnly || filters?.clientId === INTERNAL_PROJECTS_CLIENT_FILTER;
+    if (internalOnly) {
+      conditions.push(eq(projects.isInternal, true));
+    } else if (filters?.clientId) {
       conditions.push(eq(projects.clientId, filters.clientId));
+      conditions.push(eq(projects.isInternal, false));
     }
     if (filters?.search?.trim()) {
       const term = `%${filters.search.trim()}%`;
@@ -346,6 +366,7 @@ export async function getProjects(filters?: {
         id: projects.id,
         name: projects.name,
         clientId: projects.clientId,
+        isInternal: projects.isInternal,
         status: projects.status,
         coverImageUrl: projects.coverImageUrl,
         startDate: projects.startDate,
@@ -358,7 +379,10 @@ export async function getProjects(filters?: {
         clientLogoUrl: clients.logoUrl,
       })
       .from(projects)
-      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(
+        clients,
+        and(eq(projects.clientId, clients.id), eq(clients.organizationId, orgId))
+      )
       .where(and(...conditions))
       .orderBy(asc(projects.endDate), asc(projects.name));
     return { ok: true as const, data: rows };
@@ -479,14 +503,11 @@ export async function getProjectById(id: string) {
         clientLogoUrl: clients.logoUrl,
       })
       .from(projects)
-      .innerJoin(clients, eq(projects.clientId, clients.id))
-      .where(
-        and(
-          eq(projects.id, parsed.data),
-          eq(projects.organizationId, orgId),
-          eq(clients.organizationId, orgId)
-        )
-      );
+      .leftJoin(
+        clients,
+        and(eq(projects.clientId, clients.id), eq(clients.organizationId, orgId))
+      )
+      .where(and(eq(projects.id, parsed.data), eq(projects.organizationId, orgId)));
     if (!row || row.project.deletedAt) {
       return { ok: false as const, error: "Project not found" };
     }

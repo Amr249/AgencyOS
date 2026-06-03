@@ -9,6 +9,7 @@ import { getProjectMemberIdsByProjectIds, getTeamMembers } from "@/actions/team-
 import { getServices } from "@/actions/services";
 import { getServiceIdsByProjectIds } from "@/actions/project-services";
 import { getProjectsHealthMap } from "@/actions/project-health";
+import { INTERNAL_PROJECTS_CLIENT_FILTER } from "@/lib/project-schemas";
 import { getMemberDashboardData } from "@/actions/member-dashboard";
 import { ProjectsListView } from "@/components/modules/projects/projects-list-view";
 import { MemberProjectsPageContent } from "@/components/member-dashboard/member-projects-page-content";
@@ -56,7 +57,11 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const filters = {
     search: search ?? undefined,
     status: status ?? undefined,
-    clientId: clientId && clientId !== "all" ? clientId : undefined,
+    clientId:
+      clientId && clientId !== "all" && clientId !== INTERNAL_PROJECTS_CLIENT_FILTER
+        ? clientId
+        : undefined,
+    internalOnly: clientId === INTERNAL_PROJECTS_CLIENT_FILTER,
   };
 
   const [projectsResult, clientsResult, settingsResult, servicesResult] = await Promise.all([

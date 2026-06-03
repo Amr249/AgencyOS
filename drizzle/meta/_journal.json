@@ -183,6 +183,13 @@
       "when": 1778605000000,
       "tag": "0041_mostaql_run_live_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1778610000000,
+      "tag": "0042_projects_is_internal",
+      "breakpoints": true
     }
   ]
 }

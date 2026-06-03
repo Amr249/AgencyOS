@@ -48,6 +48,7 @@ import {
   entityInitials,
 } from "@/components/entity-select-option";
 import { useLocale, useTranslations } from "next-intl";
+import { Switch } from "@/components/ui/switch";
 
 const PROJECT_STATUS_VALUES = [
   "lead",
@@ -59,17 +60,28 @@ const PROJECT_STATUS_VALUES = [
 ] as const;
 
 function buildProjectFormSchema(messages: { nameRequired: string; clientRequired: string }) {
-  return z.object({
-    name: z.string().min(1, messages.nameRequired),
-    clientId: z.string().uuid(messages.clientRequired),
-    status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
-    startDate: z.string().optional(),
-    endDate: z.string().optional(),
-    budget: z.coerce.number().min(0).optional(),
-    description: z.string().optional(),
-    teamMemberIds: z.array(z.string()).optional(),
-    serviceIds: z.array(z.string()).optional(),
-  });
+  return z
+    .object({
+      name: z.string().min(1, messages.nameRequired),
+      isInternal: z.boolean().default(false),
+      clientId: z.string().uuid().optional().or(z.literal("")),
+      status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      budget: z.coerce.number().min(0).optional(),
+      description: z.string().optional(),
+      teamMemberIds: z.array(z.string()).optional(),
+      serviceIds: z.array(z.string()).optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (!data.isInternal && !data.clientId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: messages.clientRequired,
+          path: ["clientId"],
+        });
+      }
+    });
 }
 
 type FormValues = z.infer<ReturnType<typeof buildProjectFormSchema>>;
@@ -135,6 +147,7 @@ export function NewProjectDialog({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
+      isInternal: false,
       clientId: "",
       status: "lead",
       startDate: "",
@@ -147,11 +160,13 @@ export function NewProjectDialog({
   });
 
   const lockedClient = !!defaultClientId;
+  const isInternal = form.watch("isInternal");
   React.useEffect(() => {
     if (effectiveOpen && !form.formState.isDirty) {
       setCoverImageUrl(null);
       form.reset({
         name: "",
+        isInternal: false,
         clientId: defaultClientId ?? "",
         status: "lead",
         startDate: "",
@@ -201,7 +216,8 @@ export function NewProjectDialog({
     }
     const payload: CreateProjectInput = {
       name: values.name,
-      clientId: values.clientId,
+      isInternal: values.isInternal,
+      clientId: values.isInternal ? undefined : values.clientId || undefined,
       status: values.status,
       coverImageUrl: coverImageUrl ?? undefined,
       startDate: values.startDate || undefined,
@@ -286,11 +302,35 @@ export function NewProjectDialog({
               </FormItem>
             )}
           />
+          {!lockedClient && (
+            <FormField
+              control={form.control}
+              name="isInternal"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel>{td("isInternalLabel")}</FormLabel>
+                    <p className="text-muted-foreground text-sm">{td("isInternalHint")}</p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={(v) => {
+                        field.onChange(v);
+                        if (v) form.setValue("clientId", "");
+                      }}
+                      disabled={writeBlocked}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          )}
           <FormField
             control={form.control}
             name="clientId"
             render={({ field }) => (
-              <FormItem>
+              <FormItem className={isInternal && !lockedClient ? "hidden" : undefined}>
                 <FormLabel>{td("clientLabel")}</FormLabel>
                 {lockedClient ? (
                   <div className="border-input bg-muted text-muted-foreground flex h-9 items-center gap-2 rounded-md border px-3 py-1 text-sm">

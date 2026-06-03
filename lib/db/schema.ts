@@ -326,9 +326,9 @@ export const projects = pgTable(
   {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
-  clientId: uuid("client_id")
-    .notNull()
-    .references(() => clients.id, { onDelete: "cascade" }),
+  /** Null when `isInternal` is true (agency ops, not client work). */
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
+  isInternal: boolean("is_internal").notNull().default(false),
   name: text("name").notNull(),
   description: text("description"),
   status: projectStatusEnum("status").notNull().default("lead"),

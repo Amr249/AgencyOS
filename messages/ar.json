@@ -468,7 +468,9 @@
     "metaDescription": "إدارة المشاريع ومتابعة التقدم.",
     "newProjectDialog": {
       "title": "مشروع جديد",
-      "description": "أضف مشروعاً مرتبطاً بعميل. الحقول المطلوبة مُعلّمة.",
+      "description": "أضف مشروع عميل أو مشروع داخلي للوكالة (بدون عميل). الحقول المطلوبة مُعلّمة.",
+      "isInternalLabel": "مشروع داخلي للوكالة",
+      "isInternalHint": "لأعمال الوكالة فقط (موقع، عمليات، تسويق) — غير مرتبط بعميل.",
       "coverLabel": "صورة غلاف المشروع (اختياري)",
       "uploadCover": "رفع الغلاف",
       "uploading": "جاري الرفع…",
@@ -501,6 +503,7 @@
         "clientRequired": "اختر عميلاً"
       }
     },
+    "internalAgency": "داخلي (الوكالة)",
     "status": {
       "lead": "عميل محتمل",
       "active": "نشط",
@@ -514,6 +517,7 @@
       "filterStatusPlaceholder": "الحالة",
       "filterClientPlaceholder": "العميل",
       "allClients": "جميع العملاء",
+      "filterInternalOnly": "مشاريع الوكالة الداخلية فقط",
       "kpiTotalTitle": "إجمالي المشاريع",
       "kpiTotalHint": "كل المشاريع في مساحة العمل",
       "kpiActiveTitle": "المشاريع النشطة",
@@ -591,6 +595,7 @@
       "filterMembers": "الأعضاء",
       "clearSelection": "مسح التحديد",
       "activeProjects": "المشاريع النشطة",
+      "internalProjects": "داخلية — الوكالة",
       "otherProjects": "مشاريع أخرى",
       "nProjects": "{count} مشاريع",
       "nPriorities": "{count} أولويات",

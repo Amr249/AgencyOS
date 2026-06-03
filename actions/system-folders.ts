@@ -331,11 +331,12 @@ async function runSystemFolderSync(organizationId: string) {
     });
   }
 
-  const activeProjects = await db
+  const clientProjects = await db
     .select({
       id: projects.id,
       name: projects.name,
       clientId: projects.clientId,
+      isInternal: projects.isInternal,
     })
     .from(projects)
     .innerJoin(clients, eq(projects.clientId, clients.id))
@@ -343,10 +344,30 @@ async function runSystemFolderSync(organizationId: string) {
       and(
         isNull(projects.deletedAt),
         eq(projects.organizationId, organizationId),
-        eq(clients.organizationId, organizationId)
+        eq(clients.organizationId, organizationId),
+        eq(projects.isInternal, false)
       )
     )
     .orderBy(asc(clients.companyName), asc(projects.name));
+
+  const internalProjects = await db
+    .select({
+      id: projects.id,
+      name: projects.name,
+      clientId: projects.clientId,
+      isInternal: projects.isInternal,
+    })
+    .from(projects)
+    .where(
+      and(
+        isNull(projects.deletedAt),
+        eq(projects.organizationId, organizationId),
+        eq(projects.isInternal, true)
+      )
+    )
+    .orderBy(asc(projects.name));
+
+  const activeProjects = [...internalProjects, ...clientProjects];
 
   for (const p of activeProjects) {
     const displayName = p.name.trim() || "Untitled";

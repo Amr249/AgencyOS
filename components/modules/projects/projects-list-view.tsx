@@ -49,6 +49,7 @@ import { AvatarStack } from "@/components/ui/avatar-stack";
 import { MoreHorizontal, Pencil, Trash2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useLocale, useTranslations } from "next-intl";
+import { INTERNAL_PROJECTS_CLIENT_FILTER } from "@/lib/project-schemas";
 import { SarCurrencyIcon } from "@/components/ui/sar-currency-icon";
 import { ClientSelectOptionRow } from "@/components/entity-select-option";
 import { PROJECT_STATUS_PILL_CLASS } from "@/types";
@@ -170,7 +171,8 @@ function StatusBadgePopover({
 type ProjectRow = {
   id: string;
   name: string;
-  clientId: string;
+  clientId: string | null;
+  isInternal?: boolean;
   status: string;
   coverImageUrl: string | null;
   startDate: string | null;
@@ -355,7 +357,9 @@ export function ProjectsListView({
               <AvatarImage src={row.original.clientLogoUrl ?? undefined} />
               <AvatarFallback className="text-xs">{(row.original.clientName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
             </Avatar>
-            <span className="text-sm font-medium text-neutral-900">{row.original.clientName ?? "—"}</span>
+            <span className="text-sm font-medium text-neutral-900">
+              {row.original.isInternal ? t("internalAgency") : row.original.clientName ?? "—"}
+            </span>
           </div>
         ),
       },
@@ -664,6 +668,9 @@ export function ProjectsListView({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t("list.allClients")}</SelectItem>
+              <SelectItem value={INTERNAL_PROJECTS_CLIENT_FILTER}>
+                {t("list.filterInternalOnly")}
+              </SelectItem>
               {clients.map((c) => {
                 const label = c.companyName || c.id;
                 const logoFromClient = c.logoUrl?.trim();
@@ -745,7 +752,9 @@ export function ProjectsListView({
                         />
                       ) : null}
                     </p>
-                    <p className="text-muted-foreground text-sm">{p.clientName ?? "—"}</p>
+                    <p className="text-muted-foreground text-sm">
+                      {p.isInternal ? t("internalAgency") : p.clientName ?? "—"}
+                    </p>
                     {(projectServices[p.id]?.length ?? 0) > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {(projectServices[p.id] ?? []).slice(0, 2).map((s) => (

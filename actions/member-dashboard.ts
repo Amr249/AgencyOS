@@ -100,7 +100,7 @@ export async function getMemberDashboardData(): Promise<
           clientLogoUrl: clients.logoUrl,
         })
         .from(projects)
-        .innerJoin(clients, eq(projects.clientId, clients.id))
+        .leftJoin(clients, eq(projects.clientId, clients.id))
         .where(inArray(projects.id, projectIds))
         .orderBy(asc(projects.name));
       const memberRows = await db
