@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getInvoiceById } from "@/actions/invoices";
+import { getInvoiceById, getInvoiceWithPayments } from "@/actions/invoices";
 import { getSettings } from "@/actions/settings";
 import {
   Breadcrumb,
@@ -12,6 +12,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { EditInvoiceForm } from "@/components/modules/invoices/edit-invoice-form";
+import { PaymentHistory } from "@/components/modules/invoices/payment-history";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -26,9 +27,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function EditInvoicePage({ params }: Props) {
   const { id } = await params;
-  const [invoiceResult, settingsResult] = await Promise.all([
+  const [invoiceResult, settingsResult, paymentsResult] = await Promise.all([
     getInvoiceById(id),
     getSettings(),
+    getInvoiceWithPayments(id),
   ]);
 
   if (!invoiceResult.ok) {
@@ -39,9 +41,7 @@ export default async function EditInvoicePage({ params }: Props) {
   }
 
   const invoice = invoiceResult.data;
-  if (invoice.status !== "pending") {
-    notFound();
-  }
+  const withPayments = paymentsResult.ok ? paymentsResult.data : null;
 
   const settings = settingsResult.ok ? settingsResult.data : null;
 
@@ -75,6 +75,19 @@ export default async function EditInvoicePage({ params }: Props) {
       </div>
 
       <EditInvoiceForm invoice={invoice} settings={settings} />
+
+      {withPayments && (
+        <PaymentHistory
+          invoiceId={withPayments.id}
+          payments={withPayments.payments ?? []}
+          totalPaid={withPayments.totalPaid ?? 0}
+          amountDue={withPayments.amountDue ?? parseFloat(withPayments.total)}
+          invoiceTotal={parseFloat(withPayments.total)}
+          paymentProgress={withPayments.paymentProgress ?? 0}
+          currency={withPayments.currency}
+          invoiceStatus={withPayments.status}
+        />
+      )}
     </div>
   );
 }

@@ -628,11 +628,9 @@ export function InvoicesListView({
                     {tl("markAsPaid")}
                   </DropdownMenuItem>
                 )}
-                {inv.status === "pending" && (
-                  <DropdownMenuItem asChild>
-                    <Link href={`/dashboard/invoices/${inv.id}/edit`}>{tl("edit")}</Link>
-                  </DropdownMenuItem>
-                )}
+                <DropdownMenuItem asChild>
+                  <Link href={`/dashboard/invoices/${inv.id}/edit`}>{tl("edit")}</Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onSelect={(e) => {

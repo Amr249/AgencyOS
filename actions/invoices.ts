@@ -22,6 +22,7 @@ import { logActivityWithActor } from "@/actions/activity-log";
 import { ensureSettingsForOrganization } from "@/lib/db/default-organization";
 import { requireAgencyOrganization } from "@/lib/org-session";
 import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
+import { getInvoicePaymentTotals, recalculateInvoiceStatus } from "@/lib/invoice-status";
 
 const invoiceStatusValues = ["pending", "partial", "paid", "not_received"] as const;
 const lineItemSchema = z.object({
@@ -885,9 +886,6 @@ export async function updateInvoice(input: UpdateInvoiceInput) {
       .from(invoices)
       .where(and(eq(invoices.id, id), eq(invoices.organizationId, orgId)));
     if (!existing) return { ok: false as const, error: { _form: ["Invoice not found"] } };
-    if (existing.status !== "pending") {
-      return { ok: false as const, error: { _form: ["Only pending invoices can be edited"] } };
-    }
     if (data.clientId !== undefined) {
       const [c] = await db
         .select({ id: clients.id })
@@ -965,10 +963,13 @@ export async function updateInvoice(input: UpdateInvoiceInput) {
       .where(and(eq(invoices.id, id), eq(invoices.organizationId, orgId)))
       .returning();
     if (!row) return { ok: false as const, error: { _form: ["Update failed"] } };
+    // Total may have changed: re-derive pending / partial / paid from the payment records.
+    const synced = await recalculateInvoiceStatus(id);
     revalidatePath("/dashboard/invoices");
     revalidatePath(`/dashboard/invoices/${id}`);
     revalidatePath(`/dashboard/invoices/${id}/edit`);
-    return { ok: true as const, data: row };
+    revalidatePath("/dashboard/reports");
+    return { ok: true as const, data: synced ?? row };
   } catch (e) {
     console.error("updateInvoice", e);
     if (isDbConnectionError(e)) {
@@ -999,6 +1000,31 @@ export async function updateInvoiceStatus(
     if (!wa.ok) return trialExpiredPlain();
     const ctx = await requireAgencyOrganization();
     const orgId = ctx.organizationId;
+
+    // Payments are the source of truth: block manual statuses that contradict them.
+    const [current] = await db
+      .select({ total: invoices.total })
+      .from(invoices)
+      .where(and(eq(invoices.id, parsed.data.id), eq(invoices.organizationId, orgId)));
+    if (!current) return { ok: false as const, error: "Invoice not found" };
+    const { paid } = await getInvoicePaymentTotals(parsed.data.id);
+    const total = parseFloat(current.total);
+    if (status !== "paid" && paid > 0 && paid >= total) {
+      return {
+        ok: false as const,
+        error: "This invoice is fully paid. Edit or delete its payments to change the status.",
+      };
+    }
+    if (status === "pending" && paid > 0) {
+      return {
+        ok: false as const,
+        error: "This invoice has payments recorded. Delete them to mark it as pending.",
+      };
+    }
+    if (status === "partial" && paid <= 0) {
+      return { ok: false as const, error: "Record a payment to mark this invoice as partially paid." };
+    }
+
     const payload =
       status === "paid"
         ? { status: "paid" as const, paidAt: new Date(), paymentMethod: "other" as const }
@@ -1051,7 +1077,13 @@ export async function markAsPaid(input: z.infer<typeof markAsPaidSchema>) {
     const remaining = invoiceTotalNum - effectivePaid;
 
     if (remaining <= 0) {
-      return { ok: false as const, error: "Invoice is already fully paid" };
+      // Payments already cover the total (status was out of sync): just mark it paid.
+      const synced = await recalculateInvoiceStatus(id);
+      revalidatePath("/dashboard/invoices");
+      revalidatePath(`/dashboard/invoices/${id}`);
+      revalidatePath("/dashboard/reports");
+      if (!synced) return { ok: false as const, error: "Invoice not found" };
+      return { ok: true as const, data: synced };
     }
 
     let paymentDateStr = new Date().toISOString().split("T")[0]!;

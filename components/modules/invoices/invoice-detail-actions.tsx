@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { duplicateInvoice } from "@/actions/invoices";
@@ -54,6 +55,9 @@ export function InvoiceDetailActions({ invoice, onOpenMarkAsPaidDialog }: Invoic
             Mark as Paid
           </Button>
         )}
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/dashboard/invoices/${invoice.id}/edit`}>Edit</Link>
+        </Button>
         <Button variant="outline" size="sm" onClick={handleDuplicate}>
           Duplicate
         </Button>
