@@ -49,7 +49,7 @@ export function InvoiceDetailActions({ invoice, onOpenMarkAsPaidDialog }: Invoic
         <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
           Download PDF
         </Button>
-        {(invoice.status === "pending" || invoice.status === "partial") && (
+        {(invoice.status === "pending" || invoice.status === "partial" || invoice.status === "not_received") && (
           <Button variant="outline" size="sm" onClick={openPayDialog}>
             Mark as Paid
           </Button>
@@ -64,7 +64,7 @@ export function InvoiceDetailActions({ invoice, onOpenMarkAsPaidDialog }: Invoic
           invoiceId={invoice.id}
           invoiceNumber={invoice.invoiceNumber}
           remainingAmountSar={
-            invoice.status === "pending" || invoice.status === "partial" ? invoice.amountDue : undefined
+            invoice.status === "pending" || invoice.status === "partial" || invoice.status === "not_received" ? invoice.amountDue : undefined
           }
           open={paidOpen}
           onOpenChange={setPaidOpen}

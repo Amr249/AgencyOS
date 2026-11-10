@@ -22,11 +22,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { toast } from "sonner";
-import { createPayment } from "@/actions/payments";
+import { createPayment, updatePayment, type Payment } from "@/actions/payments";
 import { Loader2 } from "lucide-react";
 import { PAYMENT_METHOD_LABELS } from "@/types";
 import { enUS } from "date-fns/locale";
-import { formatCalendarDate } from "@/lib/calendar-date";
+import { formatCalendarDate, parseCalendarDate } from "@/lib/calendar-date";
+
+type PaymentMethodValue = "bank_transfer" | "cash" | "credit_card" | "cheque" | "other";
 
 interface AddPaymentModalProps {
   open: boolean;
@@ -34,6 +36,8 @@ interface AddPaymentModalProps {
   invoiceId: string;
   amountDue: number;
   currency?: string;
+  /** When set, the modal edits this payment instead of recording a new one. */
+  payment?: Payment | null;
 }
 
 export function AddPaymentModal({
@@ -42,8 +46,12 @@ export function AddPaymentModal({
   invoiceId,
   amountDue,
   currency = "SAR",
+  payment = null,
 }: AddPaymentModalProps) {
   const router = useRouter();
+  const isEdit = !!payment;
+  /** In edit mode the payment's own amount is available again on top of the remaining balance. */
+  const maxAmount = isEdit ? amountDue + parseFloat(payment.amount) : amountDue;
   const [loading, setLoading] = useState(false);
   const [amount, setAmount] = useState(amountDue.toString());
   const [paymentDate, setPaymentDate] = useState<Date | undefined>(() => new Date());
@@ -52,14 +60,21 @@ export function AddPaymentModal({
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    if (payment) {
+      setAmount(String(parseFloat(payment.amount)));
+      setPaymentDate(parseCalendarDate(payment.paymentDate));
+      setPaymentMethod(payment.paymentMethod ?? undefined);
+      setReference(payment.reference ?? "");
+      setNotes(payment.notes ?? "");
+    } else {
       setAmount(amountDue.toString());
       setPaymentDate(new Date());
       setPaymentMethod(undefined);
       setReference("");
       setNotes("");
     }
-  }, [open, amountDue]);
+  }, [open, amountDue, payment]);
 
   const handleSubmit = async () => {
     const n = parseFloat(amount);
@@ -68,7 +83,7 @@ export function AddPaymentModal({
       return;
     }
 
-    if (n > amountDue + 0.0001) {
+    if (n > maxAmount + 0.0001) {
       toast.error("Amount exceeds remaining balance");
       return;
     }
@@ -80,26 +95,28 @@ export function AddPaymentModal({
 
     setLoading(true);
     try {
-      const result = await createPayment({
-        invoiceId,
-        amount: n,
-        paymentDate: formatCalendarDate(paymentDate),
-        ...(paymentMethod
-          ? {
-              paymentMethod: paymentMethod as
-                | "bank_transfer"
-                | "cash"
-                | "credit_card"
-                | "cheque"
-                | "other",
-            }
-          : {}),
-        reference: reference || undefined,
-        notes: notes || undefined,
-      });
+      const method = paymentMethod ? { paymentMethod: paymentMethod as PaymentMethodValue } : {};
+      const result = payment
+        ? await updatePayment({
+            id: payment.id,
+            amount: n,
+            paymentDate: formatCalendarDate(paymentDate),
+            ...method,
+            // Send empty strings so clearing a field actually clears it.
+            reference,
+            notes,
+          })
+        : await createPayment({
+            invoiceId,
+            amount: n,
+            paymentDate: formatCalendarDate(paymentDate),
+            ...method,
+            reference: reference || undefined,
+            notes: notes || undefined,
+          });
 
       if (result.ok) {
-        toast.success("Payment recorded successfully");
+        toast.success(isEdit ? "Payment updated" : "Payment recorded successfully");
         onOpenChange(false);
         router.refresh();
       } else {
@@ -120,7 +137,7 @@ export function AddPaymentModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]" dir="ltr">
         <DialogHeader className="text-left">
-          <DialogTitle>Record Payment</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit Payment" : "Record Payment"}</DialogTitle>
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
@@ -131,14 +148,14 @@ export function AddPaymentModal({
               type="number"
               step="0.01"
               min="0.01"
-              max={amountDue}
+              max={maxAmount}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={`Remaining: ${amountDue.toLocaleString("en-US")} ${currency}`}
+              placeholder={`Remaining: ${maxAmount.toLocaleString("en-US")} ${currency}`}
               className="text-left"
             />
             <p className="text-muted-foreground text-left text-xs">
-              Remaining: {amountDue.toLocaleString("en-US")} {currency}
+              {isEdit ? "Maximum" : "Remaining"}: {maxAmount.toLocaleString("en-US")} {currency}
             </p>
           </div>
 
@@ -199,7 +216,7 @@ export function AddPaymentModal({
           </Button>
           <Button type="button" onClick={handleSubmit} disabled={loading}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Record Payment
+            {isEdit ? "Save Changes" : "Record Payment"}
           </Button>
         </DialogFooter>
       </DialogContent>

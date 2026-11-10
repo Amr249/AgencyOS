@@ -671,7 +671,8 @@
     "status": {
       "pending": "Pending",
       "partial": "Partially paid",
-      "paid": "Paid"
+      "paid": "Paid",
+      "not_received": "Not received"
     },
     "badge": {
       "statusUpdated": "Invoice status updated",
@@ -750,7 +751,8 @@
       "exportColPaidAmount": "Paid amount",
       "exportColOutstandingAmount": "Outstanding amount",
       "exportColPaidAt": "Paid at",
-      "exportColPaymentMethod": "Payment method"
+      "exportColPaymentMethod": "Payment method",
+      "filterStatusNotReceived": "Not received"
     },
     "newInvoiceDialog": {
       "title": "New invoice",

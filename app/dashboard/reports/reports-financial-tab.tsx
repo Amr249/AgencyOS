@@ -202,7 +202,7 @@ function FinancialContent({
                         variant="outline"
                         className={INVOICE_STATUS_BADGE_CLASS[inv.status] ?? "shrink-0"}
                       >
-                        {inv.status === "pending" || inv.status === "partial" || inv.status === "paid"
+                        {inv.status === "pending" || inv.status === "partial" || inv.status === "not_received" || inv.status === "paid"
                           ? tStatus(inv.status)
                           : inv.status}
                       </Badge>

@@ -15,7 +15,7 @@ type InvoiceItem = {
   amount: string;
 };
 
-export type InvoicePdfStatus = "pending" | "partial" | "paid";
+export type InvoicePdfStatus = "pending" | "partial" | "paid" | "not_received";
 
 type InvoiceData = {
   invoiceNumber: string;
@@ -96,6 +96,8 @@ function statusLabel(status: InvoicePdfStatus): string {
       return "Paid";
     case "partial":
       return "Partially Paid";
+    case "not_received":
+      return "Not Received";
     default:
       return "Pending";
   }
@@ -107,6 +109,8 @@ function statusColors(status: InvoicePdfStatus): { bg: string; fg: string } {
       return { bg: "#D1FAE5", fg: "#065F46" };
     case "partial":
       return { bg: "#DBEAFE", fg: "#1E40AF" };
+    case "not_received":
+      return { bg: "#FEE2E2", fg: "#991B1B" };
     default:
       return { bg: "#FEF3C7", fg: "#92400E" };
   }

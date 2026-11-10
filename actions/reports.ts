@@ -94,8 +94,8 @@ export type OverdueTaskRow = {
 export type ActiveProjectRow = {
   id: string;
   name: string;
-  clientId: string;
-  clientName: string;
+  clientId: string | null;
+  clientName: string | null;
   clientLogoUrl: string | null;
   status: string;
   endDate: string | null;
@@ -309,12 +309,11 @@ export async function getActiveProjectsWithProgress(): Promise<ActiveProjectRow[
       clientLogoUrl: clients.logoUrl,
     })
     .from(projects)
-    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .leftJoin(clients, eq(projects.clientId, clients.id))
     .where(
       and(
         isNull(projects.deletedAt),
         eq(projects.organizationId, orgId),
-        eq(clients.organizationId, orgId),
         ne(projects.status, "completed"),
         ne(projects.status, "cancelled")
       )
@@ -357,7 +356,7 @@ export async function getActiveProjectsWithProgress(): Promise<ActiveProjectRow[
       id: p.id,
       name: p.name,
       clientId: p.clientId,
-      clientName: p.clientName ?? "—",
+      clientName: p.clientName,
       clientLogoUrl: p.clientLogoUrl ?? null,
       status: p.status,
       endDate: p.endDate,
@@ -692,7 +691,12 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
   }
 
   const invoiceTotals = await db
-    .select({ id: invoices.id, total: invoices.total, issueDate: invoices.issueDate })
+    .select({
+      id: invoices.id,
+      total: invoices.total,
+      issueDate: invoices.issueDate,
+      status: invoices.status,
+    })
     .from(invoices)
     .where(eq(invoices.organizationId, orgId));
 
@@ -715,7 +719,8 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
     const totalNum = Number(inv.total);
     const paid = paidMap.get(inv.id) ?? 0;
     const due = totalNum - paid;
-    if (due > 0.0001) {
+    // not_received = written off: still invoiced, but no longer expected income.
+    if (due > 0.0001 && inv.status !== "not_received") {
       outstandingTotal += due;
     }
     const issueDate = inv.issueDate ? parseISO(String(inv.issueDate)) : null;
@@ -947,7 +952,8 @@ async function aggregateProfitLossForRange(
       and(
         eq(invoices.organizationId, orgId),
         gte(invoices.issueDate, startStr),
-        lte(invoices.issueDate, endStr)
+        lte(invoices.issueDate, endStr),
+        ne(invoices.status, "not_received")
       )
     );
 
@@ -1510,7 +1516,13 @@ export async function getOutstandingInvoices(): Promise<OutstandingInvoiceRow[]>
       projects,
       and(eq(invoices.projectId, projects.id), eq(projects.organizationId, orgId))
     )
-    .where(and(eq(invoices.organizationId, orgId), eq(clients.organizationId, orgId)))
+    .where(
+      and(
+        eq(invoices.organizationId, orgId),
+        eq(clients.organizationId, orgId),
+        ne(invoices.status, "not_received")
+      )
+    )
     .orderBy(desc(invoices.issueDate));
 
   const today = new Date();
@@ -1741,6 +1753,7 @@ export async function getClientProfitability(
 
     const projectCountMap = new Map<string, number>();
     for (const r of projectCountRows) {
+      if (r.clientId == null) continue;
       projectCountMap.set(r.clientId, r.count);
     }
 
@@ -1926,7 +1939,7 @@ export async function getCashFlowForecast(): Promise<
         dueDate: invoices.dueDate,
       })
       .from(invoices)
-      .where(eq(invoices.organizationId, orgId));
+      .where(and(eq(invoices.organizationId, orgId), ne(invoices.status, "not_received")));
 
     const incomeByMonth = [0, 0, 0] as [number, number, number];
 
@@ -2442,7 +2455,13 @@ export async function getAgingReport(): Promise<
       })
       .from(invoices)
       .innerJoin(clients, eq(invoices.clientId, clients.id))
-      .where(and(eq(invoices.organizationId, orgId), eq(clients.organizationId, orgId)));
+      .where(
+        and(
+          eq(invoices.organizationId, orgId),
+          eq(clients.organizationId, orgId),
+          ne(invoices.status, "not_received")
+        )
+      );
 
     const buckets = emptyAgingBuckets();
     const list: AgingReportInvoiceRow[] = [];

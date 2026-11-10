@@ -27,7 +27,7 @@ export function InvoiceDetailHeader({ invoice }: InvoiceDetailHeaderProps) {
       <InvoiceDetailActions
         invoice={invoice}
         onOpenMarkAsPaidDialog={
-          invoice.status === "pending" || invoice.status === "partial"
+          invoice.status === "pending" || invoice.status === "partial" || invoice.status === "not_received"
             ? () => setPayDialogOpen(true)
             : undefined
         }
@@ -38,7 +38,7 @@ export function InvoiceDetailHeader({ invoice }: InvoiceDetailHeaderProps) {
           status={invoice.status}
           invoiceNumber={invoice.invoiceNumber}
           onRequestMarkAsPaid={
-            invoice.status === "pending" || invoice.status === "partial"
+            invoice.status === "pending" || invoice.status === "partial" || invoice.status === "not_received"
               ? () => setPayDialogOpen(true)
               : undefined
           }
@@ -48,7 +48,7 @@ export function InvoiceDetailHeader({ invoice }: InvoiceDetailHeaderProps) {
         invoiceId={invoice.id}
         invoiceNumber={invoice.invoiceNumber}
         remainingAmountSar={
-          invoice.status === "pending" || invoice.status === "partial" ? invoice.amountDue : undefined
+          invoice.status === "pending" || invoice.status === "partial" || invoice.status === "not_received" ? invoice.amountDue : undefined
         }
         open={payDialogOpen}
         onOpenChange={setPayDialogOpen}

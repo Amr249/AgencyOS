@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { payments, invoices } from "@/lib/db/schema";
-import { eq, sum, desc } from "drizzle-orm";
+import { eq, sum, desc, max } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDbErrorKey, isDbConnectionError } from "@/lib/db-errors";
@@ -40,15 +40,19 @@ async function recalculateInvoiceStatus(invoiceId: string) {
   if (!invoice) return;
 
   const result = await db
-    .select({ total: sum(payments.amount) })
+    .select({ total: sum(payments.amount), lastPaymentDate: max(payments.paymentDate) })
     .from(payments)
     .where(eq(payments.invoiceId, invoiceId));
 
   const totalPaid = parseFloat(String(result[0]?.total ?? "0"));
+  const lastPaymentDate = result[0]?.lastPaymentDate ?? null;
   const invoiceTotal = parseFloat(invoice.total);
 
-  let newStatus: "pending" | "partial" | "paid";
-  if (totalPaid <= 0) {
+  let newStatus: "pending" | "partial" | "paid" | "not_received";
+  if (invoice.status === "not_received" && totalPaid < invoiceTotal) {
+    // Manually marked as never received: keep it unless the client ends up paying in full.
+    newStatus = "not_received";
+  } else if (totalPaid <= 0) {
     newStatus = "pending";
   } else if (totalPaid >= invoiceTotal) {
     newStatus = "paid";
@@ -60,7 +64,14 @@ async function recalculateInvoiceStatus(invoiceId: string) {
     .update(invoices)
     .set({
       status: newStatus,
-      paidAt: newStatus === "paid" ? new Date() : null,
+      // Paid date = date of the payment that completed the invoice (noon UTC avoids day shifts),
+      // so correcting a payment's date also corrects the invoice's paid date.
+      paidAt:
+        newStatus === "paid"
+          ? lastPaymentDate
+            ? new Date(`${lastPaymentDate}T12:00:00Z`)
+            : new Date()
+          : null,
     })
     .where(eq(invoices.id, invoiceId));
 }

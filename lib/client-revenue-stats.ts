@@ -4,6 +4,8 @@ export type ClientRevenueRollup = {
   totalInvoiced: number;
   totalPaid: number;
   totalOutstanding: number;
+  /** Unpaid remainder on invoices marked `not_received` (excluded from outstanding). */
+  writtenOff: number;
   firstInvoiceDate: string | null;
   lastInvoiceDate: string | null;
   invoiceCount: number;
@@ -37,6 +39,7 @@ export function rollupRevenueByClient(
         totalInvoiced: 0,
         totalPaid: 0,
         totalOutstanding: 0,
+        writtenOff: 0,
         firstInvoiceDate: null,
         lastInvoiceDate: null,
         invoiceCount: 0,
@@ -46,12 +49,15 @@ export function rollupRevenueByClient(
     row.totalInvoiced += totalNum;
     row.totalPaid += collected;
     row.invoiceCount += 1;
+    // not_received = written off: unpaid remainder is not counted as outstanding.
+    if (inv.status === "not_received") row.writtenOff += Math.max(0, totalNum - collected);
     if (!row.firstInvoiceDate || issueStr < row.firstInvoiceDate) row.firstInvoiceDate = issueStr;
     if (!row.lastInvoiceDate || issueStr > row.lastInvoiceDate) row.lastInvoiceDate = issueStr;
   }
 
   for (const row of map.values()) {
-    row.totalOutstanding = Math.round((row.totalInvoiced - row.totalPaid) * 100) / 100;
+    row.totalOutstanding =
+      Math.round((row.totalInvoiced - row.totalPaid - row.writtenOff) * 100) / 100;
   }
 
   return map;

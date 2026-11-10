@@ -50,7 +50,8 @@ export const taskStatusEnum = pgEnum("task_status", [
 ]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "urgent"]);
 export const workspaceViewEnum = pgEnum("workspace_view", ["board", "list", "timeline"]);
-export const invoiceStatusEnum = pgEnum("invoice_status", ["pending", "partial", "paid"]);
+/** `not_received`: client never paid (written off) — excluded from outstanding & overdue. */
+export const invoiceStatusEnum = pgEnum("invoice_status", ["pending", "partial", "paid", "not_received"]);
 export const expenseCategoryEnum = pgEnum("expense_category", [
   "software",
   "hosting",

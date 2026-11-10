@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getRequiredSession } from "@/lib/session";
 import { runLegacyPaidInvoicePaymentMigration } from "@/lib/migrate-legacy-payments";
-import { eq, and, gte, lte, or, ilike, desc, inArray, ne, asc, sql, sum } from "drizzle-orm";
+import { eq, and, gte, lte, or, ilike, desc, inArray, notInArray, ne, asc, sql, sum } from "drizzle-orm";
 import {
   db,
   invoices,
@@ -23,7 +23,7 @@ import { ensureSettingsForOrganization } from "@/lib/db/default-organization";
 import { requireAgencyOrganization } from "@/lib/org-session";
 import { requireWriteAccess, trialExpiredForm, trialExpiredPlain } from "@/lib/trial";
 
-const invoiceStatusValues = ["pending", "partial", "paid"] as const;
+const invoiceStatusValues = ["pending", "partial", "paid", "not_received"] as const;
 const lineItemSchema = z.object({
   description: z.string().min(1, "Description required"),
   quantity: z.coerce.number().min(0.01),
@@ -537,7 +537,7 @@ export async function getInvoiceStats() {
       const total = Number(inv.total);
       totalInvoiced += total;
       if (inv.status === "paid") collected += total;
-      else outstanding += total; // pending
+      else if (inv.status !== "not_received") outstanding += total; // pending / partial (not_received = written off)
     }
     return {
       ok: true as const,
@@ -706,7 +706,7 @@ export async function getOverdueInvoices() {
     const overdueInvoices = await db.query.invoices.findMany({
       where: and(
         eq(invoices.organizationId, orgId),
-        ne(invoices.status, "paid"),
+        notInArray(invoices.status, ["paid", "not_received"]),
         sql`coalesce(${invoices.dueDate}, ${invoices.issueDate}) < ${today}`
       ),
       with: {

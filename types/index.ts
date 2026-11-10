@@ -175,6 +175,7 @@ export const INVOICE_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   partial: "Partially Paid",
   paid: "Paid",
+  not_received: "Not Received",
 };
 
 /** Arabic invoice status labels (RTL dashboards, invoices lists). */
@@ -182,12 +183,14 @@ export const INVOICE_STATUS_LABELS_AR: Record<string, string> = {
   pending: "قيد الانتظار",
   partial: "مدفوعة جزئياً",
   paid: "مدفوعة",
+  not_received: "لم يتم الاستلام",
 };
 
 export const INVOICE_STATUS_BADGE_CLASS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800 border-amber-200",
   partial: "bg-blue-100 text-blue-800 border-blue-200",
   paid: "bg-green-100 text-green-800 border-green-200",
+  not_received: "bg-red-100 text-red-800 border-red-200",
 };
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {

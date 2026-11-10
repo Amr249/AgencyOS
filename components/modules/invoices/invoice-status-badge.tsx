@@ -19,7 +19,10 @@ const INVOICE_STATUS_OPTIONS = [
   { value: "pending" as const, dotClass: "bg-amber-500" },
   { value: "partial" as const, dotClass: "bg-blue-500" },
   { value: "paid" as const, dotClass: "bg-green-500" },
+  { value: "not_received" as const, dotClass: "bg-red-500" },
 ] as const;
+
+type InvoiceStatusValue = (typeof INVOICE_STATUS_OPTIONS)[number]["value"];
 
 type InvoiceStatusBadgeProps = {
   invoiceId: string;
@@ -62,11 +65,11 @@ export function InvoiceStatusBadge({
   const displayStatus = optimisticStatus;
 
   const labelFor = (s: string) => {
-    if (s === "pending" || s === "partial" || s === "paid") return tStatus(s);
+    if (INVOICE_STATUS_OPTIONS.some((o) => o.value === s)) return tStatus(s as InvoiceStatusValue);
     return s;
   };
 
-  const handleSelect = async (newStatus: "pending" | "partial" | "paid") => {
+  const handleSelect = async (newStatus: InvoiceStatusValue) => {
     if (newStatus === displayStatus) {
       setOpen(false);
       return;

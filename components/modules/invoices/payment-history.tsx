@@ -31,7 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Trash2 } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { deletePayment, type Payment } from "@/actions/payments";
 import { AddPaymentModal } from "./add-payment-modal";
@@ -61,6 +61,7 @@ export function PaymentHistory({
 }: PaymentHistoryProps) {
   const router = useRouter();
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -174,6 +175,10 @@ export function PaymentHistory({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setEditingPayment(payment)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => setDeleteId(payment.id)}
@@ -201,6 +206,17 @@ export function PaymentHistory({
         invoiceId={invoiceId}
         amountDue={amountDue}
         currency={currency}
+      />
+
+      <AddPaymentModal
+        open={!!editingPayment}
+        onOpenChange={(open) => {
+          if (!open) setEditingPayment(null);
+        }}
+        invoiceId={invoiceId}
+        amountDue={amountDue}
+        currency={currency}
+        payment={editingPayment}
       />
 
       <AlertDialog

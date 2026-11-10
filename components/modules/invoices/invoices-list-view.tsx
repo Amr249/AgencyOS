@@ -88,7 +88,7 @@ type InvoicesListViewProps = {
 };
 
 function isDueDateOverdue(dueDate: string | null | undefined, status: string): boolean {
-  if (status === "paid" || !dueDate) return false;
+  if (status === "paid" || status === "not_received" || !dueDate) return false;
   const today = new Date();
   const y = today.getFullYear();
   const m = String(today.getMonth() + 1).padStart(2, "0");
@@ -192,6 +192,7 @@ export function InvoicesListView({
       { value: "pending", label: tl("filterStatusPending") },
       { value: "partial", label: tl("filterStatusPartial") },
       { value: "paid", label: tl("filterStatusPaid") },
+      { value: "not_received", label: tl("filterStatusNotReceived") },
     ],
     [tl]
   );
@@ -614,7 +615,7 @@ export function InvoicesListView({
                 <DropdownMenuItem asChild>
                   <Link href={`/dashboard/invoices/${inv.id}`}>{tl("view")}</Link>
                 </DropdownMenuItem>
-                {(inv.status === "pending" || inv.status === "partial") && (
+                {(inv.status === "pending" || inv.status === "partial" || inv.status === "not_received") && (
                   <DropdownMenuItem
                     onSelect={() =>
                       setPayDialogInvoice({
@@ -907,7 +908,7 @@ export function InvoicesListView({
                   <Button variant="outline" size="sm" asChild className="flex-1">
                     <Link href={`/dashboard/invoices/${inv.id}`}>{tl("view")}</Link>
                   </Button>
-                  {(inv.status === "pending" || inv.status === "partial") && (
+                  {(inv.status === "pending" || inv.status === "partial" || inv.status === "not_received") && (
                     <Button
                       variant="outline"
                       size="sm"

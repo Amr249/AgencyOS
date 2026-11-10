@@ -671,7 +671,8 @@
     "status": {
       "pending": "قيد الانتظار",
       "partial": "مدفوعة جزئياً",
-      "paid": "مدفوعة"
+      "paid": "مدفوعة",
+      "not_received": "لم يتم الاستلام"
     },
     "badge": {
       "statusUpdated": "تم تحديث حالة الفاتورة",
@@ -750,7 +751,8 @@
       "exportColPaidAmount": "المبلغ المدفوع",
       "exportColOutstandingAmount": "المبلغ المستحق",
       "exportColPaidAt": "تاريخ الدفع",
-      "exportColPaymentMethod": "طريقة الدفع"
+      "exportColPaymentMethod": "طريقة الدفع",
+      "filterStatusNotReceived": "لم يتم الاستلام"
     },
     "newInvoiceDialog": {
       "title": "فاتورة جديدة",
