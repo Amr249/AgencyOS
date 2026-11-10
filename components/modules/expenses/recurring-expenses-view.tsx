@@ -72,7 +72,7 @@ export type DueRecurringRow = {
 interface RecurringExpensesViewProps {
   recurringExpenses: RecurringExpenseRow[];
   dueExpenses: DueRecurringRow[];
-  projects: { id: string; name: string; clientId: string }[];
+  projects: { id: string; name: string; clientId: string | null }[];
   clients: { id: string; companyName: string | null }[];
   teamMembers: { id: string; name: string }[];
 }

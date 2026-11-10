@@ -50,7 +50,7 @@ interface NewRecurringExpenseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   expense?: RecurringExpenseFormShape | null;
-  projects: { id: string; name: string; clientId: string }[];
+  projects: { id: string; name: string; clientId: string | null }[];
   clients: { id: string; companyName: string | null }[];
   teamMembers: { id: string; name: string }[];
   onSuccess?: () => void;

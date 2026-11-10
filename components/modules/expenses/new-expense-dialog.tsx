@@ -74,7 +74,7 @@ type TeamMemberOption = { id: string; name: string; role: string | null; avatarU
 export type ExpenseDialogProject = {
   id: string;
   name: string;
-  clientId: string;
+  clientId: string | null;
   coverImageUrl?: string | null;
   clientLogoUrl?: string | null;
 };

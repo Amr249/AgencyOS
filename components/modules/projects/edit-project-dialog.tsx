@@ -38,6 +38,7 @@ import { DatePickerAr } from "@/components/ui/date-picker-ar";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 import { ClientSelectOptionRow } from "@/components/entity-select-option";
+import { Switch } from "@/components/ui/switch";
 
 const projectStatusOptions = [
   { value: "lead", label: "Lead" },
@@ -48,16 +49,27 @@ const projectStatusOptions = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
-const formSchema = z.object({
-  name: z.string().min(1, "Project name is required"),
-  clientId: z.string().uuid("Select a client"),
-  status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  budget: z.coerce.number().min(0).optional(),
-  description: z.string().optional(),
-  serviceIds: z.array(z.string()).optional(),
-});
+const formSchema = z
+  .object({
+    name: z.string().min(1, "Project name is required"),
+    isInternal: z.boolean().default(false),
+    clientId: z.string().uuid().optional().or(z.literal("")),
+    status: z.enum(["lead", "active", "on_hold", "review", "completed", "cancelled"]),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    budget: z.coerce.number().min(0).optional(),
+    description: z.string().optional(),
+    serviceIds: z.array(z.string()).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.isInternal && !data.clientId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select a client",
+        path: ["clientId"],
+      });
+    }
+  });
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -67,7 +79,8 @@ type ServiceOption = { id: string; name: string; status: string };
 type ProjectData = {
   id: string;
   name: string;
-  clientId: string;
+  clientId: string | null;
+  isInternal?: boolean;
   status: string;
   coverImageUrl: string | null;
   startDate: string | null;
@@ -105,7 +118,8 @@ export function EditProjectDialog({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: project.name,
-      clientId: project.clientId,
+      isInternal: project.isInternal ?? !project.clientId,
+      clientId: project.clientId ?? "",
       status: project.status as FormValues["status"],
       startDate: project.startDate ?? "",
       endDate: project.endDate ?? "",
@@ -115,12 +129,15 @@ export function EditProjectDialog({
     },
   });
 
+  const isInternal = form.watch("isInternal");
+
   React.useEffect(() => {
     if (open) {
       setCoverImageUrl(project.coverImageUrl ?? null);
       form.reset({
         name: project.name,
-        clientId: project.clientId,
+        isInternal: project.isInternal ?? !project.clientId,
+        clientId: project.clientId ?? "",
         status: project.status as FormValues["status"],
         startDate: project.startDate ?? "",
         endDate: project.endDate ?? "",
@@ -130,6 +147,12 @@ export function EditProjectDialog({
       });
     }
   }, [open, project, form, initialServiceIds]);
+
+  React.useEffect(() => {
+    if (isInternal) {
+      form.setValue("clientId", "");
+    }
+  }, [isInternal, form]);
 
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -159,7 +182,8 @@ export function EditProjectDialog({
     const result = await updateProject({
       id: project.id,
       name: values.name,
-      clientId: values.clientId,
+      isInternal: values.isInternal,
+      clientId: values.isInternal ? undefined : values.clientId || undefined,
       status: values.status as UpdateProjectInput["status"],
       coverImageUrl: coverImageUrl ?? undefined,
       startDate: values.startDate || undefined,
@@ -233,6 +257,24 @@ export function EditProjectDialog({
             />
             <FormField
               control={form.control}
+              name="isInternal"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel>Internal agency project</FormLabel>
+                    <p className="text-sm text-muted-foreground">
+                      Not linked to a client (e.g. agency website redesign).
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+            {!isInternal && (
+            <FormField
+              control={form.control}
               name="clientId"
               render={({ field }) => (
                 <FormItem>
@@ -258,6 +300,7 @@ export function EditProjectDialog({
                 </FormItem>
               )}
             />
+            )}
             <FormField
               control={form.control}
               name="status"

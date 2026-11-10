@@ -35,7 +35,8 @@ type PhaseRow = typeof phases.$inferSelect;
 type ProjectData = {
   id: string;
   name: string;
-  clientId: string;
+  clientId: string | null;
+  isInternal?: boolean;
   status: string;
   coverImageUrl: string | null;
   startDate: string | null;

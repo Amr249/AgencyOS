@@ -35,7 +35,7 @@ type ProjectExpensesTabProps = {
   projectId: string;
   projectName: string;
   projectCoverImageUrl?: string | null;
-  clientId: string;
+  clientId: string | null;
   clientCompanyName: string;
   clientLogoUrl?: string | null;
   expenses: ExpenseRow[];
@@ -74,7 +74,10 @@ export function ProjectExpensesTab({
     [projectId, projectName, clientId, projectCoverImageUrl, clientLogoUrl]
   );
   const dialogClients = React.useMemo(
-    () => [{ id: clientId, companyName: clientCompanyName || "Client", logoUrl: clientLogoUrl ?? null }],
+    () =>
+      clientId
+        ? [{ id: clientId, companyName: clientCompanyName || "Client", logoUrl: clientLogoUrl ?? null }]
+        : [],
     [clientId, clientCompanyName, clientLogoUrl]
   );
 
@@ -208,7 +211,7 @@ export function ProjectExpensesTab({
         projects={dialogProjects}
         clients={dialogClients}
         defaultProjectId={projectId}
-        defaultClientId={clientId}
+        defaultClientId={clientId ?? undefined}
         onSuccess={handleSuccess}
       />
     </div>

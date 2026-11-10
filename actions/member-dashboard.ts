@@ -33,7 +33,8 @@ export type MemberProjectRow = {
   id: string;
   name: string;
   status: string;
-  clientName: string;
+  clientName: string | null;
+  isInternal?: boolean;
   coverImageUrl: string | null;
   clientLogoUrl: string | null;
   members: MemberProjectMember[];
@@ -95,6 +96,7 @@ export async function getMemberDashboardData(): Promise<
           id: projects.id,
           name: projects.name,
           status: projects.status,
+          isInternal: projects.isInternal,
           clientName: clients.companyName,
           coverImageUrl: projects.coverImageUrl,
           clientLogoUrl: clients.logoUrl,
@@ -125,6 +127,7 @@ export async function getMemberDashboardData(): Promise<
         id: r.id,
         name: r.name,
         status: r.status,
+        isInternal: r.isInternal,
         clientName: r.clientName,
         coverImageUrl: r.coverImageUrl,
         clientLogoUrl: r.clientLogoUrl,

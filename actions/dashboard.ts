@@ -248,7 +248,11 @@ export async function getDashboardData(): Promise<DashboardData> {
     .orderBy(projects.endDate)
     .limit(5);
 
-  const clientIds = [...new Set(upcomingProjectsRows.map((p) => p.clientId))];
+  const clientIds = [
+    ...new Set(
+      upcomingProjectsRows.map((p) => p.clientId).filter((id): id is string => !!id)
+    ),
+  ];
   const clientNames =
     clientIds.length > 0
       ? await db
@@ -419,7 +423,11 @@ export async function getDashboardData(): Promise<DashboardData> {
   if (budgetProjectRows.length > 0) {
     const healthRes = await getProjectsHealthMap(budgetProjectRows.map((p) => p.id));
     if (healthRes.ok) {
-      const warnClientIds = [...new Set(budgetProjectRows.map((p) => p.clientId))];
+      const warnClientIds = [
+        ...new Set(
+          budgetProjectRows.map((p) => p.clientId).filter((id): id is string => !!id)
+        ),
+      ];
       const warnClients =
         warnClientIds.length > 0
           ? await db
@@ -437,7 +445,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         budgetWarnings.push({
           id: p.id,
           name: p.name,
-          clientName: warnClientMap.get(p.clientId) ?? null,
+          clientName: p.clientId ? warnClientMap.get(p.clientId) ?? null : null,
           percentUsed: h.budgetUsedPercent,
           remaining,
           spent: h.totalBurn,

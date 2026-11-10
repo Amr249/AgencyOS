@@ -68,7 +68,7 @@ export const updateProjectSchema = z
     );
   });
 
-export type CreateProjectInput = z.infer<typeof createProjectSchema>;
+export type CreateProjectInput = z.input<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
 /** URL / filter value for projects list: show only agency-internal projects. */

@@ -677,6 +677,7 @@ async function mergePipelinePotentialValue<T extends { id: string }>(
     .where(
       and(
         isNull(projects.deletedAt),
+        eq(projects.isInternal, false),
         inArray(projects.clientId, clientIds),
         eq(projects.organizationId, organizationId)
       )
@@ -684,14 +685,16 @@ async function mergePipelinePotentialValue<T extends { id: string }>(
     .groupBy(projects.clientId);
   const map = new Map<string, string | null>();
   for (const r of sumRows) {
+    const clientId = r.clientId;
+    if (!clientId) continue;
     const raw = r.total;
     if (raw == null) {
-      map.set(r.clientId, null);
+      map.set(clientId, null);
       continue;
     }
     const s = String(raw);
     const n = Number(s);
-    map.set(r.clientId, !Number.isNaN(n) && n > 0 ? s : null);
+    map.set(clientId, !Number.isNaN(n) && n > 0 ? s : null);
   }
   return rows.map((c) => ({
     ...c,
